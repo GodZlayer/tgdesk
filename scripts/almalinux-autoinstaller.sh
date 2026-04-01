@@ -9,8 +9,19 @@ INSTALL_ROOT="${INSTALL_ROOT:-/opt/TGdesk-src}"
 TARGET_DIR="${TARGET_DIR:-/opt/TGdesk}"
 BIN_NAME="${BIN_NAME:-TGdesk}"
 DESKTOP_FILE_PATH="${DESKTOP_FILE_PATH:-/usr/share/applications/tgdesk.desktop}"
+OS_MAJOR="$(rpm -E %rhel 2>/dev/null || true)"
+
+enable_extra_repos() {
+  sudo dnf install -y dnf-plugins-core epel-release
+  if [ "$OS_MAJOR" = "8" ]; then
+    sudo dnf config-manager --set-enabled powertools || true
+  else
+    sudo dnf config-manager --set-enabled crb || true
+  fi
+}
 
 echo "[1/8] Instalando dependencias de build"
+enable_extra_repos
 sudo dnf install -y \
   clang \
   cmake \
@@ -24,6 +35,7 @@ sudo dnf install -y \
   libXfixes-devel \
   libXrandr-devel \
   libatomic \
+  libxdo-devel \
   make \
   nasm \
   openssl-devel \
@@ -32,7 +44,7 @@ sudo dnf install -y \
   tar \
   unzip \
   wget \
-  xdotool-devel \
+  yasm \
   xz \
   zip
 

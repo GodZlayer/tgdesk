@@ -11,8 +11,19 @@ LAUNCHER_PATH="${LAUNCHER_PATH:-/usr/local/bin/tgdesk}"
 DESKTOP_FILE_PATH="${DESKTOP_FILE_PATH:-/usr/share/applications/tgdesk.desktop}"
 VCPKG_DIR="${VCPKG_DIR:-$HOME/vcpkg}"
 SCITER_URL="${SCITER_URL:-https://raw.githubusercontent.com/c-smile/sciter-sdk/master/bin.lnx/x64/libsciter-gtk.so}"
+OS_MAJOR="$(rpm -E %rhel 2>/dev/null || true)"
+
+enable_extra_repos() {
+  sudo dnf install -y dnf-plugins-core epel-release
+  if [ "$OS_MAJOR" = "8" ]; then
+    sudo dnf config-manager --set-enabled powertools || true
+  else
+    sudo dnf config-manager --set-enabled crb || true
+  fi
+}
 
 echo "[1/9] Instalando dependencias do AlmaLinux"
+enable_extra_repos
 sudo dnf install -y \
   clang \
   cmake \
@@ -26,6 +37,7 @@ sudo dnf install -y \
   libXfixes-devel \
   libXrandr-devel \
   libatomic \
+  libxdo-devel \
   make \
   nasm \
   openssl-devel \
@@ -34,7 +46,7 @@ sudo dnf install -y \
   tar \
   unzip \
   wget \
-  xdotool-devel \
+  yasm \
   xz \
   zip
 
