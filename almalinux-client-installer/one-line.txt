@@ -1,0 +1,1 @@
+curl -fsSL https://raw.githubusercontent.com/GodZlayer/tgdesk/main/almalinux-client-installer/install.sh | bash
