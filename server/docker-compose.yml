@@ -1,0 +1,93 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: tgdesk
+      POSTGRES_PASSWORD: tgdesk
+      POSTGRES_DB: tgdesk
+    volumes:
+      - tgdesk_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tgdesk -d tgdesk"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  api-core:
+    build:
+      context: .
+      dockerfile: api-core/Dockerfile
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - "/dev/net/tun:/dev/net/tun"
+    environment:
+      DATABASE_URL: postgres://tgdesk:tgdesk@postgres:5432/tgdesk?sslmode=disable
+      REDIS_ADDR: redis:6379
+      JWT_SECRET: ${JWT_SECRET:-change-me-in-production}
+      LISTEN_ADDR: ":8080"
+      TECH_USERS: ${TECH_USERS:-}
+      TECH_ASSIGN: ${TECH_ASSIGN:-}
+      SEED_ORGANIZATIONS: ${SEED_ORGANIZATIONS:-}
+      FORCE_RESEED: ${FORCE_RESEED:-false}
+      HUB_LISTEN_PORT: "51820"
+      HUB_CIDR: "10.70.0.1/16"
+      HUB_KEY_FILE: "/data/hub_private_key"
+      HUB_PUBLIC_ADDR: ${HUB_PUBLIC_ADDR:-127.0.0.1:41820}
+      RENDEZVOUS_KEY_FILE: "/hbbs-data/id_ed25519.pub"
+      RENDEZVOUS_PUBLIC_HOST: ${RENDEZVOUS_PUBLIC_HOST:-10.70.0.1}
+    ports:
+      # Escuta em TODAS as interfaces (0.0.0.0) para aceitar clients de outras
+      # redes via o IP público. O controle (8090/TCP) e o hub WireGuard
+      # (41820/UDP) precisam de port-forward no roteador para o IP público.
+      - "0.0.0.0:8090:8080"
+      - "0.0.0.0:41820:51820/udp"
+    volumes:
+      - tgdesk_hub_data:/data
+      - tgdesk_hbbs_data:/hbbs-data:ro
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # relay/rendezvous compartilham o network namespace do api-core (onde vive a
+  # interface WireGuard wg0/10.70.0.1). Não têm porta própria publicada no
+  # host: só ficam alcançáveis por quem já está dentro do túnel, como exige o
+  # plano de arquitetura (plano de dados 100% dentro da VPN, estilo Hamachi).
+  relay:
+    build:
+      context: .
+      dockerfile: rendezvous.Dockerfile
+    command: ["/usr/local/bin/hbbr"]
+    volumes:
+      - tgdesk_hbbr_data:/data
+    network_mode: "service:api-core"
+    depends_on:
+      - api-core
+
+  rendezvous:
+    build:
+      context: .
+      dockerfile: rendezvous.Dockerfile
+    command: ["/usr/local/bin/hbbs", "-r", "127.0.0.1:21117"]
+    volumes:
+      - tgdesk_hbbs_data:/data
+    network_mode: "service:api-core"
+    depends_on:
+      - api-core
+      - relay
+
+volumes:
+  tgdesk_pg_data:
+  tgdesk_hub_data:
+  tgdesk_hbbs_data:
+  tgdesk_hbbr_data:

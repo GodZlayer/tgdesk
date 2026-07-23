@@ -1,1 +1,0 @@
-curl -fsSL https://raw.githubusercontent.com/godzlayer/TGdesk/main/scripts/almalinux-autoinstaller.sh | bash
