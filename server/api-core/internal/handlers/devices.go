@@ -94,10 +94,11 @@ func (s *Server) Heartbeat(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusForbidden, "dispositivo suspenso")
 		return
 	}
-
 	_, _ = s.Pool.Exec(r.Context(), `UPDATE devices SET last_seen_at=now() WHERE id=$1`, req.DeviceID)
 
-	if state == "ativo" {
+	// No canal público, heartbeat é apenas descoberta de estado para bootstrap
+	// ou recuperação. Presença online só nasce no canal privado da VPN.
+	if state == "ativo" && requestFromVPN(r) {
 		_ = presence.Heartbeat(r.Context(), s.RDB, req.DeviceID)
 		_ = presence.Publish(r.Context(), s.RDB, presence.Event{Type: "presence", TargetID: req.DeviceID})
 	}
@@ -305,6 +306,10 @@ type rustdeskIDRequest struct {
 // it registered with our hbbs, so the Technician Hub can display/connect to
 // it without a separate manual pairing step (Seção 8.B).
 func (s *Server) ReportRustdeskID(w http.ResponseWriter, r *http.Request) {
+	if !requestFromVPN(r) {
+		writeErr(w, http.StatusForbidden, "estado RustDesk disponível somente pela VPN")
+		return
+	}
 	var req rustdeskIDRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.RustdeskID == "" {
 		writeErr(w, http.StatusBadRequest, "rustdesk_id é obrigatório")

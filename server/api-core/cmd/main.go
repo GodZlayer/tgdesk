@@ -49,6 +49,23 @@ func main() {
 	} else {
 		hub = h
 		log.Printf("wg-orchestrator: hub ativo, pubkey=%s porta=%d cidr=%s", hub.PublicKey.Base64(), port, cfg.HubCIDR)
+		rows, qerr := pool.Query(ctx, `
+			SELECT wg_pubkey, wg_virtual_ip FROM devices
+			WHERE state='ativo' AND coalesce(wg_pubkey,'')<>'' AND coalesce(wg_virtual_ip,'')<>''
+			UNION ALL
+			SELECT wg_pubkey, wg_virtual_ip FROM technicians
+			WHERE status='ativo' AND coalesce(wg_pubkey,'')<>'' AND coalesce(wg_virtual_ip,'')<>''`)
+		if qerr == nil {
+			restored := 0
+			for rows.Next() {
+				var pubkey, virtualIP string
+				if rows.Scan(&pubkey, &virtualIP) == nil && hub.AddPeer(pubkey, virtualIP) == nil {
+					restored++
+				}
+			}
+			rows.Close()
+			log.Printf("wg-orchestrator: %d peers persistidos restaurados", restored)
+		}
 	}
 
 	s := &handlers.Server{Pool: pool, RDB: rdb, Cfg: cfg, Hub: hub}

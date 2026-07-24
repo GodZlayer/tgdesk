@@ -11,22 +11,25 @@ import (
 // Go agent (which owns the registration/pairing/WireGuard state machine) and
 // the UI process, deliberately kept as a flat file instead of IPC/sockets.
 type tgdeskStatus struct {
-	State       string  `json:"state"` // guest | ativo | suspenso | erro
-	Error       string  `json:"error,omitempty"`
-	PairingCode string  `json:"pairing_code,omitempty"`
-	Hostname    string  `json:"hostname"`
-	DeviceID    string  `json:"device_id,omitempty"`
-	VirtualIP   string  `json:"virtual_ip,omitempty"`
-	RustdeskID  string  `json:"rustdesk_id,omitempty"`
-	TunnelUp    bool    `json:"tunnel_up"`
-	CPU         float64 `json:"cpu,omitempty"`
-	Mem         float64 `json:"mem,omitempty"`
-	Disco       float64 `json:"disco,omitempty"`
-	DiskHealth  string  `json:"disk_health,omitempty"`
-	CPUTemp     float64 `json:"cpu_temp,omitempty"`
-	GPUUtil     float64 `json:"gpu_util,omitempty"`
-	GPUTemp     float64 `json:"gpu_temp,omitempty"`
-	GPUName     string  `json:"gpu_name,omitempty"`
+	State       string       `json:"state"` // guest | ativo | suspenso | erro
+	Error       string       `json:"error,omitempty"`
+	PairingCode string       `json:"pairing_code,omitempty"`
+	Hostname    string       `json:"hostname"`
+	DeviceID    string       `json:"device_id,omitempty"`
+	VirtualIP   string       `json:"virtual_ip,omitempty"`
+	RustdeskID  string       `json:"rustdesk_id,omitempty"`
+	TunnelUp    bool         `json:"tunnel_up"`
+	CPU         float64      `json:"cpu,omitempty"`
+	Mem         float64      `json:"mem,omitempty"`
+	Disco       float64      `json:"disco,omitempty"`
+	DiskHealth  string       `json:"disk_health,omitempty"`
+	CPUTemp     float64      `json:"cpu_temp,omitempty"`
+	GPUUtil     float64      `json:"gpu_util,omitempty"`
+	GPUTemp     float64      `json:"gpu_temp,omitempty"`
+	GPUName     string       `json:"gpu_name,omitempty"`
+	Disks       []diskVolume `json:"disks,omitempty"`
+	RemoteReady bool         `json:"remote_ready"`
+	FilesReady  bool         `json:"files_ready"`
 }
 
 func statusPath() string {

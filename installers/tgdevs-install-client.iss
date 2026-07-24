@@ -5,7 +5,7 @@
 ; necessário (Seção 6 do plano de arquitetura).
 
 #define MyAppName "TGDesk Client"
-#define MyAppVersion "0.1.0"
+#define MyAppVersion "0.2.0"
 #define MyAppPublisher "TGDesk"
 
 [Setup]
@@ -39,7 +39,10 @@ Name: "{group}\Desinstalar TGDesk Client"; Filename: "{uninstallexe}"
 Name: "{commonstartup}\TGDesk Core"; Filename: "{app}\tgdesk.exe"
 
 [Run]
-Filename: "{app}\tgdesk.exe"; Description: "Iniciar TGDesk agora"; Flags: nowait postinstall skipifsilent
+; Atualização: encerra somente o agente legado. A identidade permanece nos
+; arquivos JSON e será reutilizada pelo agente versionado novo.
+Filename: "{cmd}"; Parameters: "/C taskkill /F /IM tgdesk-agent.exe >nul 2>&1"; Flags: runhidden waituntilterminated
+Filename: "{app}\tgdesk.exe"; Description: "Iniciar TGDesk agora"; Flags: nowait postinstall
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}"

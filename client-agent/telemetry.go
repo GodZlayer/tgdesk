@@ -9,6 +9,14 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+type diskVolume struct {
+	Name       string  `json:"name"`
+	Type       string  `json:"type"`
+	TotalBytes uint64  `json:"total_bytes"`
+	FreeBytes  uint64  `json:"free_bytes"`
+	UsedPct    float64 `json:"used_pct"`
+}
+
 // Módulo D (Seção 8.D) sem driver de kernel: usa só as APIs padrão do
 // Windows (GlobalMemoryStatusEx, GetDiskFreeSpaceEx, GetSystemTimes) — dá
 // CPU/memória/disco reais sem precisar de System Informer/KSystemInformer.sys.
@@ -62,6 +70,48 @@ func diskPercent(path string) float64 {
 	return float64(used) / float64(total) * 100
 }
 
+func collectDiskVolumes() []diskVolume {
+	mask, _, _ := modkernel32.NewProc("GetLogicalDrives").Call()
+	getDriveType := modkernel32.NewProc("GetDriveTypeW")
+	volumes := make([]diskVolume, 0, 8)
+	for i := 0; i < 26; i++ {
+		if mask&(1<<i) == 0 {
+			continue
+		}
+		name := fmt.Sprintf("%c:\\", 'A'+i)
+		p, err := syscall.UTF16PtrFromString(name)
+		if err != nil {
+			continue
+		}
+		driveType, _, _ := getDriveType.Call(uintptr(unsafe.Pointer(p)))
+		// Ignora unidades removíveis/ópticas sem mídia, que retornam zero.
+		var freeAvail, total, totalFree uint64
+		ret, _, _ := procGetDiskFreeSpaceEx.Call(
+			uintptr(unsafe.Pointer(p)),
+			uintptr(unsafe.Pointer(&freeAvail)),
+			uintptr(unsafe.Pointer(&total)),
+			uintptr(unsafe.Pointer(&totalFree)),
+		)
+		if ret == 0 || total == 0 {
+			continue
+		}
+		kind := map[uintptr]string{
+			2: "removable", 3: "fixed", 4: "network", 5: "optical", 6: "ramdisk",
+		}[driveType]
+		if kind == "" {
+			kind = "unknown"
+		}
+		volumes = append(volumes, diskVolume{
+			Name:       name,
+			Type:       kind,
+			TotalBytes: total,
+			FreeBytes:  totalFree,
+			UsedPct:    float64(total-totalFree) / float64(total) * 100,
+		})
+	}
+	return volumes
+}
+
 func fileTimeToUint64(ft windows.Filetime) uint64 {
 	return uint64(ft.HighDateTime)<<32 | uint64(ft.LowDateTime)
 }
@@ -109,7 +159,7 @@ func collectTelemetry() (cpu, mem, disco float64) {
 	return cpuPercent(), memoryPercent(), diskPercent(`C:\`)
 }
 
-func reportTelemetry(cfg *agentConfig, cpu, mem, disco, temp float64) error {
+func reportTelemetry(cfg *agentConfig, cpu, mem, disco, temp float64, disks []diskVolume) error {
 	status, err := postJSON("/api/v1/devices/telemetry", map[string]any{
 		"device_id":    cfg.DeviceID,
 		"device_token": cfg.DeviceToken,
@@ -117,6 +167,7 @@ func reportTelemetry(cfg *agentConfig, cpu, mem, disco, temp float64) error {
 		"mem":          mem,
 		"disco":        disco,
 		"temp":         temp,
+		"disks":        disks,
 	}, nil)
 	if err != nil {
 		return err

@@ -10,5 +10,6 @@ RUN apk add --no-cache ca-certificates iproute2 wireguard-tools
 WORKDIR /app
 COPY --from=build /out/api-core ./api-core
 COPY migrations ./migrations
+COPY releases ./releases
 EXPOSE 8080
 ENTRYPOINT ["./api-core"]

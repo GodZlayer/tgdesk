@@ -73,6 +73,14 @@ func submitTechnicianWGKey(serverURL, token string, pub wgKey) (*wgKeyResponse, 
 // completamente independentes do papel Host que este mesmo binário também
 // sabe desempenhar (ver ARCHITECTURE_FLOW.md, Seção 3).
 func runTechnician(args []string) int {
+	if !isElevated() {
+		elevateAndRestart()
+		return 0
+	}
+	if !acquireTechnicianSingleton() {
+		log.Println("túnel do técnico já está ativo")
+		return 0
+	}
 	fs := flag.NewFlagSet("technician", flag.ExitOnError)
 	server := fs.String("server", os.Getenv("TGDESK_SERVER"), "URL do api-core")
 	token := fs.String("token", os.Getenv("TGDESK_TOKEN"), "JWT do técnico logado no Hub")

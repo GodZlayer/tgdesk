@@ -2,16 +2,25 @@ package main
 
 import (
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"time"
 )
+
+var configuredCoreExe string
 
 // rustdeskExePath looks for the RustDesk-core binary bundled next to this
 // agent. Prefers the unified tgdesk.exe (núcleo RustDesk + Hub no mesmo
 // binário); cai para rustdesk.exe por compatibilidade com pacotes antigos.
 func rustdeskExePath() (string, error) {
+	if configuredCoreExe != "" {
+		if info, err := os.Stat(configuredCoreExe); err == nil && !info.IsDir() {
+			return configuredCoreExe, nil
+		}
+	}
 	exe, err := os.Executable()
 	if err != nil {
 		return "", err
@@ -46,6 +55,8 @@ trusted_devices = ''
 [options]
 custom-rendezvous-server = '%s'
 key = '%s'
+enable-file-transfer = 'Y'
+enable-file-copy-paste = 'Y'
 `, rendezvousHost, rendezvousKey)
 	return os.WriteFile(filepath.Join(dir, "RustDesk2.toml"), []byte(content), 0600)
 }
@@ -66,6 +77,11 @@ func setupRemoteAccess(cfg *agentConfig) error {
 	if err := writeRustdeskOptions(cfg.RendezvousHost, cfg.RendezvousPubkey); err != nil {
 		return fmt.Errorf("gravar config do RustDesk: %w", err)
 	}
+	conn, err := net.DialTimeout("tcp", net.JoinHostPort(cfg.RendezvousHost, "21116"), 3*time.Second)
+	if err != nil {
+		return fmt.Errorf("rendezvous privado ainda não alcançável pela VPN: %w", err)
+	}
+	_ = conn.Close()
 
 	out, err := exec.Command(exePath, "--get-id").Output()
 	if err != nil {
@@ -76,9 +92,6 @@ func setupRemoteAccess(cfg *agentConfig) error {
 		return fmt.Errorf("RustDesk retornou ID vazio")
 	}
 
-	if err := reportRustdeskID(cfg, id); err != nil {
-		return fmt.Errorf("reportar ID ao servidor: %w", err)
-	}
 	cfg.RustdeskID = id
 	_ = saveConfig(cfg)
 	return nil

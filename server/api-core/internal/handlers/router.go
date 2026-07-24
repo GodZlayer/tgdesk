@@ -21,24 +21,38 @@ func NewRouter(s *Server) http.Handler {
 	mux.HandleFunc("POST /api/v1/devices/rustdesk-id", s.ReportRustdeskID)
 	mux.HandleFunc("POST /api/v1/devices/telemetry", s.ReportTelemetry)
 	mux.HandleFunc("GET /ws/presence", s.PresenceWS)
+	mux.HandleFunc("GET /ws/control/device", s.DeviceControlWS)
+	mux.HandleFunc("GET /ws/control/technician", s.TechnicianControlWS)
 
 	auth := middleware.RequireAuth(s.Cfg.JWTSecret)
+	private := func(h http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if !requestFromVPN(r) {
+				writeErr(w, http.StatusForbidden, "operação disponível somente pela VPN")
+				return
+			}
+			h.ServeHTTP(w, r)
+		})
+	}
 	admin := func(h http.HandlerFunc) http.Handler {
-		return auth(middleware.RequireSuperAdmin(h))
+		return private(auth(middleware.RequireSuperAdmin(h)))
 	}
 
 	// Autenticado — qualquer técnico (RBAC aplicado dentro do handler).
 	mux.Handle("POST /api/v1/pairing/bind", auth(http.HandlerFunc(s.Bind)))
-	mux.Handle("GET /api/v1/devices", auth(http.HandlerFunc(s.ListDevices)))
-	mux.Handle("GET /api/v1/organizations", auth(http.HandlerFunc(s.ListOrganizations)))
-	mux.Handle("GET /api/v1/networks", auth(http.HandlerFunc(s.ListNetworks)))
+	mux.Handle("GET /api/v1/bootstrap/pairing-context", auth(http.HandlerFunc(s.PairingContext)))
+	mux.Handle("GET /api/v1/devices", private(auth(http.HandlerFunc(s.ListDevices))))
+	mux.Handle("GET /api/v1/organizations", private(auth(http.HandlerFunc(s.ListOrganizations))))
+	mux.Handle("GET /api/v1/networks", private(auth(http.HandlerFunc(s.ListNetworks))))
+	mux.Handle("GET /api/v1/client/update", private(http.HandlerFunc(s.ClientUpdate)))
+	mux.Handle("GET /api/v1/client/update/download", private(http.HandlerFunc(s.DownloadClientUpdate)))
 	mux.Handle("POST /api/v1/technicians/wg-key", auth(http.HandlerFunc(s.TechnicianWGKey)))
-	mux.Handle("GET /api/v1/devices/{id}/health", auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("GET /api/v1/devices/{id}/health", private(auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.DeviceHealth(w, r, r.PathValue("id"))
-	})))
-	mux.Handle("POST /api/v1/devices/{id}/wake", auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	}))))
+	mux.Handle("POST /api/v1/devices/{id}/wake", private(auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.WakeDevice(w, r, r.PathValue("id"))
-	})))
+	}))))
 
 	// Somente Super Admin.
 	mux.Handle("POST /api/v1/organizations", admin(s.CreateOrganization))

@@ -76,3 +76,12 @@ func acquireHostSingleton() bool {
 	}
 	return true
 }
+
+func acquireTechnicianSingleton() bool {
+	name, err := syscall.UTF16PtrFromString("Local\\TGDeskTechnicianAgentSingleton")
+	if err != nil {
+		return true
+	}
+	_, err = windows.CreateMutex(nil, false, name)
+	return err != windows.ERROR_ALREADY_EXISTS
+}

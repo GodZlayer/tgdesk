@@ -193,6 +193,8 @@ func runHost(args []string) {
 	for i := 0; i < len(args); i++ {
 		if args[i] == "--server" && i+1 < len(args) {
 			configuredServer = args[i+1]
+		} else if args[i] == "--core-exe" && i+1 < len(args) {
+			configuredCoreExe = args[i+1]
 		}
 	}
 	if !acquireHostSingleton() {
@@ -224,13 +226,36 @@ func runHost(args []string) {
 	}
 
 	var tunnelUp bool
-	var lastTelemetry time.Time
-	var lastExtHealth time.Time
-	var cpu, mem, disco float64
-	var eh extendedHealth
+	var remoteReady bool
+	var privateFailures int
 	writeStatus(tgdeskStatus{State: "guest", PairingCode: cfg.PairingCode, Hostname: localHostname(), DeviceID: cfg.DeviceID})
 
 	for {
+		if tunnelUp {
+			if !remoteReady {
+				if err := setupRemoteAccess(cfg); err != nil {
+					log.Printf("acesso remoto privado ainda não disponível: %v", err)
+					time.Sleep(2 * time.Second)
+					continue
+				}
+				remoteReady = true
+			}
+			if err := runDeviceControlLoop(cfg, remoteReady); err != nil {
+				privateFailures++
+				log.Printf("canal privado caiu: %v — reconectando pela VPN", err)
+				if privateFailures >= 5 {
+					if err := refreshHubPeer(cfg); err != nil {
+						log.Printf("recuperação pública do peer WireGuard falhou: %v", err)
+					} else {
+						log.Println("peer WireGuard renovado pelo canal público de recuperação")
+						privateFailures = 0
+					}
+				}
+				time.Sleep(2 * time.Second)
+				continue
+			}
+		}
+
 		state, err := heartbeat(cfg)
 		if err != nil {
 			log.Printf("heartbeat falhou: %v (tentando novamente em 5s)", err)
@@ -263,26 +288,8 @@ func runHost(args []string) {
 					log.Printf("falha ao subir túnel WireGuard: %v", err)
 				} else {
 					tunnelUp = true
+					startAutoUpdater()
 				}
-			}
-			if cfg.RustdeskID == "" {
-				if err := setupRemoteAccess(cfg); err != nil {
-					log.Printf("falha ao configurar acesso remoto (RustDesk): %v", err)
-				}
-			}
-			cpu, mem, disco = collectTelemetry()
-			// Saúde estendida (SMART/temp/GPU) usa PowerShell/WMI — bem mais
-			// caro que os syscalls de cpu/mem, então amostra num intervalo
-			// maior e reaproveita o último valor nos ticks intermediários.
-			if lastExtHealth.IsZero() || time.Since(lastExtHealth) >= 30*time.Second {
-				eh = collectExtendedHealth()
-				lastExtHealth = time.Now()
-			}
-			if time.Since(lastTelemetry) >= 30*time.Second {
-				if err := reportTelemetry(cfg, cpu, mem, disco, eh.CPUTemp); err != nil {
-					log.Printf("falha ao reportar telemetria: %v", err)
-				}
-				lastTelemetry = time.Now()
 			}
 		}
 
@@ -294,14 +301,8 @@ func runHost(args []string) {
 			VirtualIP:   cfg.VirtualIP,
 			RustdeskID:  cfg.RustdeskID,
 			TunnelUp:    tunnelUp,
-			CPU:         cpu,
-			Mem:         mem,
-			Disco:       disco,
-			DiskHealth:  eh.DiskHealth,
-			CPUTemp:     eh.CPUTemp,
-			GPUUtil:     eh.GPUUtil,
-			GPUTemp:     eh.GPUTemp,
-			GPUName:     eh.GPUName,
+			RemoteReady: remoteReady,
+			FilesReady:  remoteReady,
 		})
 		time.Sleep(5 * time.Second)
 	}
@@ -381,6 +382,15 @@ func bringUpTunnel(cfg *agentConfig) error {
 
 	log.Println("túnel WireGuard ativo — dispositivo Online no painel do técnico")
 	return nil
+}
+
+func refreshHubPeer(cfg *agentConfig) error {
+	priv, err := decodeBase64Key(cfg.PrivateKey)
+	if err != nil {
+		return err
+	}
+	_, err = submitWGKey(cfg, priv.public())
+	return err
 }
 
 func decodeBase64Key(s string) (wgKey, error) {

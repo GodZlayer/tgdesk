@@ -15,6 +15,7 @@ type telemetryRequest struct {
 	Mem         float64 `json:"mem"`
 	Disco       float64 `json:"disco"`
 	Temp        float64 `json:"temp"`
+	Disks       any     `json:"disks"`
 }
 
 // alertThresholds — Módulo D (Seção 8.D): regras simples de limiar. Sem
@@ -31,6 +32,10 @@ const (
 // ultrapassado — mas só um alerta não-resolvido por tipo por vez (evita
 // inundar a tabela a cada 30s enquanto o problema persiste).
 func (s *Server) ReportTelemetry(w http.ResponseWriter, r *http.Request) {
+	if !requestFromVPN(r) {
+		writeErr(w, http.StatusForbidden, "telemetria disponível somente pela VPN")
+		return
+	}
 	var req telemetryRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "corpo inválido")
@@ -45,8 +50,9 @@ func (s *Server) ReportTelemetry(w http.ResponseWriter, r *http.Request) {
 	}
 
 	if _, err := s.Pool.Exec(r.Context(), `
-		INSERT INTO telemetry_snapshots (device_id, cpu, mem, disco, temp) VALUES ($1, $2, $3, $4, $5)`,
-		req.DeviceID, req.CPU, req.Mem, req.Disco, req.Temp,
+		INSERT INTO telemetry_snapshots (device_id, cpu, mem, disco, temp, disks)
+		VALUES ($1, $2, $3, $4, $5, $6)`,
+		req.DeviceID, req.CPU, req.Mem, req.Disco, req.Temp, req.Disks,
 	); err != nil {
 		writeErr(w, http.StatusInternalServerError, "falha ao gravar telemetria")
 		return

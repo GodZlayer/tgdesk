@@ -23,6 +23,10 @@ var upgrader = websocket.Upgrader{
 // PresenceWS streams real-time presence/kill/bind events to the connected
 // technician, filtered by their organization/network scope (Seção 3.1/3.4).
 func (s *Server) PresenceWS(w http.ResponseWriter, r *http.Request) {
+	if !requestFromVPN(r) {
+		writeErr(w, http.StatusForbidden, "presença disponível somente pela VPN")
+		return
+	}
 	token := r.URL.Query().Get("token")
 	if token == "" {
 		if h := r.Header.Get("Authorization"); strings.HasPrefix(h, "Bearer ") {
@@ -74,7 +78,7 @@ func (s *Server) PresenceWS(w http.ResponseWriter, r *http.Request) {
 // network/organization-level events) and checks it against technician_assignments.
 func (s *Server) eventVisibleTo(ctx context.Context, technicianID string, evt presence.Event) bool {
 	switch evt.Type {
-	case "presence", "bind", "kill_device":
+	case "presence", "telemetry", "bind", "kill_device":
 		var orgID, netID string
 		err := s.Pool.QueryRow(ctx, `
 			SELECT n.organization_id, n.id FROM devices d
