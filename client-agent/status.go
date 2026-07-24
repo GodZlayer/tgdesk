@@ -30,6 +30,8 @@ type tgdeskStatus struct {
 	Disks       []diskVolume `json:"disks,omitempty"`
 	RemoteReady bool         `json:"remote_ready"`
 	FilesReady  bool         `json:"files_ready"`
+	RemoteError string       `json:"remote_error,omitempty"`
+	FilesError  string       `json:"files_error,omitempty"`
 }
 
 func statusPath() string {

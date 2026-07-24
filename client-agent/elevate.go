@@ -38,7 +38,11 @@ func relaunchElevated() error {
 	verb, _ := syscall.UTF16PtrFromString("runas")
 	exePtr, _ := syscall.UTF16PtrFromString(exe)
 	dirPtr, _ := syscall.UTF16PtrFromString(dir)
-	paramsPtr, _ := syscall.UTF16PtrFromString(strings.Join(os.Args[1:], " "))
+	escapedArgs := make([]string, 0, len(os.Args)-1)
+	for _, arg := range os.Args[1:] {
+		escapedArgs = append(escapedArgs, syscall.EscapeArg(arg))
+	}
+	paramsPtr, _ := syscall.UTF16PtrFromString(strings.Join(escapedArgs, " "))
 
 	return windows.ShellExecute(0, verb, exePtr, paramsPtr, dirPtr, windows.SW_SHOWNORMAL)
 }

@@ -5,7 +5,7 @@
 ; necessário (Seção 6 do plano de arquitetura).
 
 #define MyAppName "TGDesk Client"
-#define MyAppVersion "0.2.0"
+#define MyAppVersion "0.2.4"
 #define MyAppPublisher "TGDesk"
 
 [Setup]
@@ -42,7 +42,27 @@ Name: "{commonstartup}\TGDesk Core"; Filename: "{app}\tgdesk.exe"
 ; Atualização: encerra somente o agente legado. A identidade permanece nos
 ; arquivos JSON e será reutilizada pelo agente versionado novo.
 Filename: "{cmd}"; Parameters: "/C taskkill /F /IM tgdesk-agent.exe >nul 2>&1"; Flags: runhidden waituntilterminated
+Filename: "{cmd}"; Parameters: "/C taskkill /F /IM tgdesk-agent-2.exe >nul 2>&1"; Flags: runhidden waituntilterminated
 Filename: "{app}\tgdesk.exe"; Description: "Iniciar TGDesk agora"; Flags: nowait postinstall
+
+[Code]
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  ResultCode: Integer;
+begin
+  if CurStep = ssInstall then
+  begin
+    { O instalador já está elevado neste ponto. Encerra todas as instâncias
+      do núcleo, bandeja e agente antes de substituir qualquer binário. }
+    Exec(ExpandConstant('{cmd}'),
+      '/C taskkill /F /IM tgdesk.exe >nul 2>&1',
+      '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    Exec(ExpandConstant('{cmd}'),
+      '/C taskkill /F /IM tgdesk-agent-2.exe >nul 2>&1',
+      '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    Sleep(800);
+  end;
+end;
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}"

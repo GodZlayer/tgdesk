@@ -8,7 +8,7 @@ import (
 	"os"
 )
 
-const clientInstallerPath = "/app/releases/tgdevs-install-client.exe"
+const clientUpdatePackagePath = "/app/releases/tgdesk-update.exe"
 
 func (s *Server) ClientUpdate(w http.ResponseWriter, r *http.Request) {
 	version := os.Getenv("CLIENT_VERSION")
@@ -20,7 +20,7 @@ func (s *Server) ClientUpdate(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}
-	f, err := os.Open(clientInstallerPath)
+	f, err := os.Open(clientUpdatePackagePath)
 	if err != nil {
 		http.Error(w, "atualizacao indisponivel", http.StatusServiceUnavailable)
 		return
@@ -46,6 +46,6 @@ func (s *Server) ClientUpdate(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) DownloadClientUpdate(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/vnd.microsoft.portable-executable")
-	w.Header().Set("Content-Disposition", `attachment; filename="tgdevs-install-client.exe"`)
-	http.ServeFile(w, r, clientInstallerPath)
+	w.Header().Set("Content-Disposition", `attachment; filename="tgdesk-update.exe"`)
+	http.ServeFile(w, r, clientUpdatePackagePath)
 }

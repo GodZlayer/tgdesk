@@ -23,6 +23,8 @@ func main() {
 		case "host":
 			runHost(os.Args[2:])
 			return
+		case "update":
+			os.Exit(runManualUpdate())
 		default:
 			fmt.Printf("argumento desconhecido: %q (use \"host\" ou \"technician\")\n", os.Args[1])
 			os.Exit(1)

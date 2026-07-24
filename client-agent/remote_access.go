@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"net"
 	"os"
@@ -21,6 +22,16 @@ func rustdeskExePath() (string, error) {
 			return configuredCoreExe, nil
 		}
 	}
+	for _, root := range []string{os.Getenv("ProgramFiles"), os.Getenv("ProgramW6432")} {
+		if root == "" {
+			continue
+		}
+		candidate := filepath.Join(root, "TGDesk Client", "tgdesk.exe")
+		if info, err := os.Stat(candidate); err == nil && !info.IsDir() {
+			configuredCoreExe = candidate
+			return candidate, nil
+		}
+	}
 	exe, err := os.Executable()
 	if err != nil {
 		return "", err
@@ -32,7 +43,7 @@ func rustdeskExePath() (string, error) {
 			return candidate, nil
 		}
 	}
-	return "", fmt.Errorf("tgdesk.exe/rustdesk.exe não encontrado ao lado do agente (%s)", dir)
+	return "", fmt.Errorf("núcleo TGDesk não encontrado; esperado em Program Files ou no caminho recebido do aplicativo")
 }
 
 // writeRustdeskOptions points the bundled RustDesk client at the TGDesk
@@ -83,8 +94,13 @@ func setupRemoteAccess(cfg *agentConfig) error {
 	}
 	_ = conn.Close()
 
-	out, err := exec.Command(exePath, "--get-id").Output()
+	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, exePath, "--get-id").Output()
 	if err != nil {
+		if ctx.Err() != nil {
+			return fmt.Errorf("tempo esgotado ao obter ID do núcleo TGDesk")
+		}
 		return fmt.Errorf("obter ID do RustDesk: %w", err)
 	}
 	id := strings.TrimSpace(string(out))

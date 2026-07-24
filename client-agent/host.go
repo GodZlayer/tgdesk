@@ -29,6 +29,7 @@ type agentConfig struct {
 	RustdeskID       string `json:"rustdesk_id,omitempty"`
 	RendezvousHost   string `json:"rendezvous_host,omitempty"`
 	RendezvousPubkey string `json:"rendezvous_pubkey,omitempty"`
+	CoreExe          string `json:"core_exe,omitempty"`
 }
 
 func configPath() string {
@@ -224,6 +225,12 @@ func runHost(args []string) {
 	} else {
 		log.Printf("dispositivo já registrado (id=%s)", cfg.DeviceID)
 	}
+	if configuredCoreExe != "" {
+		cfg.CoreExe = configuredCoreExe
+		_ = saveConfig(cfg)
+	} else if cfg.CoreExe != "" {
+		configuredCoreExe = cfg.CoreExe
+	}
 
 	var tunnelUp bool
 	var remoteReady bool
@@ -235,10 +242,29 @@ func runHost(args []string) {
 			if !remoteReady {
 				if err := setupRemoteAccess(cfg); err != nil {
 					log.Printf("acesso remoto privado ainda não disponível: %v", err)
+					writeStatus(tgdeskStatus{
+						State:       "ativo",
+						Hostname:    localHostname(),
+						DeviceID:    cfg.DeviceID,
+						VirtualIP:   cfg.VirtualIP,
+						TunnelUp:    true,
+						RemoteError: err.Error(),
+						FilesError:  "aguardando o módulo de acesso remoto privado",
+					})
 					time.Sleep(2 * time.Second)
 					continue
 				}
 				remoteReady = true
+				writeStatus(tgdeskStatus{
+					State:       "ativo",
+					Hostname:    localHostname(),
+					DeviceID:    cfg.DeviceID,
+					VirtualIP:   cfg.VirtualIP,
+					RustdeskID:  cfg.RustdeskID,
+					TunnelUp:    true,
+					RemoteReady: true,
+					FilesReady:  true,
+				})
 			}
 			if err := runDeviceControlLoop(cfg, remoteReady); err != nil {
 				privateFailures++
@@ -379,9 +405,33 @@ func bringUpTunnel(cfg *agentConfig) error {
 		log.Printf("aviso: não foi possível configurar o IP da interface automaticamente: %v", err)
 		log.Printf("configure manualmente: netsh interface ip set address name=\"%s\" static %s 255.255.0.0", realName, hubCfg.VirtualIP)
 	}
+	if err := waitForPrivateGateway(); err != nil {
+		dev.Close()
+		return err
+	}
 
 	log.Println("túnel WireGuard ativo — dispositivo Online no painel do técnico")
 	return nil
+}
+
+func waitForPrivateGateway() error {
+	client := &http.Client{Timeout: 3 * time.Second}
+	deadline := time.Now().Add(30 * time.Second)
+	var lastErr error
+	for time.Now().Before(deadline) {
+		resp, err := client.Get("http://10.70.0.1:8080/healthz")
+		if err == nil {
+			_ = resp.Body.Close()
+			if resp.StatusCode == http.StatusOK {
+				return nil
+			}
+			lastErr = fmt.Errorf("gateway respondeu status %d", resp.StatusCode)
+		} else {
+			lastErr = err
+		}
+		time.Sleep(2 * time.Second)
+	}
+	return fmt.Errorf("túnel criado, mas o gateway privado 10.70.0.1 não respondeu: %w", lastErr)
 }
 
 func refreshHubPeer(cfg *agentConfig) error {

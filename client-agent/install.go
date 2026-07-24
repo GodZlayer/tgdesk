@@ -2,7 +2,6 @@ package main
 
 import (
 	"log"
-	"os"
 
 	"golang.org/x/sys/windows/registry"
 )
@@ -21,18 +20,17 @@ func ensureInstalled() {
 	}
 	installChecked = true
 
-	exe, err := os.Executable()
-	if err != nil {
+	if configuredCoreExe == "" {
 		return
 	}
-	registerAutostart(exe)
+	registerAutostart(configuredCoreExe)
 }
 
 // registerAutostart adiciona uma entrada Run por usuário (HKCU) apontando
 // para o agente extraído em %LOCALAPPDATA%\TGDesk, para o Host sobreviver a
 // um reboot. Por-usuário (não HKLM) porque o binário mora no perfil do
 // usuário, não numa pasta de máquina.
-func registerAutostart(exePath string) {
+func registerAutostart(coreExePath string) {
 	k, _, err := registry.CreateKey(registry.CURRENT_USER,
 		`SOFTWARE\Microsoft\Windows\CurrentVersion\Run`, registry.SET_VALUE)
 	if err != nil {
@@ -40,7 +38,8 @@ func registerAutostart(exePath string) {
 		return
 	}
 	defer k.Close()
-	if err := k.SetStringValue("TGDeskHostAgent", `"`+exePath+`" host`); err != nil {
+	_ = k.DeleteValue("TGDeskHostAgent")
+	if err := k.SetStringValue("TGDeskClient", `"`+coreExePath+`"`); err != nil {
 		log.Printf("aviso: falha ao gravar valor de autostart: %v", err)
 	}
 }

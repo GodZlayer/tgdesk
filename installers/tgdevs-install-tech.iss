@@ -4,7 +4,7 @@
 ; atalhos visíveis, já que aqui o usuário é quem opera o painel.
 
 #define MyAppName "TGDesk Tecnico"
-#define MyAppVersion "0.1.0"
+#define MyAppVersion "0.2.4"
 #define MyAppPublisher "TGDesk"
 
 [Setup]
@@ -34,7 +34,24 @@ Name: "{group}\Desinstalar TGDesk Tecnico"; Filename: "{uninstallexe}"
 Name: "{autodesktop}\TGDesk Tecnico"; Filename: "{app}\tgdesk.exe"
 
 [Run]
-Filename: "{app}\tgdesk.exe"; Description: "Iniciar TGDesk Tecnico agora"; Flags: nowait postinstall skipifsilent
+Filename: "{app}\tgdesk.exe"; Description: "Iniciar TGDesk Tecnico agora"; Flags: nowait postinstall
+
+[Code]
+procedure CurStepChanged(CurStep: TSetupStep);
+var
+  ResultCode: Integer;
+begin
+  if CurStep = ssInstall then
+  begin
+    Exec(ExpandConstant('{cmd}'),
+      '/C taskkill /F /IM tgdesk.exe >nul 2>&1',
+      '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    Exec(ExpandConstant('{cmd}'),
+      '/C taskkill /F /IM tgdesk-agent-2.exe >nul 2>&1',
+      '', SW_HIDE, ewWaitUntilTerminated, ResultCode);
+    Sleep(800);
+  end;
+end;
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}"

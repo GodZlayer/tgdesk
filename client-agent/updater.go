@@ -9,15 +9,17 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"sync"
 	"time"
+
+	"golang.org/x/sys/windows"
 )
 
 const (
-	clientVersion  = "0.2.0"
+	clientVersion  = "0.2.4"
 	privateAPIBase = "http://10.70.0.1:8080"
 )
 
@@ -48,6 +50,20 @@ func startAutoUpdater() {
 	})
 }
 
+func runManualUpdate() int {
+	updating, err := checkAndInstallUpdate()
+	if err != nil {
+		fmt.Println(err.Error())
+		return 1
+	}
+	if !updating {
+		fmt.Println("O TGDesk já está atualizado.")
+		return 0
+	}
+	fmt.Println("Atualização baixada e iniciada.")
+	return 10
+}
+
 func checkAndInstallUpdate() (bool, error) {
 	metadataClient := &http.Client{Timeout: 15 * time.Second}
 	resp, err := metadataClient.Get(privateAPIBase + "/api/v1/client/update?version=" + clientVersion)
@@ -73,12 +89,36 @@ func checkAndInstallUpdate() (bool, error) {
 	if err := downloadVerified(downloadClient, privateAPIBase+info.URL, target, info); err != nil {
 		return false, err
 	}
-	cmd := exec.Command(target, "/VERYSILENT", "/SUPPRESSMSGBOXES", "/NORESTART", "/CLOSEAPPLICATIONS", "/RESTARTAPPLICATIONS")
-	if err := cmd.Start(); err != nil {
+	if err := launchInstallerElevated(target); err != nil {
 		_ = os.Remove(target)
 		return false, err
 	}
 	return true, nil
+}
+
+func launchInstallerElevated(installer string) error {
+	verb, err := syscall.UTF16PtrFromString("runas")
+	if err != nil {
+		return err
+	}
+	file, err := syscall.UTF16PtrFromString(installer)
+	if err != nil {
+		return err
+	}
+	params, err := syscall.UTF16PtrFromString(
+		"/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS",
+	)
+	if err != nil {
+		return err
+	}
+	dir, err := syscall.UTF16PtrFromString(filepath.Dir(installer))
+	if err != nil {
+		return err
+	}
+	if err := windows.ShellExecute(0, verb, file, params, dir, windows.SW_HIDE); err != nil {
+		return fmt.Errorf("não foi possível elevar o atualizador: %w", err)
+	}
+	return nil
 }
 
 func downloadVerified(client *http.Client, url, target string, info updateInfo) error {
