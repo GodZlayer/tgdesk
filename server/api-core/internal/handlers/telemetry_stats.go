@@ -242,10 +242,10 @@ func analyzeHardwareHealth(h hardwareSample) map[string]any {
 		}
 		switch {
 		case highest >= 95:
-			add("critical", "normal", "storage", "O computador está praticamente sem espaço disponível.",
+			add("critical", "critical", "storage", "O computador está praticamente sem espaço disponível.",
 				label+" está com mais de 95% do espaço ocupado.")
 		case highest >= 85:
-			add("warning", "normal", "storage", "O espaço de armazenamento está ficando baixo.",
+			add("warning", "warning", "storage", "O espaço de armazenamento está ficando baixo.",
 				label+" está com mais de 85% do espaço ocupado.")
 		}
 		if d.Temperature != nil && *d.Temperature >= 65 {
