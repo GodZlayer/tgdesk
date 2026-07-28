@@ -9,12 +9,12 @@ import (
 )
 
 const (
-	HeartbeatTTL = 45 * time.Second
+	HeartbeatTTL  = 45 * time.Second
 	EventsChannel = "tgdesk:events"
 )
 
 type Event struct {
-	Type      string `json:"type"` // presence, kill_technician, kill_device, kill_network, kill_organization, bind
+	Type      string `json:"type"` // presence, suspend/resume, bind, telemetry
 	TargetID  string `json:"target_id"`
 	Payload   any    `json:"payload,omitempty"`
 	Timestamp int64  `json:"timestamp"`
@@ -35,7 +35,7 @@ func IsOnline(ctx context.Context, rdb *redis.Client, deviceID string) bool {
 	return err == nil && n > 0
 }
 
-// Clear removes the heartbeat key, forcing a device to read as offline immediately (used by kill-switch).
+// Clear removes the heartbeat key, forcing a device to read as offline immediately.
 func Clear(ctx context.Context, rdb *redis.Client, deviceID string) error {
 	return rdb.Del(ctx, presenceKey(deviceID)).Err()
 }

@@ -83,15 +83,13 @@ func (s *Server) Heartbeat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	var state string
+	var pairingCode *string
 	err := s.Pool.QueryRow(r.Context(), `
-		SELECT state FROM devices WHERE id=$1 AND device_token=$2`, req.DeviceID, req.DeviceToken,
-	).Scan(&state)
+		SELECT state,pairing_code FROM devices WHERE id=$1 AND device_token=$2`,
+		req.DeviceID, req.DeviceToken,
+	).Scan(&state, &pairingCode)
 	if err != nil {
 		writeErr(w, http.StatusUnauthorized, "dispositivo/token inválido")
-		return
-	}
-	if state == "suspenso" {
-		writeErr(w, http.StatusForbidden, "dispositivo suspenso")
 		return
 	}
 	_, _ = s.Pool.Exec(r.Context(), `UPDATE devices SET last_seen_at=now() WHERE id=$1`, req.DeviceID)
@@ -102,7 +100,11 @@ func (s *Server) Heartbeat(w http.ResponseWriter, r *http.Request) {
 		_ = presence.Heartbeat(r.Context(), s.RDB, req.DeviceID)
 		_ = presence.Publish(r.Context(), s.RDB, presence.Event{Type: "presence", TargetID: req.DeviceID})
 	}
-	writeJSON(w, http.StatusOK, map[string]string{"state": state})
+	response := map[string]string{"state": state}
+	if pairingCode != nil {
+		response["pairing_code"] = *pairingCode
+	}
+	writeJSON(w, http.StatusOK, response)
 }
 
 type bindRequest struct {
@@ -121,9 +123,16 @@ func (s *Server) Bind(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	var netOrgID string
-	if err := s.Pool.QueryRow(r.Context(), `SELECT organization_id FROM networks WHERE id=$1`, req.NetworkID).Scan(&netOrgID); err != nil {
+	var netOrgID, networkStatus, organizationStatus string
+	if err := s.Pool.QueryRow(r.Context(), `
+		SELECT n.organization_id,n.status,o.status FROM networks n
+		JOIN organizations o ON o.id=n.organization_id WHERE n.id=$1`,
+		req.NetworkID).Scan(&netOrgID, &networkStatus, &organizationStatus); err != nil {
 		writeErr(w, http.StatusNotFound, "rede não encontrada")
+		return
+	}
+	if networkStatus != "ativa" || organizationStatus != "ativa" {
+		writeErr(w, http.StatusConflict, "organização ou rede suspensa")
 		return
 	}
 
@@ -163,10 +172,10 @@ func (s *Server) ListDevices(w http.ResponseWriter, r *http.Request) {
 	var query string
 	var args []any
 	if claims.Role == models.RoleSuperAdmin {
-		query = `SELECT id, network_id, hostname, coalesce(mac,''), coalesce(wg_pubkey,''), role, state, last_seen_at, created_at, updated_at, coalesce(rustdesk_id,'') FROM devices ORDER BY created_at DESC`
+		query = `SELECT id, network_id, hostname, coalesce(display_name,''), coalesce(mac,''), coalesce(wg_pubkey,''), role, state, last_seen_at, created_at, updated_at, coalesce(rustdesk_id,'') FROM devices ORDER BY created_at DESC`
 	} else {
 		query = `
-			SELECT d.id, d.network_id, d.hostname, coalesce(d.mac,''), coalesce(d.wg_pubkey,''), d.role, d.state, d.last_seen_at, d.created_at, d.updated_at, coalesce(d.rustdesk_id,'')
+			SELECT d.id, d.network_id, d.hostname, coalesce(d.display_name,''), coalesce(d.mac,''), coalesce(d.wg_pubkey,''), d.role, d.state, d.last_seen_at, d.created_at, d.updated_at, coalesce(d.rustdesk_id,'')
 			FROM devices d
 			JOIN networks n ON d.network_id = n.id
 			WHERE n.organization_id IN (SELECT organization_id FROM technician_assignments WHERE technician_id=$1 AND organization_id IS NOT NULL)
@@ -185,7 +194,7 @@ func (s *Server) ListDevices(w http.ResponseWriter, r *http.Request) {
 	devices := []models.Device{}
 	for rs.Next() {
 		var d models.Device
-		if err := rs.Scan(&d.ID, &d.NetworkID, &d.Hostname, &d.MAC, &d.WGPubkey, &d.Role, &d.State, &d.LastSeenAt, &d.CreatedAt, &d.UpdatedAt, &d.RustdeskID); err != nil {
+		if err := rs.Scan(&d.ID, &d.NetworkID, &d.Hostname, &d.DisplayName, &d.MAC, &d.WGPubkey, &d.Role, &d.State, &d.LastSeenAt, &d.CreatedAt, &d.UpdatedAt, &d.RustdeskID); err != nil {
 			writeErr(w, http.StatusInternalServerError, "falha ao ler dispositivos")
 			return
 		}
@@ -196,9 +205,63 @@ func (s *Server) ListDevices(w http.ResponseWriter, r *http.Request) {
 		} else {
 			d.Presence = d.State
 		}
+		var raw []byte
+		if s.Pool.QueryRow(r.Context(), `SELECT hardware FROM telemetry_snapshots
+			WHERE device_id=$1 ORDER BY coletado_em DESC LIMIT 1`, d.ID).Scan(&raw) == nil {
+			var h hardwareSample
+			if json.Unmarshal(raw, &h) == nil {
+				d.HealthLevel, _ = analyzeHardwareHealth(h)["level"].(string)
+			}
+		}
 		devices = append(devices, d)
 	}
 	writeJSON(w, http.StatusOK, devices)
+}
+
+type updateDeviceDisplayNameRequest struct {
+	DisplayName string `json:"display_name"`
+}
+
+// UpdateDeviceDisplayName altera apenas o nome visual usado pelo TGDesk.
+// O hostname informado pelo Windows permanece intacto.
+func (s *Server) UpdateDeviceDisplayName(w http.ResponseWriter, r *http.Request, deviceID string) {
+	claims := middleware.ClaimsFrom(r.Context())
+	var req updateDeviceDisplayNameRequest
+	if json.NewDecoder(r.Body).Decode(&req) != nil {
+		writeErr(w, http.StatusBadRequest, "nome de exibição inválido")
+		return
+	}
+	req.DisplayName = strings.TrimSpace(req.DisplayName)
+	if len([]rune(req.DisplayName)) > 80 {
+		writeErr(w, http.StatusBadRequest, "nome de exibição deve ter no máximo 80 caracteres")
+		return
+	}
+	var orgID, netID string
+	if err := s.Pool.QueryRow(r.Context(), `
+		SELECT n.organization_id,n.id FROM devices d
+		JOIN networks n ON n.id=d.network_id WHERE d.id=$1`, deviceID).
+		Scan(&orgID, &netID); err != nil {
+		writeErr(w, http.StatusNotFound, "dispositivo não encontrado")
+		return
+	}
+	if claims.Role != models.RoleSuperAdmin {
+		ok, err := s.technicianCanAccess(r.Context(), claims.TechnicianID, orgID, netID)
+		if err != nil || !ok {
+			writeErr(w, http.StatusForbidden, "sem permissão para esse dispositivo")
+			return
+		}
+	}
+	if _, err := s.Pool.Exec(r.Context(), `
+		UPDATE devices SET display_name=nullif($1,''),updated_at=now() WHERE id=$2`,
+		req.DisplayName, deviceID); err != nil {
+		writeErr(w, http.StatusInternalServerError, "falha ao alterar nome do dispositivo")
+		return
+	}
+	_ = presence.Publish(r.Context(), s.RDB,
+		presence.Event{Type: "device_renamed", TargetID: deviceID})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"id": deviceID, "display_name": req.DisplayName,
+	})
 }
 
 type wgKeyRequest struct {

@@ -110,7 +110,10 @@ func (s *Server) DeviceControlWS(w http.ResponseWriter, r *http.Request) {
 				stats := s.hardwareStatistics(r.Context(), deviceID)
 				_ = conn.WriteJSON(map[string]any{"type": "telemetry_stats", "payload": stats})
 				_ = presence.Publish(r.Context(), s.RDB,
-					presence.Event{Type: "telemetry", TargetID: deviceID, Payload: payload})
+					presence.Event{Type: "telemetry", TargetID: deviceID, Payload: map[string]any{
+						"hardware": payload.Hardware, "statistics": stats,
+						"collected_at": time.Now().UTC().Format(time.RFC3339),
+					}})
 			}
 		case "rustdesk_status":
 			var payload struct {
@@ -281,13 +284,13 @@ func (s *Server) PairingContext(w http.ResponseWriter, r *http.Request) {
 func (s *Server) controlSnapshot(ctx context.Context, technicianID, role string) (map[string]any, error) {
 	orgQuery := `SELECT id,name,status,created_at FROM organizations ORDER BY created_at`
 	netQuery := `SELECT id,organization_id,name,coalesce(cidr_virtual,''),status,created_at FROM networks ORDER BY created_at`
-	devQuery := `SELECT id,network_id,hostname,coalesce(mac,''),coalesce(wg_pubkey,''),role,state,last_seen_at,created_at,updated_at,coalesce(rustdesk_id,'') FROM devices ORDER BY created_at DESC`
+	devQuery := `SELECT id,network_id,hostname,coalesce(display_name,''),coalesce(mac,''),coalesce(wg_pubkey,''),role,state,last_seen_at,created_at,updated_at,coalesce(rustdesk_id,'') FROM devices ORDER BY created_at DESC`
 	args := []any{}
 	if role != models.RoleSuperAdmin {
 		args = []any{technicianID}
 		orgQuery = `SELECT DISTINCT o.id,o.name,o.status,o.created_at FROM organizations o LEFT JOIN networks n ON n.organization_id=o.id WHERE o.id IN (SELECT organization_id FROM technician_assignments WHERE technician_id=$1 AND organization_id IS NOT NULL) OR n.id IN (SELECT network_id FROM technician_assignments WHERE technician_id=$1 AND network_id IS NOT NULL) ORDER BY o.created_at`
 		netQuery = `SELECT id,organization_id,name,coalesce(cidr_virtual,''),status,created_at FROM networks WHERE organization_id IN (SELECT organization_id FROM technician_assignments WHERE technician_id=$1 AND organization_id IS NOT NULL) OR id IN (SELECT network_id FROM technician_assignments WHERE technician_id=$1 AND network_id IS NOT NULL) ORDER BY created_at`
-		devQuery = `SELECT d.id,d.network_id,d.hostname,coalesce(d.mac,''),coalesce(d.wg_pubkey,''),d.role,d.state,d.last_seen_at,d.created_at,d.updated_at,coalesce(d.rustdesk_id,'') FROM devices d JOIN networks n ON d.network_id=n.id WHERE n.organization_id IN (SELECT organization_id FROM technician_assignments WHERE technician_id=$1 AND organization_id IS NOT NULL) OR n.id IN (SELECT network_id FROM technician_assignments WHERE technician_id=$1 AND network_id IS NOT NULL) ORDER BY d.created_at DESC`
+		devQuery = `SELECT d.id,d.network_id,d.hostname,coalesce(d.display_name,''),coalesce(d.mac,''),coalesce(d.wg_pubkey,''),d.role,d.state,d.last_seen_at,d.created_at,d.updated_at,coalesce(d.rustdesk_id,'') FROM devices d JOIN networks n ON d.network_id=n.id WHERE n.organization_id IN (SELECT organization_id FROM technician_assignments WHERE technician_id=$1 AND organization_id IS NOT NULL) OR n.id IN (SELECT network_id FROM technician_assignments WHERE technician_id=$1 AND network_id IS NOT NULL) ORDER BY d.created_at DESC`
 	}
 	orgs := []models.Organization{}
 	rows, err := s.Pool.Query(ctx, orgQuery, args...)
@@ -320,13 +323,21 @@ func (s *Server) controlSnapshot(ctx context.Context, technicianID, role string)
 	}
 	for rows.Next() {
 		var d models.Device
-		if rows.Scan(&d.ID, &d.NetworkID, &d.Hostname, &d.MAC, &d.WGPubkey, &d.Role, &d.State, &d.LastSeenAt, &d.CreatedAt, &d.UpdatedAt, &d.RustdeskID) == nil {
+		if rows.Scan(&d.ID, &d.NetworkID, &d.Hostname, &d.DisplayName, &d.MAC, &d.WGPubkey, &d.Role, &d.State, &d.LastSeenAt, &d.CreatedAt, &d.UpdatedAt, &d.RustdeskID) == nil {
 			if d.State == models.DeviceStateAtivo && presence.IsOnline(ctx, s.RDB, d.ID) {
 				d.Presence = "online"
 			} else if d.State == models.DeviceStateAtivo {
 				d.Presence = "offline"
 			} else {
 				d.Presence = d.State
+			}
+			var raw []byte
+			if s.Pool.QueryRow(ctx, `SELECT hardware FROM telemetry_snapshots
+				WHERE device_id=$1 ORDER BY coletado_em DESC LIMIT 1`, d.ID).Scan(&raw) == nil {
+				var h hardwareSample
+				if json.Unmarshal(raw, &h) == nil {
+					d.HealthLevel, _ = analyzeHardwareHealth(h)["level"].(string)
+				}
 			}
 			devices = append(devices, d)
 		}

@@ -16,10 +16,11 @@ import (
 	"time"
 
 	"golang.org/x/sys/windows"
+	"tgdesk/agent/internal/versioning"
 )
 
 const (
-	compiledClientVersion = "0.3.9"
+	compiledClientVersion = "0.3.22"
 	privateAPIBase        = "http://10.70.0.1:8080"
 )
 
@@ -55,6 +56,10 @@ type moduleManifest struct {
 	Files   []moduleFile `json:"files"`
 }
 
+func updateIsNewer(version string) bool {
+	return versioning.Compare(version, currentClientVersion()) > 0
+}
+
 func runManualUpdate() int {
 	updating, err := checkAndInstallUpdate()
 	if err != nil {
@@ -88,6 +93,9 @@ func runUpdateCheck() int {
 	if json.NewDecoder(resp.Body).Decode(&info) != nil || info.Version == "" {
 		fmt.Println("metadados inválidos")
 		return 1
+	}
+	if !updateIsNewer(info.Version) {
+		return 0
 	}
 	fmt.Println(info.Version)
 	return 10
@@ -125,6 +133,9 @@ func checkAndInstallUpdate() (bool, error) {
 	if info.Version == "" || info.URL == "" || len(info.SHA256) != 64 {
 		return false, fmt.Errorf("metadados inválidos")
 	}
+	if !updateIsNewer(info.Version) {
+		return false, nil
+	}
 	target := filepath.Join(os.TempDir(), "tgdesk-client-update-"+info.Version+".exe")
 	downloadClient := &http.Client{Timeout: 15 * time.Minute}
 	if err := downloadVerified(downloadClient, apiBase+info.URL, target, info); err != nil {
@@ -156,6 +167,9 @@ func stageModularUpdate() (updating bool, requireInstaller bool, err error) {
 		return false, false, fmt.Errorf("manifesto modular inválido")
 	}
 
+	if !updateIsNewer(manifest.Version) {
+		return false, false, nil
+	}
 	exe, err := os.Executable()
 	if err != nil {
 		return false, false, err

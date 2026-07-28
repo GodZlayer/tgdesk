@@ -17,9 +17,7 @@ func (s *Server) audit(r *http.Request, tipo, alvoID string) {
 		claims.TechnicianID, tipo, alvoID)
 }
 
-// dropHubPeer is the real network-layer kill-switch: if the device already
-// joined the WireGuard mesh, its peer is removed from the hub immediately,
-// so its tunnel dies even if the agent process keeps running.
+// dropHubPeer removes a linked device from the private network immediately.
 func (s *Server) dropHubPeer(deviceID string) {
 	if s.Hub == nil {
 		return
@@ -28,14 +26,16 @@ func (s *Server) dropHubPeer(deviceID string) {
 	if err := s.Pool.QueryRow(context.Background(), `SELECT wg_pubkey FROM devices WHERE id=$1`, deviceID).Scan(&pubkey); err != nil {
 		return
 	}
-	if pubkey != nil && *pubkey != "" {
+	s.removeHubPeerKey(pubkey)
+}
+
+func (s *Server) removeHubPeerKey(pubkey *string) {
+	if s.Hub != nil && pubkey != nil && *pubkey != "" {
 		_ = s.Hub.RemovePeer(*pubkey)
 	}
 }
 
-// dropTechnicianHubPeer mirrors dropHubPeer but for the technician's own
-// tunnel identity (Seção 3.4 kill-switch de técnico agora também é real na
-// camada de rede, não só bloqueia login).
+// dropTechnicianHubPeer removes the technician's own private-network identity.
 func (s *Server) dropTechnicianHubPeer(technicianID string) {
 	if s.Hub == nil {
 		return
@@ -49,39 +49,43 @@ func (s *Server) dropTechnicianHubPeer(technicianID string) {
 	}
 }
 
-// KillTechnician suspends the account and force-ends its active sessions.
-func (s *Server) KillTechnician(w http.ResponseWriter, r *http.Request, id string) {
+// SuspendTechnician suspends the account and force-ends its active sessions.
+func (s *Server) SuspendTechnician(w http.ResponseWriter, r *http.Request, id string) {
 	if _, err := s.Pool.Exec(r.Context(), `UPDATE technicians SET status='suspenso' WHERE id=$1`, id); err != nil {
 		writeErr(w, http.StatusInternalServerError, "falha ao suspender técnico")
 		return
 	}
 	_, _ = s.Pool.Exec(r.Context(), `UPDATE sessions SET fim=now() WHERE technician_id=$1 AND fim IS NULL`, id)
 	s.dropTechnicianHubPeer(id)
-	s.audit(r, "kill_switch_tecnico", id)
-	_ = presence.Publish(r.Context(), s.RDB, presence.Event{Type: "kill_technician", TargetID: id})
+	s.audit(r, "suspender_tecnico", id)
+	_ = presence.Publish(r.Context(), s.RDB, presence.Event{Type: "suspend_technician", TargetID: id})
 	writeJSON(w, http.StatusOK, map[string]string{"status": "suspenso"})
 }
 
-// KillDevice drops the device back to a de-activated state: tunnel/sessions must stop, no new session accepted.
-func (s *Server) KillDevice(w http.ResponseWriter, r *http.Request, id string) {
-	if _, err := s.Pool.Exec(r.Context(), `UPDATE devices SET state='suspenso', updated_at=now() WHERE id=$1`, id); err != nil {
+// SuspendDevice preserves the link but stops connectivity and monitoring.
+func (s *Server) SuspendDevice(w http.ResponseWriter, r *http.Request, id string) {
+	if _, err := s.Pool.Exec(r.Context(), `UPDATE devices SET state='suspenso',
+		suspension_scope='device', updated_at=now() WHERE id=$1`, id); err != nil {
 		writeErr(w, http.StatusInternalServerError, "falha ao suspender dispositivo")
 		return
 	}
 	_ = presence.Clear(r.Context(), s.RDB, id)
 	s.dropHubPeer(id)
-	s.audit(r, "kill_switch_dispositivo", id)
-	_ = presence.Publish(r.Context(), s.RDB, presence.Event{Type: "kill_device", TargetID: id})
+	s.audit(r, "suspender_dispositivo", id)
+	_ = presence.Publish(r.Context(), s.RDB, presence.Event{Type: "suspend_device", TargetID: id})
 	writeJSON(w, http.StatusOK, map[string]string{"state": "suspenso"})
 }
 
-// KillNetwork suspends every device belonging to the network.
-func (s *Server) KillNetwork(w http.ResponseWriter, r *http.Request, id string) {
-	if _, err := s.Pool.Exec(r.Context(), `UPDATE networks SET status='suspensa' WHERE id=$1`, id); err != nil {
+// SuspendNetwork suspends every active device belonging to the network.
+func (s *Server) SuspendNetwork(w http.ResponseWriter, r *http.Request, id string) {
+	if _, err := s.Pool.Exec(r.Context(), `UPDATE networks SET status='suspensa',
+		suspension_scope='network' WHERE id=$1`, id); err != nil {
 		writeErr(w, http.StatusInternalServerError, "falha ao suspender rede")
 		return
 	}
-	rows, _ := s.Pool.Query(r.Context(), `UPDATE devices SET state='suspenso', updated_at=now() WHERE network_id=$1 AND state='ativo' RETURNING id`, id)
+	rows, _ := s.Pool.Query(r.Context(), `UPDATE devices SET state='suspenso',
+		suspension_scope='network', updated_at=now()
+		WHERE network_id=$1 AND state='ativo' RETURNING id`, id)
 	var deviceIDs []string
 	for rows.Next() {
 		var did string
@@ -94,20 +98,22 @@ func (s *Server) KillNetwork(w http.ResponseWriter, r *http.Request, id string) 
 		_ = presence.Clear(r.Context(), s.RDB, did)
 		s.dropHubPeer(did)
 	}
-	s.audit(r, "kill_switch_rede", id)
-	_ = presence.Publish(r.Context(), s.RDB, presence.Event{Type: "kill_network", TargetID: id, Payload: deviceIDs})
+	s.audit(r, "suspender_rede", id)
+	_ = presence.Publish(r.Context(), s.RDB, presence.Event{Type: "suspend_network", TargetID: id, Payload: deviceIDs})
 	writeJSON(w, http.StatusOK, map[string]string{"status": "suspensa", "devices_afetados": itoa(len(deviceIDs))})
 }
 
-// KillOrganization cascades suspension across every network and device of the organization.
-func (s *Server) KillOrganization(w http.ResponseWriter, r *http.Request, id string) {
+// SuspendOrganization cascades suspension across its active networks and devices.
+func (s *Server) SuspendOrganization(w http.ResponseWriter, r *http.Request, id string) {
 	if _, err := s.Pool.Exec(r.Context(), `UPDATE organizations SET status='suspensa' WHERE id=$1`, id); err != nil {
 		writeErr(w, http.StatusInternalServerError, "falha ao suspender organização")
 		return
 	}
-	_, _ = s.Pool.Exec(r.Context(), `UPDATE networks SET status='suspensa' WHERE organization_id=$1`, id)
+	_, _ = s.Pool.Exec(r.Context(), `UPDATE networks SET status='suspensa',
+		suspension_scope='organization'
+		WHERE organization_id=$1 AND status='ativa'`, id)
 	rows, _ := s.Pool.Query(r.Context(), `
-		UPDATE devices SET state='suspenso', updated_at=now()
+		UPDATE devices SET state='suspenso', suspension_scope='organization', updated_at=now()
 		WHERE state='ativo' AND network_id IN (SELECT id FROM networks WHERE organization_id=$1)
 		RETURNING id`, id)
 	var deviceIDs []string
@@ -122,9 +128,81 @@ func (s *Server) KillOrganization(w http.ResponseWriter, r *http.Request, id str
 		_ = presence.Clear(r.Context(), s.RDB, did)
 		s.dropHubPeer(did)
 	}
-	s.audit(r, "kill_switch_organizacao", id)
-	_ = presence.Publish(r.Context(), s.RDB, presence.Event{Type: "kill_organization", TargetID: id, Payload: deviceIDs})
+	s.audit(r, "suspender_organizacao", id)
+	_ = presence.Publish(r.Context(), s.RDB, presence.Event{Type: "suspend_organization", TargetID: id, Payload: deviceIDs})
 	writeJSON(w, http.StatusOK, map[string]string{"status": "suspensa", "devices_afetados": itoa(len(deviceIDs))})
+}
+
+func (s *Server) ResumeDevice(w http.ResponseWriter, r *http.Request, id string) {
+	var networkStatus, organizationStatus string
+	if err := s.Pool.QueryRow(r.Context(), `
+		SELECT n.status,o.status FROM devices d JOIN networks n ON n.id=d.network_id
+		JOIN organizations o ON o.id=n.organization_id WHERE d.id=$1`, id).
+		Scan(&networkStatus, &organizationStatus); err != nil {
+		writeErr(w, http.StatusNotFound, "dispositivo não encontrado")
+		return
+	}
+	if networkStatus != "ativa" || organizationStatus != "ativa" {
+		writeErr(w, http.StatusConflict, "reative primeiro a organização e a rede")
+		return
+	}
+	_, err := s.Pool.Exec(r.Context(), `UPDATE devices SET state='ativo',
+		suspension_scope=NULL,updated_at=now() WHERE id=$1`, id)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "falha ao reativar dispositivo")
+		return
+	}
+	s.audit(r, "reativar_dispositivo", id)
+	_ = presence.Publish(r.Context(), s.RDB, presence.Event{Type: "resume_device", TargetID: id})
+	writeJSON(w, http.StatusOK, map[string]string{"state": "ativo"})
+}
+
+func (s *Server) ResumeTechnician(w http.ResponseWriter, r *http.Request, id string) {
+	tag, err := s.Pool.Exec(r.Context(),
+		`UPDATE technicians SET status='ativo' WHERE id=$1`, id)
+	if err != nil || tag.RowsAffected() == 0 {
+		writeErr(w, http.StatusNotFound, "técnico não encontrado")
+		return
+	}
+	s.audit(r, "reativar_tecnico", id)
+	_ = presence.Publish(r.Context(), s.RDB,
+		presence.Event{Type: "resume_technician", TargetID: id})
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ativo"})
+}
+
+func (s *Server) ResumeNetwork(w http.ResponseWriter, r *http.Request, id string) {
+	var organizationStatus string
+	if err := s.Pool.QueryRow(r.Context(), `SELECT o.status FROM networks n
+		JOIN organizations o ON o.id=n.organization_id WHERE n.id=$1`, id).
+		Scan(&organizationStatus); err != nil {
+		writeErr(w, http.StatusNotFound, "rede não encontrada")
+		return
+	}
+	if organizationStatus != "ativa" {
+		writeErr(w, http.StatusConflict, "reative primeiro a organização")
+		return
+	}
+	_, _ = s.Pool.Exec(r.Context(), `UPDATE networks SET status='ativa',
+		suspension_scope=NULL WHERE id=$1`, id)
+	_, _ = s.Pool.Exec(r.Context(), `UPDATE devices SET state='ativo',
+		suspension_scope=NULL,updated_at=now()
+		WHERE network_id=$1 AND suspension_scope='network'`, id)
+	s.audit(r, "reativar_rede", id)
+	_ = presence.Publish(r.Context(), s.RDB, presence.Event{Type: "resume_network", TargetID: id})
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ativa"})
+}
+
+func (s *Server) ResumeOrganization(w http.ResponseWriter, r *http.Request, id string) {
+	_, _ = s.Pool.Exec(r.Context(), `UPDATE organizations SET status='ativa' WHERE id=$1`, id)
+	_, _ = s.Pool.Exec(r.Context(), `UPDATE networks SET status='ativa',
+		suspension_scope=NULL WHERE organization_id=$1 AND suspension_scope='organization'`, id)
+	_, _ = s.Pool.Exec(r.Context(), `UPDATE devices SET state='ativo',
+		suspension_scope=NULL,updated_at=now()
+		WHERE suspension_scope='organization' AND network_id IN
+			(SELECT id FROM networks WHERE organization_id=$1)`, id)
+	s.audit(r, "reativar_organizacao", id)
+	_ = presence.Publish(r.Context(), s.RDB, presence.Event{Type: "resume_organization", TargetID: id})
+	writeJSON(w, http.StatusOK, map[string]string{"status": "ativa"})
 }
 
 func (s *Server) ListAuditLog(w http.ResponseWriter, r *http.Request) {

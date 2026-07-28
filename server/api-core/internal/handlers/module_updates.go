@@ -16,7 +16,7 @@ func (s *Server) ClientModuleManifest(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusServiceUnavailable, "atualização modular indisponível")
 		return
 	}
-	if r.URL.Query().Get("version") == version {
+	if !updateAvailable(r.URL.Query().Get("version"), version) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}

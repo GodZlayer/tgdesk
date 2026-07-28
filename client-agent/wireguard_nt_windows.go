@@ -54,7 +54,27 @@ const (
 	wgNTPeerHasEndpoint        = 1 << 3
 	wgNTPeerReplaceAllowedIPs  = 1 << 5
 	wgNTAdapterUp              = 1
+	wgNTAdapterDown            = 0
 )
+
+func stopWireGuardNT(name string) error {
+	if err := wgNTDLL.Load(); err != nil {
+		return err
+	}
+	name16, err := windows.UTF16PtrFromString(name)
+	if err != nil {
+		return err
+	}
+	handle, _, callErr := wgNTOpenAdapter.Call(uintptr(unsafe.Pointer(name16)))
+	if handle == 0 {
+		return nil
+	}
+	result, _, callErr := wgNTSetAdapterState.Call(handle, wgNTAdapterDown)
+	if result == 0 {
+		return fmt.Errorf("desativar adaptador TGDesk: %w", callErr)
+	}
+	return nil
+}
 
 var (
 	wgNTDLL              = windows.NewLazyDLL("wireguard.dll")

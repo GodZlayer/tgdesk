@@ -155,7 +155,8 @@ func registerDevice() (*agentConfig, error) {
 // heartbeat returns the device's current state (guest/ativo/suspenso).
 func heartbeat(cfg *agentConfig) (string, error) {
 	var resp struct {
-		State string `json:"state"`
+		State       string `json:"state"`
+		PairingCode string `json:"pairing_code"`
 	}
 	status, err := postJSON("/api/v1/devices/heartbeat", map[string]string{
 		"device_id":    cfg.DeviceID,
@@ -166,6 +167,10 @@ func heartbeat(cfg *agentConfig) (string, error) {
 	}
 	if status != http.StatusOK {
 		return "", fmt.Errorf("heartbeat status %d", status)
+	}
+	if resp.PairingCode != "" && resp.PairingCode != cfg.PairingCode {
+		cfg.PairingCode = resp.PairingCode
+		_ = saveConfig(cfg)
 	}
 	return resp.State, nil
 }
@@ -319,8 +324,16 @@ func runHost(args []string) {
 		switch state {
 		case "guest":
 			log.Println("aguardando vinculação por um técnico...")
+			if tunnelUp {
+				bringDownTunnel()
+				tunnelUp, remoteReady = false, false
+			}
 		case "suspenso":
 			log.Println("dispositivo suspenso pelo Super Admin — nenhuma função ativa")
+			if tunnelUp {
+				bringDownTunnel()
+				tunnelUp, remoteReady = false, false
+			}
 		case "ativo":
 			if !isElevated() {
 				// Só pedimos UAC agora — é o único momento em que faz sentido
@@ -366,6 +379,12 @@ func reportRustdeskID(cfg *agentConfig, id string) error {
 		return fmt.Errorf("rustdesk-id status %d", status)
 	}
 	return nil
+}
+
+func bringDownTunnel() {
+	if err := stopWireGuardNT("tgdesk0"); err != nil {
+		log.Printf("falha ao desativar rede privada: %v", err)
+	}
 }
 
 func bringUpTunnel(cfg *agentConfig) error {

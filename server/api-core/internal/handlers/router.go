@@ -44,6 +44,9 @@ func NewRouter(s *Server) http.Handler {
 	mux.Handle("POST /api/v1/pairing/bind", private(auth(http.HandlerFunc(s.Bind))))
 	mux.Handle("GET /api/v1/bootstrap/pairing-context", private(auth(http.HandlerFunc(s.PairingContext))))
 	mux.Handle("GET /api/v1/devices", private(auth(http.HandlerFunc(s.ListDevices))))
+	mux.Handle("PATCH /api/v1/devices/{id}/display-name", private(auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.UpdateDeviceDisplayName(w, r, r.PathValue("id"))
+	}))))
 	mux.Handle("GET /api/v1/organizations", private(auth(http.HandlerFunc(s.ListOrganizations))))
 	mux.Handle("GET /api/v1/networks", private(auth(http.HandlerFunc(s.ListNetworks))))
 	mux.Handle("GET /api/v1/client/update", private(http.HandlerFunc(s.ClientUpdate)))
@@ -71,17 +74,29 @@ func NewRouter(s *Server) http.Handler {
 	}))
 	mux.Handle("GET /api/v1/admin/audit", admin(s.ListAuditLog))
 
-	mux.Handle("POST /api/v1/admin/kill/technician/{id}", admin(func(w http.ResponseWriter, r *http.Request) {
-		s.KillTechnician(w, r, r.PathValue("id"))
+	mux.Handle("POST /api/v1/admin/suspend/technician/{id}", admin(func(w http.ResponseWriter, r *http.Request) {
+		s.SuspendTechnician(w, r, r.PathValue("id"))
 	}))
-	mux.Handle("POST /api/v1/admin/kill/device/{id}", admin(func(w http.ResponseWriter, r *http.Request) {
-		s.KillDevice(w, r, r.PathValue("id"))
+	mux.Handle("POST /api/v1/admin/suspend/device/{id}", admin(func(w http.ResponseWriter, r *http.Request) {
+		s.SuspendDevice(w, r, r.PathValue("id"))
 	}))
-	mux.Handle("POST /api/v1/admin/kill/network/{id}", admin(func(w http.ResponseWriter, r *http.Request) {
-		s.KillNetwork(w, r, r.PathValue("id"))
+	mux.Handle("POST /api/v1/admin/suspend/network/{id}", admin(func(w http.ResponseWriter, r *http.Request) {
+		s.SuspendNetwork(w, r, r.PathValue("id"))
 	}))
-	mux.Handle("POST /api/v1/admin/kill/organization/{id}", admin(func(w http.ResponseWriter, r *http.Request) {
-		s.KillOrganization(w, r, r.PathValue("id"))
+	mux.Handle("POST /api/v1/admin/suspend/organization/{id}", admin(func(w http.ResponseWriter, r *http.Request) {
+		s.SuspendOrganization(w, r, r.PathValue("id"))
+	}))
+	mux.Handle("POST /api/v1/admin/resume/device/{id}", admin(func(w http.ResponseWriter, r *http.Request) {
+		s.ResumeDevice(w, r, r.PathValue("id"))
+	}))
+	mux.Handle("POST /api/v1/admin/resume/technician/{id}", admin(func(w http.ResponseWriter, r *http.Request) {
+		s.ResumeTechnician(w, r, r.PathValue("id"))
+	}))
+	mux.Handle("POST /api/v1/admin/resume/network/{id}", admin(func(w http.ResponseWriter, r *http.Request) {
+		s.ResumeNetwork(w, r, r.PathValue("id"))
+	}))
+	mux.Handle("POST /api/v1/admin/resume/organization/{id}", admin(func(w http.ResponseWriter, r *http.Request) {
+		s.ResumeOrganization(w, r, r.PathValue("id"))
 	}))
 
 	mux.Handle("DELETE /api/v1/technicians/{id}", admin(func(w http.ResponseWriter, r *http.Request) {

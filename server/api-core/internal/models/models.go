@@ -22,6 +22,7 @@ type Device struct {
 	ID          string     `json:"id"`
 	NetworkID   *string    `json:"network_id"`
 	Hostname    string     `json:"hostname"`
+	DisplayName string     `json:"display_name,omitempty"`
 	MAC         string     `json:"mac,omitempty"`
 	WGPubkey    string     `json:"wg_pubkey,omitempty"`
 	Role        string     `json:"role"`
@@ -33,6 +34,7 @@ type Device struct {
 	CreatedAt   time.Time  `json:"created_at"`
 	UpdatedAt   time.Time  `json:"updated_at"`
 	Presence    string     `json:"presence,omitempty"` // online | desligada | offline (calculado, não persistido)
+	HealthLevel string     `json:"health_level,omitempty"`
 }
 
 type Technician struct {

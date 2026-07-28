@@ -3,7 +3,7 @@
 `docker-compose` com `api-core` (Go) + `postgres` + `redis` + `rendezvous`/`relay`
 (hbbs/hbbr do RustDesk, compilados do zero em `rendezvous.Dockerfile`).
 
-Implementado: Fase 0 (RBAC, estado `guest`, pareamento, kill-switch +
+Implementado: Fase 0 (RBAC, estado `guest`, pareamento, suspensão/reativação +
 auditoria), Fase 1 (wg-orchestrator com túnel WireGuard real via
 wireguard-go — `internal/wg/`), e Fase 2 (rendezvous/relay próprios +
 integração do `rustdesk_id` ao `device_id`).
@@ -53,8 +53,9 @@ curl -s -X POST localhost:8090/api/v1/devices/heartbeat -d '{"device_id":"<uuid>
 # listar devices (RBAC-filtrado pelo token do técnico)
 curl -s localhost:8090/api/v1/devices -H "Authorization: Bearer $TOKEN"
 
-# kill-switch (somente super_admin)
-curl -s -X POST localhost:8090/api/v1/admin/kill/device/<uuid> -H "Authorization: Bearer $TOKEN"
+# suspender e reativar preservando o vínculo (somente super_admin)
+curl -s -X POST localhost:8090/api/v1/admin/suspend/device/<uuid> -H "Authorization: Bearer $TOKEN"
+curl -s -X POST localhost:8090/api/v1/admin/resume/device/<uuid> -H "Authorization: Bearer $TOKEN"
 curl -s localhost:8090/api/v1/admin/audit -H "Authorization: Bearer $TOKEN"
 
 # presença em tempo real (WebSocket)
@@ -72,7 +73,8 @@ websocat "ws://localhost:8090/ws/presence?token=$TOKEN"
 | POST | `/api/v1/pairing/bind` | técnico (RBAC) |
 | GET | `/api/v1/devices` \| `/organizations` \| `/networks` | técnico (RBAC) |
 | POST | `/api/v1/organizations` \| `/networks` \| `/technicians` \| `/technicians/assignments` | super_admin |
-| POST | `/api/v1/admin/kill/{technician,device,network,organization}/{id}` | super_admin |
+| POST | `/api/v1/admin/suspend/{technician,device,network,organization}/{id}` | super_admin |
+| POST | `/api/v1/admin/resume/{technician,device,network,organization}/{id}` | super_admin |
 | GET | `/api/v1/admin/audit` | super_admin |
 | POST | `/api/v1/devices/wg-key` | device_token — recebe IP virtual + config do hub + rendezvous |
 | POST | `/api/v1/devices/rustdesk-id` | device_token — amarra o ID do RustDesk ao device_id |

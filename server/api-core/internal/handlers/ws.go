@@ -20,7 +20,7 @@ var upgrader = websocket.Upgrader{
 	CheckOrigin:     func(r *http.Request) bool { return true },
 }
 
-// PresenceWS streams real-time presence/kill/bind events to the connected
+// PresenceWS streams real-time presence/suspension/bind events to the connected
 // technician, filtered by their organization/network scope (Seção 3.1/3.4).
 func (s *Server) PresenceWS(w http.ResponseWriter, r *http.Request) {
 	if !requestFromVPN(r) {
@@ -78,7 +78,7 @@ func (s *Server) PresenceWS(w http.ResponseWriter, r *http.Request) {
 // network/organization-level events) and checks it against technician_assignments.
 func (s *Server) eventVisibleTo(ctx context.Context, technicianID string, evt presence.Event) bool {
 	switch evt.Type {
-	case "presence", "telemetry", "bind", "kill_device":
+	case "presence", "telemetry", "bind", "suspend_device", "resume_device", "device_renamed":
 		var orgID, netID string
 		err := s.Pool.QueryRow(ctx, `
 			SELECT n.organization_id, n.id FROM devices d
@@ -89,10 +89,10 @@ func (s *Server) eventVisibleTo(ctx context.Context, technicianID string, evt pr
 		}
 		ok, _ := s.technicianCanAccess(ctx, technicianID, orgID, netID)
 		return ok
-	case "kill_network":
+	case "suspend_network", "resume_network":
 		ok, _ := s.technicianCanAccess(ctx, technicianID, "", evt.TargetID)
 		return ok
-	case "kill_organization":
+	case "suspend_organization", "resume_organization":
 		ok, _ := s.technicianCanAccess(ctx, technicianID, evt.TargetID, "")
 		return ok
 	default:

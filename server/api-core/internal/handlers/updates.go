@@ -16,7 +16,7 @@ func (s *Server) ClientUpdate(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "atualizacao indisponivel", http.StatusServiceUnavailable)
 		return
 	}
-	if r.URL.Query().Get("version") == version {
+	if !updateAvailable(r.URL.Query().Get("version"), version) {
 		w.WriteHeader(http.StatusNoContent)
 		return
 	}

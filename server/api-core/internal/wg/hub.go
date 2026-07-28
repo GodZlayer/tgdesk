@@ -99,7 +99,7 @@ func (h *Hub) AddPeer(pubKeyBase64, allowedIP string) error {
 	return h.dev.IpcSet(uapi)
 }
 
-// RemovePeer drops a peer immediately — the real network-layer kill-switch enforcement.
+// RemovePeer drops a peer from the private network immediately.
 func (h *Hub) RemovePeer(pubKeyBase64 string) error {
 	pub, err := KeyFromBase64(pubKeyBase64)
 	if err != nil {

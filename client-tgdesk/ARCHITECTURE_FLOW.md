@@ -5,7 +5,7 @@
 **Funcional**
 - Um único executável instalável serve os dois papéis (Seção 6/7 do plano de arquitetura).
 - Sem login: máquina se comporta como Host — registra, pareia, sobe túnel WireGuard próprio, serve sessões RustDesk recebidas. Interface mínima.
-- Com login de técnico: desbloqueia o Hub (árvore de dispositivos, kill-switch, gestão de técnicos) na mesma janela de processo, **sem desligar** as capacidades de Host que já estivessem ativas na mesma máquina.
+- Com login de técnico: desbloqueia o Hub (árvore de dispositivos, suspensão/reativação, gestão de técnicos) na mesma janela de processo, **sem desligar** as capacidades de Host que já estivessem ativas na mesma máquina.
 - Os dois papéis podem estar ativos **ao mesmo tempo, na mesma máquina física**, sem conflito de rede (ver Seção 4).
 
 **Não-funcional**
@@ -55,7 +55,7 @@
 | **Processo Go responsável** | `tgdesk-agent.exe host` | `tgdesk-agent.exe technician` |
 | **UI exposta** | Mínima — só o necessário do RustDesk original (ID, notificação de sessão ativa) | Hub completo (janela `TgdeskHub`) |
 | **Núcleo RustDesk** | Ativo desde o boot (é o próprio `tgdesk.exe`) — sempre pronto para servir uma sessão | Mesmo núcleo, mas o técnico o usa como *viewer* (ainda não conectado à árvore do Hub — ver pendência abaixo) |
-| **Kill-switch afeta** | `devices.state` + peer do hub (`wg_pubkey` do device) | `technicians.status` + peer do hub (`wg_pubkey` do technician) — **listas totalmente separadas**, suspender um não afeta o outro |
+| **Suspensão afeta** | `devices.state` + peer do hub (`wg_pubkey` do device) | `technicians.status` + peer do hub (`wg_pubkey` do technician) — **listas totalmente separadas**, suspender um não afeta o outro |
 
 **Ponto-chave de design**: os dois papéis nunca competem pelo mesmo recurso porque cada um tem (a) sua própria linha na tabela certa (`devices` vs `technicians`), (b) seu próprio par de chaves WireGuard, (c) seu próprio nome de adaptador de rede, e (d) seu próprio pool de IP virtual. É isso que permite a mesma máquina física rodar os dois ao mesmo tempo — validado nesta sessão (Task #39: Host recebeu `10.70.6.8`, Técnico recebeu `10.70.1.2`, simultâneos, sem conflito).
 
@@ -65,7 +65,7 @@
 2. **Usuário clica no ícone de admin** → abre janela `TgdeskHub` (mesmo processo) → tela de login.
 3. **Login bem-sucedido** → Hub lança `tgdesk-agent.exe technician --token <jwt>` → adaptador `tgdesk-tech0` sobe (se admin) → árvore de dispositivos populada via `GET /api/v1/devices` + `WS /ws/presence`.
 4. **Logout** → fecha a janela do Hub; o agente `technician` deveria ser encerrado também (pendência: hoje ele fica órfão rodando — precisa de um sinal de shutdown).
-5. **Kill-switch em um técnico** → `dropTechnicianHubPeer` derruba o peer no hub → próxima tentativa de tráfego do `tgdesk-tech0` daquele técnico simplesmente para de ser aceita (o processo Go continua de pé, mas sem conectividade — não há hoje um sinal ativo pro processo se encerrar sozinho).
+5. **Suspensão de um técnico** → `dropTechnicianHubPeer` derruba o peer no hub → a próxima tentativa de tráfego do `tgdesk-tech0` deixa de ser aceita, preservando o cadastro para posterior reativação.
 
 ## 5. Trade-offs explícitos
 

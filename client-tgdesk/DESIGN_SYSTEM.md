@@ -5,13 +5,13 @@
 ### Summary
 **Componentes revisados:** 4 telas (Login, Dispositivos, Admin, Técnicos) | **Issues encontrados:** 4 | **Score:** 45/100
 
-O Hub foi construído rápido para provar o pipeline ponta-a-ponta (servidor → API → UI), sem nenhum token compartilhado — cada tela define suas próprias cores/estilos inline. Funciona, mas qualquer mudança de cor (ex.: trocar o vermelho do kill-switch) hoje exige editar 4 arquivos.
+O Hub foi construído rápido para provar o pipeline ponta-a-ponta (servidor → API → UI), sem nenhum token compartilhado — cada tela define suas próprias cores/estilos inline.
 
 ### Naming Consistency
 | Issue | Componentes | Recomendação |
 |---|---|---|
 | Cor de presença duplicada | `_presenceColor` só existe em `devices_page.dart`, mas `technicians_page.dart` reimplementa a mesma ideia (`suspenso ? Colors.grey : Colors.red`) com lógica própria | Extrair `presenceColor(String)` para `theme.dart`, usar em ambas |
-| Diálogo de confirmação de kill-switch duplicado 2x | `admin_page.dart._confirmKill`, `technicians_page.dart._confirmKillTechnician` | Um único `TgdeskConfirmDialog` parametrizado |
+| Diálogo de confirmação de suspensão duplicado 2x | Admin e Técnicos | Um único `TgdeskConfirmDialog` parametrizado |
 | Texto de erro duplicado 5x | Todas as páginas repetem `Text(_error!, style: TextStyle(color: Colors.red))` | Widget `TgdeskErrorText` |
 
 ### Token Coverage
@@ -25,12 +25,12 @@ O Hub foi construído rápido para provar o pipeline ponta-a-ponta (servidor →
 | Componente | Estados | Variantes | Docs | Score |
 |---|---|---|---|---|
 | Bolinha de presença | ✅ (4 estados) | ❌ (sem variante de tamanho) | ❌ | 4/10 |
-| Botão de kill-switch | ✅ (ativo/desabilitado) | ✅ (técnico/rede/organização/dispositivo) | ❌ | 6/10 |
+| Botão de suspensão | ✅ (suspender/reativar) | ✅ (técnico/rede/organização/dispositivo) | ❌ | 6/10 |
 | Diálogo de formulário (bind/criar técnico/criar rede) | ✅ | ❌ (3 implementações quase idênticas) | ❌ | 4/10 |
 
 ### Priority Actions
 1. Criar `lib/tgdesk/theme.dart` com os tokens (feito nesta rodada — ver abaixo).
-2. Extrair os 3 padrões duplicados (presença, confirmação de kill, texto de erro) para widgets compartilhados.
+2. Extrair os 3 padrões duplicados (presença, confirmação de suspensão, texto de erro) para widgets compartilhados.
 3. Documentar cada componente compartilhado à medida que for extraído (não deixar acumular).
 
 ---
@@ -43,8 +43,8 @@ O Hub foi construído rápido para provar o pipeline ponta-a-ponta (servidor →
 | `TgdeskColors.online` | `Colors.green` | Dispositivo ativo e com heartbeat recente |
 | `TgdeskColors.offline` | `Colors.grey` | Dispositivo ativo mas sem heartbeat |
 | `TgdeskColors.guest` | `Colors.blueGrey` | Dispositivo ainda não vinculado |
-| `TgdeskColors.suspended` | `Colors.red` | Dispositivo/técnico/rede suspenso — mesma cor do botão de kill-switch, reforça a associação visual "vermelho = ação destrutiva/estado desligado" |
-| `TgdeskColors.warning` | `Colors.orange` | Kill-switch de escopo intermediário (rede), ação com impacto mas não a mais severa |
+| `TgdeskColors.suspended` | `Colors.red` | Dispositivo/técnico/rede suspenso |
+| `TgdeskColors.warning` | `Colors.orange` | Alerta ou ação de suspensão |
 | `TgdeskColors.seed` | `Colors.indigo` | Semente do `ColorScheme` (Material 3) do app inteiro |
 
 ### Espaçamento
@@ -52,7 +52,7 @@ Escala de 4px (`TgdeskSpacing.xs/sm/md/lg/xl` = 4/8/12/16/24) — os diálogos h
 
 ### Componentes compartilhados criados
 - `TgdeskErrorText` — substitui as 5 repetições de texto de erro vermelho.
-- `TgdeskConfirmKillDialog` — substitui os 2 diálogos de confirmação de kill-switch.
+- `showTgdeskConfirmSuspendDialog` — confirmação compartilhada de suspensão.
 - `presenceColor(String)` — função pura, movida para `theme.dart`.
 
 ## Do's e Don'ts

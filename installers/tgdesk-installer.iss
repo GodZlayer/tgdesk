@@ -1,9 +1,9 @@
-; TGDesk 0.3.9 — instalador universal Client + Tech + Admin.
+; TGDesk 0.3.17 — instalador universal Client + Tech + Admin.
 ; O modo Tech não é uma variante de build: ele é ativado por uma chave de
 ; uso único validada pelo servidor dentro do próprio TGDesk.
 
 #define MyAppName "TGDesk"
-#define MyAppVersion "0.3.9"
+#define MyAppVersion "0.3.22"
 #define MyAppPublisher "TGDesk"
 
 [Setup]
@@ -16,7 +16,7 @@ DefaultGroupName=TGDesk
 DisableProgramGroupPage=yes
 PrivilegesRequired=admin
 OutputDir=.\output
-OutputBaseFilename=tgdesk-installer-0.3.9
+OutputBaseFilename=tgdesk-installer-0.3.22
 Compression=lzma2
 SolidCompression=yes
 ArchitecturesInstallIn64BitMode=x64compatible
