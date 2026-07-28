@@ -12,6 +12,7 @@ import (
 type deviceControlMessage struct {
 	Type    string `json:"type"`
 	State   string `json:"state,omitempty"`
+	Version string `json:"version,omitempty"`
 	Payload any    `json:"payload,omitempty"`
 }
 
@@ -32,12 +33,22 @@ func runDeviceControlLoop(cfg *agentConfig, remoteReady bool) error {
 	defer conn.Close()
 
 	readErr := make(chan error, 1)
+	statsCh := make(chan any, 1)
 	go func() {
 		for {
 			var msg deviceControlMessage
 			if err := conn.ReadJSON(&msg); err != nil {
 				readErr <- err
 				return
+			}
+			if msg.Type == "telemetry_stats" {
+				select {
+				case statsCh <- msg.Payload:
+				default:
+				}
+			}
+			if msg.Type == "ready" || msg.Type == "update_available" {
+				setServerUpdateVersion(msg.Version)
 			}
 			if msg.State == "suspenso" {
 				readErr <- fmt.Errorf("dispositivo suspenso")
@@ -70,43 +81,33 @@ func runDeviceControlLoop(cfg *agentConfig, remoteReady bool) error {
 		})
 	}
 
-	var cpu, mem, disco float64
-	var disks []diskVolume
-	var eh extendedHealth
+	var hardware HardwareSnapshot
+	var statistics any
+	var collectedAt string
+	writeCurrentStatus := func() {
+		writeStatus(tgdeskStatus{
+			State: "ativo", Hostname: localHostname(), DeviceID: cfg.DeviceID,
+			VirtualIP: cfg.VirtualIP, RustdeskID: cfg.RustdeskID, TunnelUp: true,
+			Hardware: hardware, Statistics: statistics, CollectedAt: collectedAt,
+			RemoteReady: remoteReady, FilesReady: remoteReady,
+		})
+	}
 	for {
 		select {
 		case err := <-readErr:
 			return err
+		case statistics = <-statsCh:
+			writeCurrentStatus()
 		case <-heartbeatTick.C:
 			if err := sendHeartbeat(); err != nil {
 				return err
 			}
-			cpu, mem, disco = collectTelemetry()
-			disks = collectDiskVolumes()
-			writeStatus(tgdeskStatus{
-				State:       "ativo",
-				Hostname:    localHostname(),
-				DeviceID:    cfg.DeviceID,
-				VirtualIP:   cfg.VirtualIP,
-				RustdeskID:  cfg.RustdeskID,
-				TunnelUp:    true,
-				CPU:         cpu,
-				Mem:         mem,
-				Disco:       disco,
-				Disks:       disks,
-				DiskHealth:  eh.DiskHealth,
-				CPUTemp:     eh.CPUTemp,
-				GPUUtil:     eh.GPUUtil,
-				GPUTemp:     eh.GPUTemp,
-				GPUName:     eh.GPUName,
-				RemoteReady: remoteReady,
-				FilesReady:  remoteReady,
-			})
+			writeCurrentStatus()
 		case <-telemetryTick.C:
-			eh = collectExtendedHealth()
-			payload, _ := json.Marshal(map[string]any{
-				"cpu": cpu, "mem": mem, "disco": disco, "temp": eh.CPUTemp, "disks": disks,
-			})
+			hardware = collectHardwareSnapshot()
+			collectedAt = time.Now().UTC().Format(time.RFC3339)
+			writeCurrentStatus()
+			payload, _ := json.Marshal(map[string]any{"hardware": hardware})
 			var body any
 			_ = json.Unmarshal(payload, &body)
 			if err := conn.WriteJSON(deviceControlMessage{Type: "telemetry", Payload: body}); err != nil {

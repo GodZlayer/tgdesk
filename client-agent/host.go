@@ -14,10 +14,6 @@ import (
 	"os"
 	"path/filepath"
 	"time"
-
-	"golang.zx2c4.com/wireguard/conn"
-	"golang.zx2c4.com/wireguard/device"
-	"golang.zx2c4.com/wireguard/tun"
 )
 
 type agentConfig struct {
@@ -33,11 +29,25 @@ type agentConfig struct {
 }
 
 func configPath() string {
-	exe, err := os.Executable()
-	if err != nil {
-		return "tgdesk-agent.json"
+	return filepath.Join(tgdeskDataDir(), "identity", "device.json")
+}
+
+func tgdeskDataDir() string {
+	if configured := os.Getenv("TGDESK_DATA_DIR"); configured != "" {
+		_ = os.MkdirAll(filepath.Join(configured, "identity"), 0700)
+		_ = os.MkdirAll(filepath.Join(configured, "state"), 0700)
+		_ = os.MkdirAll(filepath.Join(configured, "logs"), 0700)
+		return configured
 	}
-	return filepath.Join(filepath.Dir(exe), "tgdesk-agent.json")
+	base := os.Getenv("ProgramData")
+	if base == "" {
+		base = `C:\ProgramData`
+	}
+	dir := filepath.Join(base, "TGDesk")
+	_ = os.MkdirAll(filepath.Join(dir, "identity"), 0700)
+	_ = os.MkdirAll(filepath.Join(dir, "state"), 0700)
+	_ = os.MkdirAll(filepath.Join(dir, "logs"), 0700)
+	return dir
 }
 
 func loadConfig() *agentConfig {
@@ -73,7 +83,7 @@ func baseURL() string {
 	if v := os.Getenv("TGDESK_SERVER"); v != "" {
 		return v
 	}
-	return "http://127.0.0.1:8090"
+	return "http://168.232.199.161:8090"
 }
 
 // httpClient com timeout curto: sem isso, uma conexão a um servidor
@@ -236,7 +246,6 @@ func runHost(args []string) {
 	var remoteReady bool
 	var privateFailures int
 	writeStatus(tgdeskStatus{State: "guest", PairingCode: cfg.PairingCode, Hostname: localHostname(), DeviceID: cfg.DeviceID})
-
 	for {
 		if tunnelUp {
 			if !remoteReady {
@@ -269,13 +278,24 @@ func runHost(args []string) {
 			if err := runDeviceControlLoop(cfg, remoteReady); err != nil {
 				privateFailures++
 				log.Printf("canal privado caiu: %v — reconectando pela VPN", err)
-				if privateFailures >= 5 {
+				if privateFailures >= 3 {
 					if err := refreshHubPeer(cfg); err != nil {
 						log.Printf("recuperação pública do peer WireGuard falhou: %v", err)
 					} else {
 						log.Println("peer WireGuard renovado pelo canal público de recuperação")
-						privateFailures = 0
 					}
+					// Não basta manter o adaptador marcado como Up: após uma
+					// reinicialização do servidor o peer e o socket podem ter
+					// expirado. Volta deliberadamente à etapa de criação do
+					// túnel antes de reabrir o WebSocket.
+					tunnelUp = false
+					remoteReady = false
+					privateFailures = 0
+					writeStatus(tgdeskStatus{
+						State: "erro", Hostname: localHostname(), DeviceID: cfg.DeviceID,
+						VirtualIP: cfg.VirtualIP, TunnelUp: false,
+						Error: "Reconectando ao servidor TGDesk",
+					})
 				}
 				time.Sleep(2 * time.Second)
 				continue
@@ -314,7 +334,6 @@ func runHost(args []string) {
 					log.Printf("falha ao subir túnel WireGuard: %v", err)
 				} else {
 					tunnelUp = true
-					startAutoUpdater()
 				}
 			}
 		}
@@ -377,40 +396,24 @@ func bringUpTunnel(cfg *agentConfig) error {
 
 	log.Printf("vinculado! IP virtual atribuído: %s (hub: %s em %s)", hubCfg.VirtualIP, hubCfg.HubVirtualIP, hubCfg.HubEndpoint)
 
-	tunDev, err := tun.CreateTUN("tgdesk0", device.DefaultMTU)
-	if err != nil {
-		return fmt.Errorf("criar adaptador WireGuard (requer privilégio de administrador para instalar o driver Wintun na primeira vez): %w", err)
-	}
-	realName, _ := tunDev.Name()
-
-	logger := device.NewLogger(device.LogLevelError, "tgdesk-host: ")
-	dev := device.NewDevice(tunDev, conn.NewDefaultBind(), logger)
-
 	hubPub, err := decodeBase64Key(hubCfg.HubPublicKey)
 	if err != nil {
 		return err
 	}
-	uapi := fmt.Sprintf(
-		"private_key=%s\npublic_key=%s\nendpoint=%s\nallowed_ip=%s/16\npersistent_keepalive_interval=25\n",
-		priv.hex(), hubPub.hex(), hubCfg.HubEndpoint, "10.70.0.0",
-	)
-	if err := dev.IpcSet(uapi); err != nil {
-		return fmt.Errorf("configurar peer do hub: %w", err)
-	}
-	if err := dev.Up(); err != nil {
-		return fmt.Errorf("subir interface: %w", err)
+	log.Println("criando adaptador WireGuardNT TGDesk")
+	if err := startWireGuardNT("TGDesk", tgdeskHostAdapterGUID, priv, hubPub, hubCfg.HubEndpoint); err != nil {
+		return fmt.Errorf("subir túnel WireGuardNT: %w", err)
 	}
 
-	if err := assignWindowsIP(realName, hubCfg.VirtualIP); err != nil {
+	if err := assignWindowsIP("TGDesk", hubCfg.VirtualIP); err != nil {
 		log.Printf("aviso: não foi possível configurar o IP da interface automaticamente: %v", err)
-		log.Printf("configure manualmente: netsh interface ip set address name=\"%s\" static %s 255.255.0.0", realName, hubCfg.VirtualIP)
+		log.Printf("configure manualmente: netsh interface ip set address name=\"TGDesk\" static %s 255.255.0.0", hubCfg.VirtualIP)
 	}
 	if err := waitForPrivateGateway(); err != nil {
-		dev.Close()
 		return err
 	}
 
-	log.Println("túnel WireGuard ativo — dispositivo Online no painel do técnico")
+	log.Println("túnel WireGuardNT ativo — dispositivo Online no painel do técnico")
 	return nil
 }
 

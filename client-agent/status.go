@@ -4,48 +4,53 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"sync"
 )
 
-// tgdeskStatus is the small, well-known file the Flutter core (tgdesk.exe)
-// polls to render its minimal window — this is the only channel between the
-// Go agent (which owns the registration/pairing/WireGuard state machine) and
-// the UI process, deliberately kept as a flat file instead of IPC/sockets.
 type tgdeskStatus struct {
-	State       string       `json:"state"` // guest | ativo | suspenso | erro
-	Error       string       `json:"error,omitempty"`
-	PairingCode string       `json:"pairing_code,omitempty"`
-	Hostname    string       `json:"hostname"`
-	DeviceID    string       `json:"device_id,omitempty"`
-	VirtualIP   string       `json:"virtual_ip,omitempty"`
-	RustdeskID  string       `json:"rustdesk_id,omitempty"`
-	TunnelUp    bool         `json:"tunnel_up"`
-	CPU         float64      `json:"cpu,omitempty"`
-	Mem         float64      `json:"mem,omitempty"`
-	Disco       float64      `json:"disco,omitempty"`
-	DiskHealth  string       `json:"disk_health,omitempty"`
-	CPUTemp     float64      `json:"cpu_temp,omitempty"`
-	GPUUtil     float64      `json:"gpu_util,omitempty"`
-	GPUTemp     float64      `json:"gpu_temp,omitempty"`
-	GPUName     string       `json:"gpu_name,omitempty"`
-	Disks       []diskVolume `json:"disks,omitempty"`
-	RemoteReady bool         `json:"remote_ready"`
-	FilesReady  bool         `json:"files_ready"`
-	RemoteError string       `json:"remote_error,omitempty"`
-	FilesError  string       `json:"files_error,omitempty"`
+	State           string           `json:"state"`
+	Error           string           `json:"error,omitempty"`
+	PairingCode     string           `json:"pairing_code,omitempty"`
+	Hostname        string           `json:"hostname"`
+	DeviceID        string           `json:"device_id,omitempty"`
+	VirtualIP       string           `json:"virtual_ip,omitempty"`
+	RustdeskID      string           `json:"rustdesk_id,omitempty"`
+	TunnelUp        bool             `json:"tunnel_up"`
+	Hardware        HardwareSnapshot `json:"hardware"`
+	Statistics      any              `json:"statistics,omitempty"`
+	CollectedAt     string           `json:"collected_at,omitempty"`
+	RemoteReady     bool             `json:"remote_ready"`
+	FilesReady      bool             `json:"files_ready"`
+	RemoteError     string           `json:"remote_error,omitempty"`
+	FilesError      string           `json:"files_error,omitempty"`
+	UpdateAvailable bool             `json:"update_available"`
+	UpdateVersion   string           `json:"update_version,omitempty"`
+}
+
+var updateState struct {
+	sync.RWMutex
+	available bool
+	version   string
+}
+
+func setServerUpdateVersion(version string) {
+	updateState.Lock()
+	updateState.version = version
+	updateState.available = version != "" && version != clientVersion
+	updateState.Unlock()
 }
 
 func statusPath() string {
-	exe, err := os.Executable()
-	if err != nil {
-		return "tgdesk-status.json"
-	}
-	return filepath.Join(filepath.Dir(exe), "tgdesk-status.json")
+	return filepath.Join(tgdeskDataDir(), "state", "status.json")
 }
 
 func writeStatus(s tgdeskStatus) {
+	updateState.RLock()
+	s.UpdateAvailable = updateState.available
+	s.UpdateVersion = updateState.version
+	updateState.RUnlock()
 	b, err := json.MarshalIndent(s, "", "  ")
-	if err != nil {
-		return
+	if err == nil {
+		_ = os.WriteFile(statusPath(), b, 0644)
 	}
-	_ = os.WriteFile(statusPath(), b, 0644)
 }

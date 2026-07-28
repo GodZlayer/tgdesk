@@ -14,13 +14,12 @@ func NewRouter(s *Server) http.Handler {
 	})
 
 	// Público — usado pelo agente recém-instalado (estado guest).
-	mux.HandleFunc("POST /api/v1/auth/login", s.Login)
+	mux.HandleFunc("POST /api/v1/auth/technician/redeem", s.RedeemTechnicianEnrollment)
+	mux.HandleFunc("POST /api/v1/auth/control-key/install", s.RedeemTechnicianEnrollment)
+	mux.HandleFunc("POST /api/v1/auth/technician/refresh", s.RefreshTechnicianMachine)
 	mux.HandleFunc("POST /api/v1/devices/register", s.RegisterDevice)
 	mux.HandleFunc("POST /api/v1/devices/heartbeat", s.Heartbeat)
 	mux.HandleFunc("POST /api/v1/devices/wg-key", s.WGKey)
-	mux.HandleFunc("POST /api/v1/devices/rustdesk-id", s.ReportRustdeskID)
-	mux.HandleFunc("POST /api/v1/devices/telemetry", s.ReportTelemetry)
-	mux.HandleFunc("GET /ws/presence", s.PresenceWS)
 	mux.HandleFunc("GET /ws/control/device", s.DeviceControlWS)
 	mux.HandleFunc("GET /ws/control/technician", s.TechnicianControlWS)
 
@@ -37,15 +36,20 @@ func NewRouter(s *Server) http.Handler {
 	admin := func(h http.HandlerFunc) http.Handler {
 		return private(auth(middleware.RequireSuperAdmin(h)))
 	}
+	mux.Handle("POST /api/v1/devices/rustdesk-id", private(http.HandlerFunc(s.ReportRustdeskID)))
+	mux.Handle("POST /api/v1/devices/telemetry", private(http.HandlerFunc(s.ReportTelemetry)))
+	mux.Handle("GET /ws/presence", private(http.HandlerFunc(s.PresenceWS)))
 
 	// Autenticado — qualquer técnico (RBAC aplicado dentro do handler).
-	mux.Handle("POST /api/v1/pairing/bind", auth(http.HandlerFunc(s.Bind)))
-	mux.Handle("GET /api/v1/bootstrap/pairing-context", auth(http.HandlerFunc(s.PairingContext)))
+	mux.Handle("POST /api/v1/pairing/bind", private(auth(http.HandlerFunc(s.Bind))))
+	mux.Handle("GET /api/v1/bootstrap/pairing-context", private(auth(http.HandlerFunc(s.PairingContext))))
 	mux.Handle("GET /api/v1/devices", private(auth(http.HandlerFunc(s.ListDevices))))
 	mux.Handle("GET /api/v1/organizations", private(auth(http.HandlerFunc(s.ListOrganizations))))
 	mux.Handle("GET /api/v1/networks", private(auth(http.HandlerFunc(s.ListNetworks))))
 	mux.Handle("GET /api/v1/client/update", private(http.HandlerFunc(s.ClientUpdate)))
 	mux.Handle("GET /api/v1/client/update/download", private(http.HandlerFunc(s.DownloadClientUpdate)))
+	mux.Handle("GET /api/v1/client/modules", private(http.HandlerFunc(s.ClientModuleManifest)))
+	mux.Handle("GET /api/v1/client/modules/{version}/{path...}", private(http.HandlerFunc(s.DownloadClientModule)))
 	mux.Handle("POST /api/v1/technicians/wg-key", auth(http.HandlerFunc(s.TechnicianWGKey)))
 	mux.Handle("GET /api/v1/devices/{id}/health", private(auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.DeviceHealth(w, r, r.PathValue("id"))
@@ -60,6 +64,9 @@ func NewRouter(s *Server) http.Handler {
 	mux.Handle("GET /api/v1/technicians", admin(s.ListTechnicians))
 	mux.Handle("POST /api/v1/technicians", admin(s.CreateTechnician))
 	mux.Handle("POST /api/v1/technicians/assignments", admin(s.CreateAssignment))
+	mux.Handle("POST /api/v1/technicians/{id}/enrollment-key", admin(func(w http.ResponseWriter, r *http.Request) {
+		s.CreateTechnicianEnrollmentKey(w, r, r.PathValue("id"))
+	}))
 	mux.Handle("GET /api/v1/admin/audit", admin(s.ListAuditLog))
 
 	mux.Handle("POST /api/v1/admin/kill/technician/{id}", admin(func(w http.ResponseWriter, r *http.Request) {

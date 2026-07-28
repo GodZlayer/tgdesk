@@ -1,0 +1,20 @@
+{
+  "state": "guest",
+  "pairing_code": "JGRYGS",
+  "hostname": "DESKTOP-JE50P4E",
+  "device_id": "3eed318c-e47f-4e33-aad8-603a23dad138",
+  "tunnel_up": false,
+  "hardware": {
+    "cpu": {
+      "name": "",
+      "usage": 0,
+      "clock_mhz": 0
+    },
+    "gpus": null,
+    "memory": null,
+    "storage": null,
+    "networks": null
+  },
+  "remote_ready": false,
+  "files_ready": false
+}

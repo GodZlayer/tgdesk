@@ -4,8 +4,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 
-	tgauth "tgdesk/api-core/internal/auth"
 	"tgdesk/api-core/internal/middleware"
 	"tgdesk/api-core/internal/models"
 )
@@ -31,31 +31,25 @@ func (s *Server) ListTechnicians(w http.ResponseWriter, r *http.Request) {
 }
 
 type createTechnicianRequest struct {
-	Username string `json:"username"`
-	Password string `json:"password"`
-	Role     string `json:"role"` // super_admin | tecnico
+	Name string `json:"name"`
 }
 
 func (s *Server) CreateTechnician(w http.ResponseWriter, r *http.Request) {
 	var req createTechnicianRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Username == "" || req.Password == "" {
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 		writeErr(w, http.StatusBadRequest, "username e password são obrigatórios")
 		return
 	}
-	role := req.Role
-	if role != models.RoleSuperAdmin {
-		role = models.RoleTecnico
-	}
-	hash, err := tgauth.HashPassword(req.Password)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao gerar hash de senha")
+	req.Name = strings.TrimSpace(req.Name)
+	if req.Name == "" {
+		writeErr(w, http.StatusBadRequest, "nome é obrigatório")
 		return
 	}
 	var t models.Technician
-	err = s.Pool.QueryRow(r.Context(), `
+	err := s.Pool.QueryRow(r.Context(), `
 		INSERT INTO technicians (username, password_hash, role, created_via_env) VALUES ($1, $2, $3, false)
 		RETURNING id, username, role, created_via_env, status, created_at`,
-		req.Username, hash, role,
+		req.Name, "!key-only!", models.RoleTecnico,
 	).Scan(&t.ID, &t.Username, &t.Role, &t.CreatedViaEnv, &t.Status, &t.CreatedAt)
 	if err != nil {
 		writeErr(w, http.StatusConflict, "usuário já existe")

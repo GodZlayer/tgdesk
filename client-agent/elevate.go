@@ -2,12 +2,26 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"os"
+	"path/filepath"
 	"strings"
 	"syscall"
 
 	"golang.org/x/sys/windows"
 )
+
+func appendAgentLog(format string, values ...any) {
+	logDir := filepath.Join(tgdeskDataDir(), "logs")
+	_ = os.MkdirAll(logDir, 0755)
+	f, err := os.OpenFile(filepath.Join(logDir, "agent.log"),
+		os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		return
+	}
+	defer f.Close()
+	log.New(f, "", log.LstdFlags).Printf(format, values...)
+}
 
 // isElevated reports whether the current process already holds an elevated
 // (Administrator) token.
@@ -70,7 +84,7 @@ func elevateAndRestart() {
 // quanto automaticamente pelo tgdesk.exe (versão portátil) — sem essa trava
 // as duas tentariam registrar/heartbeat o mesmo dispositivo ao mesmo tempo.
 func acquireHostSingleton() bool {
-	name, err := syscall.UTF16PtrFromString("Local\\TGDeskHostAgentSingleton")
+	name, err := syscall.UTF16PtrFromString("Global\\TGDeskHostAgentSingleton")
 	if err != nil {
 		return true
 	}
@@ -82,7 +96,7 @@ func acquireHostSingleton() bool {
 }
 
 func acquireTechnicianSingleton() bool {
-	name, err := syscall.UTF16PtrFromString("Local\\TGDeskTechnicianAgentSingleton")
+	name, err := syscall.UTF16PtrFromString("Global\\TGDeskTechnicianAgentSingleton")
 	if err != nil {
 		return true
 	}

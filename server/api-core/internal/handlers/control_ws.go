@@ -1,11 +1,15 @@
 package handlers
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"net"
 	"net/http"
+	"net/http/httptest"
+	"os"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/gorilla/websocket"
@@ -24,6 +28,9 @@ var controlUpgrader = websocket.Upgrader{
 
 type controlMessage struct {
 	Type    string          `json:"type"`
+	ID      string          `json:"id,omitempty"`
+	Method  string          `json:"method,omitempty"`
+	Path    string          `json:"path,omitempty"`
 	Payload json.RawMessage `json:"payload,omitempty"`
 }
 
@@ -61,7 +68,10 @@ func (s *Server) DeviceControlWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer conn.Close()
-	_ = conn.WriteJSON(map[string]any{"type": "ready", "state": state})
+	_ = conn.WriteJSON(map[string]any{
+		"type": "ready", "state": state,
+		"version": os.Getenv("CLIENT_VERSION"),
+	})
 
 	for {
 		_ = conn.SetReadDeadline(time.Now().Add(45 * time.Second))
@@ -91,17 +101,14 @@ func (s *Server) DeviceControlWS(w http.ResponseWriter, r *http.Request) {
 			}
 		case "telemetry":
 			var payload struct {
-				CPU   float64 `json:"cpu"`
-				Mem   float64 `json:"mem"`
-				Disco float64 `json:"disco"`
-				Temp  float64 `json:"temp"`
-				Disks any     `json:"disks"`
+				Hardware any `json:"hardware"`
 			}
 			if json.Unmarshal(msg.Payload, &payload) == nil {
 				_, _ = s.Pool.Exec(r.Context(), `
-					INSERT INTO telemetry_snapshots (device_id,cpu,mem,disco,temp,disks)
-					VALUES ($1,$2,$3,$4,$5,$6)`,
-					deviceID, payload.CPU, payload.Mem, payload.Disco, payload.Temp, payload.Disks)
+					INSERT INTO telemetry_snapshots (device_id,hardware)
+					VALUES ($1,$2)`, deviceID, payload.Hardware)
+				stats := s.hardwareStatistics(r.Context(), deviceID)
+				_ = conn.WriteJSON(map[string]any{"type": "telemetry_stats", "payload": stats})
 				_ = presence.Publish(r.Context(), s.RDB,
 					presence.Event{Type: "telemetry", TargetID: deviceID, Payload: payload})
 			}
@@ -129,42 +136,129 @@ func (s *Server) TechnicianControlWS(w http.ResponseWriter, r *http.Request) {
 			token = strings.TrimPrefix(h, "Bearer ")
 		}
 	}
-	claims, err := tgauth.ParseToken(s.Cfg.JWTSecret, token)
-	if err != nil {
-		writeErr(w, http.StatusUnauthorized, "token inválido")
-		return
-	}
 	conn, err := controlUpgrader.Upgrade(w, r, nil)
 	if err != nil {
 		return
 	}
 	defer conn.Close()
+	var writeMu sync.Mutex
+	write := func(value any) error {
+		writeMu.Lock()
+		defer writeMu.Unlock()
+		return conn.WriteJSON(value)
+	}
+
+	if token == "" {
+		_ = conn.SetReadDeadline(time.Now().Add(15 * time.Second))
+		var authMessage controlMessage
+		if conn.ReadJSON(&authMessage) != nil || authMessage.Type != "authenticate" {
+			_ = write(map[string]any{"type": "auth_result", "status": http.StatusUnauthorized,
+				"error": "credencial de controle ausente"})
+			return
+		}
+		req := httptest.NewRequest(http.MethodPost,
+			"http://10.70.0.1/api/v1/auth/technician/refresh",
+			bytes.NewReader(authMessage.Payload))
+		req.RemoteAddr = "10.70.1.1:1"
+		rec := httptest.NewRecorder()
+		s.RefreshTechnicianMachine(rec, req)
+		var response map[string]any
+		_ = json.Unmarshal(rec.Body.Bytes(), &response)
+		if rec.Code != http.StatusOK {
+			_ = write(map[string]any{"type": "auth_result", "status": rec.Code,
+				"error": response["error"]})
+			return
+		}
+		token, _ = response["token"].(string)
+		if err := write(map[string]any{"type": "auth_result", "status": rec.Code,
+			"payload": response}); err != nil {
+			return
+		}
+	}
+	claims, err := tgauth.ParseToken(s.Cfg.JWTSecret, token)
+	if err != nil {
+		_ = write(map[string]any{"type": "auth_result", "status": http.StatusUnauthorized,
+			"error": "token inválido"})
+		return
+	}
+	_ = conn.SetReadDeadline(time.Time{})
 	if snapshot, err := s.controlSnapshot(r.Context(), claims.TechnicianID, claims.Role); err == nil {
-		_ = conn.WriteJSON(snapshot)
+		_ = write(snapshot)
 	}
 
 	sub := presence.Subscribe(r.Context(), s.RDB)
 	defer sub.Close()
-	for msg := range sub.Channel() {
-		var evt presence.Event
-		if json.Unmarshal([]byte(msg.Payload), &evt) != nil {
-			continue
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			var msg controlMessage
+			if conn.ReadJSON(&msg) != nil {
+				return
+			}
+			if msg.Type != "rpc" || msg.ID == "" || !privateRPCPath(msg.Path) {
+				continue
+			}
+			req := httptest.NewRequest(msg.Method, "http://10.70.0.1"+msg.Path,
+				bytes.NewReader(msg.Payload))
+			req.RemoteAddr = "10.70.1.1:1"
+			req.Header.Set("Authorization", "Bearer "+token)
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			NewRouter(s).ServeHTTP(rec, req)
+			var payload any
+			if rec.Body.Len() != 0 {
+				if json.Unmarshal(rec.Body.Bytes(), &payload) != nil {
+					payload = rec.Body.String()
+				}
+			}
+			if write(map[string]any{"type": "rpc_response", "id": msg.ID,
+				"status": rec.Code, "payload": payload}) != nil {
+				return
+			}
 		}
-		if claims.Role != models.RoleSuperAdmin &&
-			!s.eventVisibleTo(r.Context(), claims.TechnicianID, evt) {
-			continue
-		}
-		if err := conn.WriteJSON(map[string]any{"type": "event", "event": evt}); err != nil {
+	}()
+
+	for {
+		select {
+		case <-done:
 			return
-		}
-		if evt.Type != "presence" && evt.Type != "telemetry" {
-			if snapshot, err := s.controlSnapshot(r.Context(), claims.TechnicianID, claims.Role); err == nil {
-				if conn.WriteJSON(snapshot) != nil {
-					return
+		case message, ok := <-sub.Channel():
+			if !ok {
+				return
+			}
+			var evt presence.Event
+			if json.Unmarshal([]byte(message.Payload), &evt) != nil {
+				continue
+			}
+			if claims.Role != models.RoleSuperAdmin &&
+				!s.eventVisibleTo(r.Context(), claims.TechnicianID, evt) {
+				continue
+			}
+			if err := write(map[string]any{"type": "event", "event": evt}); err != nil {
+				return
+			}
+			if evt.Type != "presence" && evt.Type != "telemetry" {
+				if snapshot, err := s.controlSnapshot(r.Context(), claims.TechnicianID, claims.Role); err == nil {
+					if write(snapshot) != nil {
+						return
+					}
 				}
 			}
 		}
 	}
+}
+
+func privateRPCPath(path string) bool {
+	for _, prefix := range []string{
+		"/api/v1/pairing/", "/api/v1/devices", "/api/v1/organizations",
+		"/api/v1/networks", "/api/v1/technicians", "/api/v1/admin/",
+	} {
+		if path == strings.TrimSuffix(prefix, "/") || strings.HasPrefix(path, prefix) {
+			return true
+		}
+	}
+	return false
 }
 
 // PairingContext expõe publicamente apenas os dados mínimos necessários para

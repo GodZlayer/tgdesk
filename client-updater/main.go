@@ -10,11 +10,11 @@ import (
 	"golang.org/x/sys/windows"
 )
 
-//go:embed payload/tgdevs-install-client.exe
+//go:embed payload/tgdesk-installer.exe
 var installer []byte
 
 func main() {
-	target := filepath.Join(os.TempDir(), "tgdesk-installer-0.2.4.exe")
+	target := filepath.Join(os.TempDir(), "tgdesk-installer-0.3.0.exe")
 	if err := os.WriteFile(target, installer, 0700); err != nil {
 		showError("Não foi possível preparar a atualização: " + err.Error())
 		return

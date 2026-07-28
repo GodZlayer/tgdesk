@@ -9,10 +9,6 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-
-	"golang.zx2c4.com/wireguard/conn"
-	"golang.zx2c4.com/wireguard/device"
-	"golang.zx2c4.com/wireguard/tun"
 )
 
 type technicianConfig struct {
@@ -21,11 +17,7 @@ type technicianConfig struct {
 }
 
 func technicianConfigPath() string {
-	exe, err := os.Executable()
-	if err != nil {
-		return "tgdesk-tunnel-config.json"
-	}
-	return filepath.Join(filepath.Dir(exe), "tgdesk-tunnel-config.json")
+	return filepath.Join(tgdeskDataDir(), "identity", "technician-vpn.json")
 }
 
 func loadTechnicianConfig() *technicianConfig {
@@ -121,38 +113,21 @@ func runTechnician(args []string) int {
 	saveTechnicianConfig(cfg)
 	log.Printf("túnel do técnico: IP virtual %s (hub %s em %s)", hubCfg.VirtualIP, hubCfg.HubVirtualIP, hubCfg.HubEndpoint)
 
-	tunDev, err := tun.CreateTUN("tgdesk-tech0", device.DefaultMTU)
-	if err != nil {
-		log.Printf("criar adaptador WireGuard (requer administrador na primeira vez): %v", err)
-		return 1
-	}
-	realName, _ := tunDev.Name()
-
-	logger := device.NewLogger(device.LogLevelError, "tgdesk-agent[tech]: ")
-	dev := device.NewDevice(tunDev, conn.NewDefaultBind(), logger)
-
 	hubPub, err := decodeBase64Key(hubCfg.HubPublicKey)
 	if err != nil {
 		log.Printf("chave do hub inválida: %v", err)
 		return 1
 	}
-	uapi := fmt.Sprintf(
-		"private_key=%s\npublic_key=%s\nendpoint=%s\nallowed_ip=%s/16\npersistent_keepalive_interval=25\n",
-		priv.hex(), hubPub.hex(), hubCfg.HubEndpoint, "10.70.0.0",
-	)
-	if err := dev.IpcSet(uapi); err != nil {
-		log.Printf("configurar peer do hub: %v", err)
-		return 1
-	}
-	if err := dev.Up(); err != nil {
-		log.Printf("subir interface: %v", err)
+	log.Println("criando adaptador WireGuardNT TGDesk-Tech")
+	if err := startWireGuardNT("TGDesk-Tech", tgdeskTechAdapterGUID, priv, hubPub, hubCfg.HubEndpoint); err != nil {
+		log.Printf("subir túnel WireGuardNT: %v", err)
 		return 1
 	}
 
-	if err := assignWindowsIP(realName, hubCfg.VirtualIP); err != nil {
-		log.Printf("aviso: configure o IP manualmente: netsh interface ip set address name=\"%s\" static %s 255.255.0.0", realName, hubCfg.VirtualIP)
+	if err := assignWindowsIP("TGDesk-Tech", hubCfg.VirtualIP); err != nil {
+		log.Printf("aviso: configure o IP manualmente: netsh interface ip set address name=\"TGDesk-Tech\" static %s 255.255.0.0", hubCfg.VirtualIP)
 	}
 
-	log.Println("túnel do técnico ativo — hbbs/hbbr agora alcançáveis pela VPN")
+	log.Println("túnel WireGuardNT do técnico ativo — hbbs/hbbr agora alcançáveis pela VPN")
 	select {}
 }

@@ -25,7 +25,7 @@ tgdesk-agent.exe technician --token X  # papel Técnico — chamado pelo Hub
 ## Como é distribuído (embutido, não solto)
 
 O `.exe` **não** vai solto na pasta do cliente. Ele é embutido no `tgdesk.exe`
-como asset Flutter (`flutter/assets/tgdesk-agent.bin` + `wintun.bin`) e
+como módulo nativo carregado pelo `tgdesk.exe`, junto do WireGuardNT oficial, e
 extraído em tempo de execução para `%LOCALAPPDATA%\TGDeskAgent`, de onde roda.
 Isso é o que faz o cliente instalado não ter um `tgdesk-agent.exe` avulso.
 Config (`tgdesk-agent.json`) e status (`tgdesk-status.json`) ficam nessa mesma
@@ -36,8 +36,8 @@ estado do agente não pode ir junto.
 Ao reembutir o agente após recompilar, copie-o para os assets:
 
 ```bash
-cp tgdesk-agent.exe ../client-rustdesk-src/flutter/assets/tgdesk-agent.bin
-cp wintun.dll       ../client-rustdesk-src/flutter/assets/wintun.bin
+cp tgdesk_agent.dll ../client-rustdesk-src/flutter/build/windows/x64/runner/Release/
+cp wireguard.dll    ../client-rustdesk-src/flutter/build/windows/x64/runner/Release/
 ```
 
 ## Recompilar
@@ -52,4 +52,4 @@ docker run --rm -v "<caminho>:/src" -w /src \
 isso, toda vez que o tgdesk.exe lança o agente (host ou technician), o
 Windows abre uma janela de console preta junto da UI bonita do Client/Hub.
 
-`wintun.dll` precisa estar na mesma pasta (usado pelos dois papéis).
+`wireguard.dll` precisa estar na mesma pasta e é usado pelos dois papéis.

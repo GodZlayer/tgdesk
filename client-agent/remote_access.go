@@ -53,7 +53,7 @@ func writeRustdeskOptions(rendezvousHost, rendezvousKey string) error {
 	if appData == "" {
 		return fmt.Errorf("variável de ambiente APPDATA vazia")
 	}
-	dir := filepath.Join(appData, "RustDesk", "config")
+	dir := filepath.Join(appData, "TGDesk", "config")
 	if err := os.MkdirAll(dir, 0700); err != nil {
 		return err
 	}
@@ -69,7 +69,7 @@ key = '%s'
 enable-file-transfer = 'Y'
 enable-file-copy-paste = 'Y'
 `, rendezvousHost, rendezvousKey)
-	return os.WriteFile(filepath.Join(dir, "RustDesk2.toml"), []byte(content), 0600)
+	return os.WriteFile(filepath.Join(dir, "TGDesk2.toml"), []byte(content), 0600)
 }
 
 // setupRemoteAccess points the RustDesk core (tgdesk.exe, já rodando desde o
