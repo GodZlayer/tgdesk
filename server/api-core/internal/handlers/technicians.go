@@ -30,6 +30,39 @@ func (s *Server) ListTechnicians(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, techs)
 }
 
+func (s *Server) ListTechnicianAssignments(w http.ResponseWriter, r *http.Request) {
+	rs, err := s.Pool.Query(r.Context(), `
+		SELECT a.id, a.technician_id, t.username,
+		       a.organization_id, coalesce(o.name, ''),
+		       a.network_id, coalesce(n.name, '')
+		FROM technician_assignments a
+		JOIN technicians t ON t.id=a.technician_id
+		LEFT JOIN networks n ON n.id=a.network_id
+		LEFT JOIN organizations o ON o.id=coalesce(a.organization_id, n.organization_id)
+		ORDER BY t.username, o.name, n.name`)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "falha ao listar atribuições")
+		return
+	}
+	defer rs.Close()
+	items := []map[string]any{}
+	for rs.Next() {
+		var id, technicianID, username, organizationName, networkName string
+		var organizationID, networkID *string
+		if err := rs.Scan(&id, &technicianID, &username, &organizationID,
+			&organizationName, &networkID, &networkName); err != nil {
+			writeErr(w, http.StatusInternalServerError, "falha ao ler atribuições")
+			return
+		}
+		items = append(items, map[string]any{
+			"id": id, "technician_id": technicianID, "technician_name": username,
+			"organization_id": organizationID, "organization_name": organizationName,
+			"network_id": networkID, "network_name": networkName,
+		})
+	}
+	writeJSON(w, http.StatusOK, items)
+}
+
 type createTechnicianRequest struct {
 	Name string `json:"name"`
 }
@@ -89,6 +122,16 @@ func (s *Server) CreateAssignment(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusCreated, a)
+}
+
+func (s *Server) DeleteTechnicianAssignment(w http.ResponseWriter, r *http.Request) {
+	tag, err := s.Pool.Exec(r.Context(),
+		`DELETE FROM technician_assignments WHERE id=$1`, r.PathValue("id"))
+	if err != nil || tag.RowsAffected() == 0 {
+		writeErr(w, http.StatusNotFound, "atribuição não encontrada")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
 }
 
 type technicianWGKeyRequest struct {

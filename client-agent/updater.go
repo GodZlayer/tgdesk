@@ -19,9 +19,22 @@ import (
 )
 
 const (
-	clientVersion  = "0.3.8"
-	privateAPIBase = "http://10.70.0.1:8080"
+	compiledClientVersion = "0.3.9"
+	privateAPIBase        = "http://10.70.0.1:8080"
 )
+
+func currentClientVersion() string {
+	exe, err := os.Executable()
+	if err == nil {
+		if raw, readErr := os.ReadFile(filepath.Join(filepath.Dir(exe), "version.txt")); readErr == nil {
+			if version := strings.TrimSpace(string(raw)); version != "" &&
+				len(version) <= 32 && !strings.ContainsAny(version, `/\`) {
+				return version
+			}
+		}
+	}
+	return compiledClientVersion
+}
 
 type updateInfo struct {
 	Version string `json:"version"`
@@ -58,7 +71,7 @@ func runManualUpdate() int {
 
 func runUpdateCheck() int {
 	client := &http.Client{Timeout: 15 * time.Second}
-	resp, _, err := getUpdate(client, "/api/v1/client/update?version="+clientVersion)
+	resp, _, err := getUpdate(client, "/api/v1/client/update?version="+currentClientVersion())
 	if err != nil {
 		fmt.Println(err.Error())
 		return 1
@@ -94,7 +107,7 @@ func checkAndInstallUpdate() (bool, error) {
 
 	metadataClient := &http.Client{Timeout: 15 * time.Second}
 	resp, apiBase, err := getUpdate(metadataClient,
-		"/api/v1/client/update?version="+clientVersion)
+		"/api/v1/client/update?version="+currentClientVersion())
 	if err != nil {
 		return false, err
 	}
@@ -126,7 +139,7 @@ func checkAndInstallUpdate() (bool, error) {
 
 func stageModularUpdate() (updating bool, requireInstaller bool, err error) {
 	client := &http.Client{Timeout: 30 * time.Second}
-	resp, apiBase, err := getUpdate(client, "/api/v1/client/modules?version="+clientVersion)
+	resp, apiBase, err := getUpdate(client, "/api/v1/client/modules?version="+currentClientVersion())
 	if err != nil {
 		return false, true, nil
 	}
@@ -184,15 +197,42 @@ func stageModularUpdate() (updating bool, requireInstaller bool, err error) {
 		}
 	}
 
-	cmd := exec.Command(exe,
-		"--tgdesk-apply-update",
-		"--staging", filepath.Dir(staging),
-		"--install-dir", installDir,
-		"--parent", fmt.Sprint(os.Getpid()))
-	if err := cmd.Start(); err != nil {
+	if err := launchStagedUpdaterElevated(
+		exe, filepath.Dir(staging), installDir, uint32(os.Getpid())); err != nil {
 		return false, false, err
 	}
 	return true, false, nil
+}
+
+func launchStagedUpdaterElevated(exe, staging, installDir string, parentPID uint32) error {
+	verb, err := syscall.UTF16PtrFromString("runas")
+	if err != nil {
+		return err
+	}
+	file, err := syscall.UTF16PtrFromString(exe)
+	if err != nil {
+		return err
+	}
+	quote := func(value string) string {
+		return `"` + strings.ReplaceAll(value, `"`, `\"`) + `"`
+	}
+	params, err := syscall.UTF16PtrFromString(strings.Join([]string{
+		"--tgdesk-apply-update",
+		"--staging", quote(staging),
+		"--install-dir", quote(installDir),
+		"--parent", fmt.Sprint(parentPID),
+	}, " "))
+	if err != nil {
+		return err
+	}
+	dir, err := syscall.UTF16PtrFromString(installDir)
+	if err != nil {
+		return err
+	}
+	if err := windows.ShellExecute(0, verb, file, params, dir, windows.SW_HIDE); err != nil {
+		return fmt.Errorf("não foi possível elevar a atualização modular: %w", err)
+	}
+	return nil
 }
 
 func getUpdate(client *http.Client, path string) (*http.Response, string, error) {

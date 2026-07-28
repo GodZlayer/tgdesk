@@ -63,7 +63,9 @@ func NewRouter(s *Server) http.Handler {
 	mux.Handle("POST /api/v1/networks", admin(s.CreateNetwork))
 	mux.Handle("GET /api/v1/technicians", admin(s.ListTechnicians))
 	mux.Handle("POST /api/v1/technicians", admin(s.CreateTechnician))
+	mux.Handle("GET /api/v1/technicians/assignments", admin(s.ListTechnicianAssignments))
 	mux.Handle("POST /api/v1/technicians/assignments", admin(s.CreateAssignment))
+	mux.Handle("DELETE /api/v1/technicians/assignments/{id}", admin(s.DeleteTechnicianAssignment))
 	mux.Handle("POST /api/v1/technicians/{id}/enrollment-key", admin(func(w http.ResponseWriter, r *http.Request) {
 		s.CreateTechnicianEnrollmentKey(w, r, r.PathValue("id"))
 	}))

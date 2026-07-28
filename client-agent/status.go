@@ -36,7 +36,7 @@ var updateState struct {
 func setServerUpdateVersion(version string) {
 	updateState.Lock()
 	updateState.version = version
-	updateState.available = version != "" && version != clientVersion
+	updateState.available = version != "" && version != currentClientVersion()
 	updateState.Unlock()
 }
 
@@ -46,7 +46,8 @@ func statusPath() string {
 
 func writeStatus(s tgdeskStatus) {
 	updateState.RLock()
-	s.UpdateAvailable = updateState.available
+	s.UpdateAvailable = updateState.version != "" &&
+		updateState.version != currentClientVersion()
 	s.UpdateVersion = updateState.version
 	updateState.RUnlock()
 	b, err := json.MarshalIndent(s, "", "  ")
