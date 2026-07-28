@@ -57,6 +57,9 @@ func NewRouter(s *Server) http.Handler {
 	mux.Handle("GET /api/v1/devices/{id}/health", private(auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.DeviceHealth(w, r, r.PathValue("id"))
 	}))))
+	mux.Handle("GET /api/v1/devices/{id}/remote-credential", private(auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.DeviceRemoteCredential(w, r, r.PathValue("id"))
+	}))))
 	mux.Handle("POST /api/v1/devices/{id}/wake", private(auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.WakeDevice(w, r, r.PathValue("id"))
 	}))))

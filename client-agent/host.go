@@ -25,6 +25,7 @@ type agentConfig struct {
 	RustdeskID       string `json:"rustdesk_id,omitempty"`
 	RendezvousHost   string `json:"rendezvous_host,omitempty"`
 	RendezvousPubkey string `json:"rendezvous_pubkey,omitempty"`
+	RemoteCredential string `json:"-"`
 	CoreExe          string `json:"core_exe,omitempty"`
 }
 
@@ -182,6 +183,7 @@ type wgKeyResponse struct {
 	HubVirtualIP     string `json:"hub_virtual_ip"`
 	RendezvousHost   string `json:"rendezvous_host"`
 	RendezvousPubkey string `json:"rendezvous_pubkey"`
+	RemoteCredential string `json:"remote_credential"`
 }
 
 func submitWGKey(cfg *agentConfig, pub wgKey) (*wgKeyResponse, error) {
@@ -411,6 +413,7 @@ func bringUpTunnel(cfg *agentConfig) error {
 	cfg.VirtualIP = hubCfg.VirtualIP
 	cfg.RendezvousHost = hubCfg.RendezvousHost
 	cfg.RendezvousPubkey = hubCfg.RendezvousPubkey
+	cfg.RemoteCredential = hubCfg.RemoteCredential
 	_ = saveConfig(cfg)
 
 	log.Printf("vinculado! IP virtual atribuído: %s (hub: %s em %s)", hubCfg.VirtualIP, hubCfg.HubVirtualIP, hubCfg.HubEndpoint)

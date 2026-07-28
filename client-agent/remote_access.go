@@ -66,6 +66,10 @@ trusted_devices = ''
 [options]
 custom-rendezvous-server = '%s'
 key = '%s'
+approve-mode = 'password'
+verification-method = 'use-permanent-password'
+access-mode = 'full'
+enable-keyboard = 'Y'
 enable-file-transfer = 'Y'
 enable-file-copy-paste = 'Y'
 `, rendezvousHost, rendezvousKey)
@@ -87,6 +91,16 @@ func setupRemoteAccess(cfg *agentConfig) error {
 	}
 	if err := writeRustdeskOptions(cfg.RendezvousHost, cfg.RendezvousPubkey); err != nil {
 		return fmt.Errorf("gravar config do RustDesk: %w", err)
+	}
+	if cfg.RemoteCredential == "" {
+		return fmt.Errorf("credencial automática de acesso remoto não recebida")
+	}
+	passwordCtx, passwordCancel := context.WithTimeout(context.Background(), 15*time.Second)
+	defer passwordCancel()
+	if output, setErr := exec.CommandContext(
+		passwordCtx, exePath, "--password", cfg.RemoteCredential).CombinedOutput(); setErr != nil {
+		return fmt.Errorf("configurar autorização automática: %w (%s)",
+			setErr, strings.TrimSpace(string(output)))
 	}
 	conn, err := net.DialTimeout("tcp", net.JoinHostPort(cfg.RendezvousHost, "21116"), 3*time.Second)
 	if err != nil {

@@ -2,7 +2,10 @@ package handlers
 
 import (
 	"context"
+	"crypto/hmac"
 	"crypto/rand"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -277,6 +280,13 @@ type wgKeyResponse struct {
 	HubVirtualIP     string `json:"hub_virtual_ip"`
 	RendezvousHost   string `json:"rendezvous_host"`
 	RendezvousPubkey string `json:"rendezvous_pubkey"`
+	RemoteCredential string `json:"remote_credential"`
+}
+
+func (s *Server) remoteCredential(deviceID, deviceToken string) string {
+	mac := hmac.New(sha256.New, []byte(s.Cfg.JWTSecret))
+	_, _ = mac.Write([]byte("tgdesk-remote:" + deviceID + ":" + deviceToken))
+	return base64.RawURLEncoding.EncodeToString(mac.Sum(nil))
 }
 
 // WGKey implements the wg-orchestrator peer registration (Seção 8.A / Fase 1):
@@ -345,6 +355,36 @@ func (s *Server) WGKey(w http.ResponseWriter, r *http.Request) {
 		HubVirtualIP:     "10.70.0.1",
 		RendezvousHost:   s.Cfg.RendezvousHost,
 		RendezvousPubkey: readRendezvousKey(s.Cfg.RendezvousKeyFile),
+		RemoteCredential: s.remoteCredential(req.DeviceID, req.DeviceToken),
+	})
+}
+
+func (s *Server) DeviceRemoteCredential(w http.ResponseWriter, r *http.Request, deviceID string) {
+	claims := middleware.ClaimsFrom(r.Context())
+	var organizationID, networkID, state, deviceToken string
+	err := s.Pool.QueryRow(r.Context(), `
+		SELECT n.organization_id,n.id,d.state,d.device_token FROM devices d
+		JOIN networks n ON n.id=d.network_id WHERE d.id=$1`, deviceID).
+		Scan(&organizationID, &networkID, &state, &deviceToken)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "dispositivo não encontrado")
+		return
+	}
+	if state != models.DeviceStateAtivo {
+		writeErr(w, http.StatusConflict, "dispositivo não está ativo")
+		return
+	}
+	if claims.Role != models.RoleSuperAdmin {
+		allowed, accessErr := s.technicianCanAccess(
+			r.Context(), claims.TechnicianID, organizationID, networkID)
+		if accessErr != nil || !allowed {
+			writeErr(w, http.StatusForbidden, "sem permissão para esse dispositivo")
+			return
+		}
+	}
+	s.audit(r, "acesso_remoto", deviceID)
+	writeJSON(w, http.StatusOK, map[string]string{
+		"credential": s.remoteCredential(deviceID, deviceToken),
 	})
 }
 
