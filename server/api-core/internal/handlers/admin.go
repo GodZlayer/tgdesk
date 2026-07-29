@@ -35,6 +35,20 @@ func (s *Server) removeHubPeerKey(pubkey *string) {
 	}
 }
 
+func (s *Server) canManageNetwork(r *http.Request, networkID string) bool {
+	claims := middleware.ClaimsFrom(r.Context())
+	if claims.Role == models.RoleSuperAdmin {
+		return true
+	}
+	var ownerID *string
+	if s.Pool.QueryRow(r.Context(),
+		`SELECT created_by_technician_id FROM networks WHERE id=$1`,
+		networkID).Scan(&ownerID) != nil {
+		return false
+	}
+	return ownerID != nil && *ownerID == claims.TechnicianID
+}
+
 // dropTechnicianHubPeer removes the technician's own private-network identity.
 func (s *Server) dropTechnicianHubPeer(technicianID string) {
 	if s.Hub == nil {
@@ -78,6 +92,10 @@ func (s *Server) SuspendDevice(w http.ResponseWriter, r *http.Request, id string
 
 // SuspendNetwork suspends every active device belonging to the network.
 func (s *Server) SuspendNetwork(w http.ResponseWriter, r *http.Request, id string) {
+	if !s.canManageNetwork(r, id) {
+		writeErr(w, http.StatusForbidden, "somente o criador da rede pode suspende-la")
+		return
+	}
 	if _, err := s.Pool.Exec(r.Context(), `UPDATE networks SET status='suspensa',
 		suspension_scope='network' WHERE id=$1`, id); err != nil {
 		writeErr(w, http.StatusInternalServerError, "falha ao suspender rede")
@@ -171,6 +189,10 @@ func (s *Server) ResumeTechnician(w http.ResponseWriter, r *http.Request, id str
 }
 
 func (s *Server) ResumeNetwork(w http.ResponseWriter, r *http.Request, id string) {
+	if !s.canManageNetwork(r, id) {
+		writeErr(w, http.StatusForbidden, "somente o criador da rede pode reativa-la")
+		return
+	}
 	var organizationStatus string
 	if err := s.Pool.QueryRow(r.Context(), `SELECT o.status FROM networks n
 		JOIN organizations o ON o.id=n.organization_id WHERE n.id=$1`, id).

@@ -7,10 +7,13 @@ import (
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
 	"os"
 	"strings"
+
+	"github.com/jackc/pgx/v5"
 
 	"tgdesk/api-core/internal/middleware"
 	"tgdesk/api-core/internal/models"
@@ -53,6 +56,33 @@ func (s *Server) RegisterDevice(w http.ResponseWriter, r *http.Request) {
 	role := req.Role
 	if role != "tecnico" {
 		role = "host"
+	}
+	req.MAC = strings.ToLower(strings.TrimSpace(req.MAC))
+
+	if req.MAC != "" {
+		var existing registerDeviceResponse
+		err := s.Pool.QueryRow(r.Context(), `
+			SELECT id,coalesce(pairing_code,''),device_token,state
+			FROM devices WHERE lower(btrim(mac))=$1
+			ORDER BY created_at LIMIT 1`, req.MAC).
+			Scan(&existing.DeviceID, &existing.PairingCode,
+				&existing.DeviceToken, &existing.State)
+		if err == nil {
+			if existing.State != models.DeviceStateGuest {
+				writeErr(w, http.StatusConflict,
+					"este computador já possui uma identidade TGDesk; restaure a identidade existente")
+				return
+			}
+			_, _ = s.Pool.Exec(r.Context(),
+				`UPDATE devices SET hostname=$1,role=$2,updated_at=now() WHERE id=$3`,
+				req.Hostname, role, existing.DeviceID)
+			writeJSON(w, http.StatusOK, existing)
+			return
+		}
+		if !errors.Is(err, pgx.ErrNoRows) {
+			writeErr(w, http.StatusInternalServerError, "falha ao consultar identidade do dispositivo")
+			return
+		}
 	}
 
 	code := genPairingCode(6)
@@ -157,6 +187,9 @@ func (s *Server) Bind(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, "código de pareamento inválido ou já usado")
 		return
 	}
+	_, _ = s.Pool.Exec(r.Context(), `
+		INSERT INTO device_networks(device_id,network_id) VALUES ($1,$2)
+		ON CONFLICT DO NOTHING`, deviceID, req.NetworkID)
 
 	detalhes, _ := json.Marshal(map[string]string{"network_id": req.NetworkID})
 	_, _ = s.Pool.Exec(r.Context(), `
@@ -208,6 +241,9 @@ func (s *Server) ListDevices(w http.ResponseWriter, r *http.Request) {
 		} else {
 			d.Presence = d.State
 		}
+		capabilities := presence.GetCapabilities(r.Context(), s.RDB, d.ID)
+		d.RemoteReady = capabilities.RemoteReady
+		d.FilesReady = capabilities.FilesReady
 		var raw []byte
 		if s.Pool.QueryRow(r.Context(), `SELECT hardware FROM telemetry_snapshots
 			WHERE device_id=$1 ORDER BY coletado_em DESC LIMIT 1`, d.ID).Scan(&raw) == nil {
@@ -223,6 +259,98 @@ func (s *Server) ListDevices(w http.ResponseWriter, r *http.Request) {
 
 type updateDeviceDisplayNameRequest struct {
 	DisplayName string `json:"display_name"`
+}
+
+func (s *Server) ClaimControlMachine(w http.ResponseWriter, r *http.Request, deviceID string) {
+	claims := middleware.ClaimsFrom(r.Context())
+	tag, err := s.Pool.Exec(r.Context(), `
+		UPDATE devices SET control_technician_id=$1,updated_at=now()
+		WHERE id=$2 AND state IN ('ativo','suspenso')`,
+		claims.TechnicianID, deviceID)
+	if err != nil || tag.RowsAffected() == 0 {
+		writeErr(w, http.StatusNotFound, "dispositivo de controle nao encontrado")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"id": deviceID, "control_machine": true})
+}
+
+type updateDeviceNetworksRequest struct {
+	NetworkIDs []string `json:"network_ids"`
+}
+
+func (s *Server) UpdateDeviceNetworks(w http.ResponseWriter, r *http.Request, deviceID string) {
+	claims := middleware.ClaimsFrom(r.Context())
+	var req updateDeviceNetworksRequest
+	if json.NewDecoder(r.Body).Decode(&req) != nil || len(req.NetworkIDs) == 0 {
+		writeErr(w, http.StatusBadRequest, "selecione ao menos uma rede")
+		return
+	}
+	var ownerID *string
+	if s.Pool.QueryRow(r.Context(),
+		`SELECT control_technician_id FROM devices WHERE id=$1`, deviceID).
+		Scan(&ownerID) != nil {
+		writeErr(w, http.StatusNotFound, "dispositivo nao encontrado")
+		return
+	}
+	if ownerID == nil {
+		writeErr(w, http.StatusForbidden, "apenas computadores Admin ou Tech podem participar de varias redes")
+		return
+	}
+	if claims.Role != models.RoleSuperAdmin && *ownerID != claims.TechnicianID {
+		writeErr(w, http.StatusForbidden, "sem permissao para alterar este computador de controle")
+		return
+	}
+	for _, networkID := range req.NetworkIDs {
+		var organizationID string
+		if s.Pool.QueryRow(r.Context(),
+			`SELECT organization_id FROM networks WHERE id=$1 AND status='ativa'`,
+			networkID).Scan(&organizationID) != nil {
+			writeErr(w, http.StatusBadRequest, "rede invalida ou suspensa")
+			return
+		}
+		if claims.Role != models.RoleSuperAdmin {
+			ok, err := s.technicianCanAccess(r.Context(), claims.TechnicianID,
+				organizationID, networkID)
+			if err != nil || !ok {
+				writeErr(w, http.StatusForbidden, "sem permissao para uma das redes")
+				return
+			}
+		}
+	}
+	tx, err := s.Pool.Begin(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "falha ao atualizar redes")
+		return
+	}
+	defer tx.Rollback(r.Context())
+	if _, err = tx.Exec(r.Context(),
+		`DELETE FROM device_networks WHERE device_id=$1`, deviceID); err != nil {
+		writeErr(w, http.StatusInternalServerError, "falha ao atualizar redes")
+		return
+	}
+	for _, networkID := range req.NetworkIDs {
+		if _, err = tx.Exec(r.Context(), `
+			INSERT INTO device_networks(device_id,network_id) VALUES ($1,$2)`,
+			deviceID, networkID); err != nil {
+			writeErr(w, http.StatusInternalServerError, "falha ao vincular rede")
+			return
+		}
+	}
+	if _, err = tx.Exec(r.Context(), `
+		UPDATE devices SET network_id=$1,updated_at=now() WHERE id=$2`,
+		req.NetworkIDs[0], deviceID); err != nil {
+		writeErr(w, http.StatusInternalServerError, "falha ao definir rede principal")
+		return
+	}
+	if err = tx.Commit(r.Context()); err != nil {
+		writeErr(w, http.StatusInternalServerError, "falha ao concluir redes")
+		return
+	}
+	_ = presence.Publish(r.Context(), s.RDB,
+		presence.Event{Type: "bind", TargetID: deviceID})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"id": deviceID, "network_ids": req.NetworkIDs,
+	})
 }
 
 // UpdateDeviceDisplayName altera apenas o nome visual usado pelo TGDesk.
@@ -361,11 +489,10 @@ func (s *Server) WGKey(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) DeviceRemoteCredential(w http.ResponseWriter, r *http.Request, deviceID string) {
 	claims := middleware.ClaimsFrom(r.Context())
-	var organizationID, networkID, state, deviceToken string
+	var state, deviceToken string
 	err := s.Pool.QueryRow(r.Context(), `
-		SELECT n.organization_id,n.id,d.state,d.device_token FROM devices d
-		JOIN networks n ON n.id=d.network_id WHERE d.id=$1`, deviceID).
-		Scan(&organizationID, &networkID, &state, &deviceToken)
+		SELECT state,device_token FROM devices WHERE id=$1`, deviceID).
+		Scan(&state, &deviceToken)
 	if err != nil {
 		writeErr(w, http.StatusNotFound, "dispositivo não encontrado")
 		return
@@ -375,8 +502,8 @@ func (s *Server) DeviceRemoteCredential(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 	if claims.Role != models.RoleSuperAdmin {
-		allowed, accessErr := s.technicianCanAccess(
-			r.Context(), claims.TechnicianID, organizationID, networkID)
+		allowed, accessErr := s.technicianCanAccessDevice(
+			r.Context(), claims.TechnicianID, deviceID)
 		if accessErr != nil || !allowed {
 			writeErr(w, http.StatusForbidden, "sem permissão para esse dispositivo")
 			return
@@ -449,4 +576,20 @@ func (s *Server) technicianCanAccess(ctx context.Context, technicianID, organiza
 		return false, err
 	}
 	return count > 0, nil
+}
+
+func (s *Server) technicianCanAccessDevice(
+	ctx context.Context, technicianID, deviceID string,
+) (bool, error) {
+	var allowed bool
+	err := s.Pool.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1
+			FROM device_networks dn
+			JOIN networks n ON n.id=dn.network_id
+			JOIN technician_assignments a ON a.technician_id=$1
+			  AND (a.organization_id=n.organization_id OR a.network_id=n.id)
+			WHERE dn.device_id=$2
+		)`, technicianID, deviceID).Scan(&allowed)
+	return allowed, err
 }

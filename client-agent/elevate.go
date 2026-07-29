@@ -11,6 +11,8 @@ import (
 	"golang.org/x/sys/windows"
 )
 
+var hostSingleton windows.Handle
+
 func appendAgentLog(format string, values ...any) {
 	logDir := filepath.Join(tgdeskDataDir(), "logs")
 	_ = os.MkdirAll(logDir, 0755)
@@ -70,6 +72,7 @@ func workingDir(exe string) string {
 }
 
 func elevateAndRestart() {
+	releaseHostSingleton()
 	fmt.Println("solicitando privilégio de administrador para instalar os módulos (janela do Windows vai aparecer)...")
 	if err := relaunchElevated(); err != nil {
 		fmt.Println("falha ao solicitar elevação:", err)
@@ -88,11 +91,18 @@ func acquireHostSingleton() bool {
 	if err != nil {
 		return true
 	}
-	_, err = windows.CreateMutex(nil, false, name)
+	hostSingleton, err = windows.CreateMutex(nil, false, name)
 	if err == windows.ERROR_ALREADY_EXISTS {
 		return false
 	}
 	return true
+}
+
+func releaseHostSingleton() {
+	if hostSingleton != 0 {
+		_ = windows.CloseHandle(hostSingleton)
+		hostSingleton = 0
+	}
 }
 
 func acquireTechnicianSingleton() bool {

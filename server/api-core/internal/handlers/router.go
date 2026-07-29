@@ -22,6 +22,13 @@ func NewRouter(s *Server) http.Handler {
 	mux.HandleFunc("POST /api/v1/devices/wg-key", s.WGKey)
 	mux.HandleFunc("GET /ws/control/device", s.DeviceControlWS)
 	mux.HandleFunc("GET /ws/control/technician", s.TechnicianControlWS)
+	// Recuperação do cliente: são artefatos públicos, somente leitura e
+	// verificados por SHA-256. Precisam continuar acessíveis quando a própria
+	// VPN está quebrada; caso contrário o atualizador não consegue repará-la.
+	mux.HandleFunc("GET /api/v1/client/update", s.ClientUpdate)
+	mux.HandleFunc("GET /api/v1/client/update/download", s.DownloadClientUpdate)
+	mux.HandleFunc("GET /api/v1/client/modules", s.ClientModuleManifest)
+	mux.HandleFunc("GET /api/v1/client/modules/{version}/{path...}", s.DownloadClientModule)
 
 	auth := middleware.RequireAuth(s.Cfg.JWTSecret)
 	private := func(h http.Handler) http.Handler {
@@ -47,12 +54,15 @@ func NewRouter(s *Server) http.Handler {
 	mux.Handle("PATCH /api/v1/devices/{id}/display-name", private(auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.UpdateDeviceDisplayName(w, r, r.PathValue("id"))
 	}))))
+	mux.Handle("POST /api/v1/devices/{id}/control-machine", private(auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.ClaimControlMachine(w, r, r.PathValue("id"))
+	}))))
+	mux.Handle("PUT /api/v1/devices/{id}/networks", private(auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.UpdateDeviceNetworks(w, r, r.PathValue("id"))
+	}))))
 	mux.Handle("GET /api/v1/organizations", private(auth(http.HandlerFunc(s.ListOrganizations))))
 	mux.Handle("GET /api/v1/networks", private(auth(http.HandlerFunc(s.ListNetworks))))
-	mux.Handle("GET /api/v1/client/update", private(http.HandlerFunc(s.ClientUpdate)))
-	mux.Handle("GET /api/v1/client/update/download", private(http.HandlerFunc(s.DownloadClientUpdate)))
-	mux.Handle("GET /api/v1/client/modules", private(http.HandlerFunc(s.ClientModuleManifest)))
-	mux.Handle("GET /api/v1/client/modules/{version}/{path...}", private(http.HandlerFunc(s.DownloadClientModule)))
+	mux.Handle("POST /api/v1/networks", private(auth(http.HandlerFunc(s.CreateNetwork))))
 	mux.Handle("POST /api/v1/technicians/wg-key", auth(http.HandlerFunc(s.TechnicianWGKey)))
 	mux.Handle("GET /api/v1/devices/{id}/health", private(auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.DeviceHealth(w, r, r.PathValue("id"))
@@ -63,10 +73,18 @@ func NewRouter(s *Server) http.Handler {
 	mux.Handle("POST /api/v1/devices/{id}/wake", private(auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.WakeDevice(w, r, r.PathValue("id"))
 	}))))
+	mux.Handle("POST /api/v1/networks/{id}/suspend", private(auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.SuspendNetwork(w, r, r.PathValue("id"))
+	}))))
+	mux.Handle("POST /api/v1/networks/{id}/resume", private(auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.ResumeNetwork(w, r, r.PathValue("id"))
+	}))))
+	mux.Handle("DELETE /api/v1/networks/{id}", private(auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.DeleteNetwork(w, r, r.PathValue("id"))
+	}))))
 
 	// Somente Super Admin.
 	mux.Handle("POST /api/v1/organizations", admin(s.CreateOrganization))
-	mux.Handle("POST /api/v1/networks", admin(s.CreateNetwork))
 	mux.Handle("GET /api/v1/technicians", admin(s.ListTechnicians))
 	mux.Handle("POST /api/v1/technicians", admin(s.CreateTechnician))
 	mux.Handle("GET /api/v1/technicians/assignments", admin(s.ListTechnicianAssignments))
@@ -76,15 +94,15 @@ func NewRouter(s *Server) http.Handler {
 		s.CreateTechnicianEnrollmentKey(w, r, r.PathValue("id"))
 	}))
 	mux.Handle("GET /api/v1/admin/audit", admin(s.ListAuditLog))
+	mux.Handle("DELETE /api/v1/admin/guest-devices/{id}", admin(func(w http.ResponseWriter, r *http.Request) {
+		s.DeleteGuestDevice(w, r, r.PathValue("id"))
+	}))
 
 	mux.Handle("POST /api/v1/admin/suspend/technician/{id}", admin(func(w http.ResponseWriter, r *http.Request) {
 		s.SuspendTechnician(w, r, r.PathValue("id"))
 	}))
 	mux.Handle("POST /api/v1/admin/suspend/device/{id}", admin(func(w http.ResponseWriter, r *http.Request) {
 		s.SuspendDevice(w, r, r.PathValue("id"))
-	}))
-	mux.Handle("POST /api/v1/admin/suspend/network/{id}", admin(func(w http.ResponseWriter, r *http.Request) {
-		s.SuspendNetwork(w, r, r.PathValue("id"))
 	}))
 	mux.Handle("POST /api/v1/admin/suspend/organization/{id}", admin(func(w http.ResponseWriter, r *http.Request) {
 		s.SuspendOrganization(w, r, r.PathValue("id"))
@@ -95,18 +113,12 @@ func NewRouter(s *Server) http.Handler {
 	mux.Handle("POST /api/v1/admin/resume/technician/{id}", admin(func(w http.ResponseWriter, r *http.Request) {
 		s.ResumeTechnician(w, r, r.PathValue("id"))
 	}))
-	mux.Handle("POST /api/v1/admin/resume/network/{id}", admin(func(w http.ResponseWriter, r *http.Request) {
-		s.ResumeNetwork(w, r, r.PathValue("id"))
-	}))
 	mux.Handle("POST /api/v1/admin/resume/organization/{id}", admin(func(w http.ResponseWriter, r *http.Request) {
 		s.ResumeOrganization(w, r, r.PathValue("id"))
 	}))
 
 	mux.Handle("DELETE /api/v1/technicians/{id}", admin(func(w http.ResponseWriter, r *http.Request) {
 		s.DeleteTechnician(w, r, r.PathValue("id"))
-	}))
-	mux.Handle("DELETE /api/v1/networks/{id}", admin(func(w http.ResponseWriter, r *http.Request) {
-		s.DeleteNetwork(w, r, r.PathValue("id"))
 	}))
 	mux.Handle("DELETE /api/v1/organizations/{id}", admin(func(w http.ResponseWriter, r *http.Request) {
 		s.DeleteOrganization(w, r, r.PathValue("id"))

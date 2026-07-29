@@ -26,7 +26,7 @@ quando forem construídos.
 
 ```bash
 cd server
-cp .env.example .env   # ajuste JWT_SECRET, TECH_USERS, TECH_ASSIGN, SEED_ORGANIZATIONS
+cp .env.example .env   # ajuste JWT_SECRET; seed demonstrativo fica desativado
 docker compose up -d --build
 docker compose logs -f api-core
 ```

@@ -23,6 +23,7 @@ type tgdeskStatus struct {
 	FilesReady      bool             `json:"files_ready"`
 	RemoteError     string           `json:"remote_error,omitempty"`
 	FilesError      string           `json:"files_error,omitempty"`
+	CurrentVersion  string           `json:"current_version"`
 	UpdateAvailable bool             `json:"update_available"`
 	UpdateVersion   string           `json:"update_version,omitempty"`
 }
@@ -45,6 +46,7 @@ func statusPath() string {
 }
 
 func writeStatus(s tgdeskStatus) {
+	s.CurrentVersion = currentClientVersion()
 	updateState.RLock()
 	s.UpdateAvailable = updateState.version != "" &&
 		updateState.version != currentClientVersion()

@@ -20,8 +20,9 @@ import (
 )
 
 const (
-	compiledClientVersion = "0.3.23"
+	compiledClientVersion = "0.3.36"
 	privateAPIBase        = "http://10.70.0.1:8080"
+	recoveryAPIBase       = "http://168.232.199.161:8090"
 )
 
 func currentClientVersion() string {
@@ -251,7 +252,19 @@ func launchStagedUpdaterElevated(exe, staging, installDir string, parentPID uint
 
 func getUpdate(client *http.Client, path string) (*http.Response, string, error) {
 	resp, err := client.Get(privateAPIBase + path)
-	return resp, privateAPIBase, err
+	if err == nil {
+		return resp, privateAPIBase, nil
+	}
+	// Atualização é também o mecanismo de recuperação da VPN. Quando o
+	// gateway privado não existe, consulta o mesmo pacote somente-leitura
+	// pelo endpoint público inicial.
+	resp, recoveryErr := client.Get(recoveryAPIBase + path)
+	if recoveryErr != nil {
+		return nil, "", fmt.Errorf(
+			"atualização indisponível pela VPN (%v) e pela recuperação pública (%v)",
+			err, recoveryErr)
+	}
+	return resp, recoveryAPIBase, nil
 }
 
 func safeModulePath(path string) bool {

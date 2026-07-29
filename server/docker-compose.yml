@@ -37,6 +37,7 @@ services:
       TECH_USERS: ${TECH_USERS:-}
       TECH_ASSIGN: ${TECH_ASSIGN:-}
       SEED_ORGANIZATIONS: ${SEED_ORGANIZATIONS:-}
+      ENABLE_DEMO_SEED: ${ENABLE_DEMO_SEED:-false}
       FORCE_RESEED: ${FORCE_RESEED:-false}
       HUB_LISTEN_PORT: "51820"
       HUB_CIDR: "10.70.0.1/16"
@@ -79,7 +80,7 @@ services:
     build:
       context: .
       dockerfile: rendezvous.Dockerfile
-    command: ["/usr/local/bin/hbbs", "-r", "127.0.0.1:21117"]
+    command: ["/usr/local/bin/hbbs", "-r", "10.70.0.1:21117"]
     volumes:
       - tgdesk_hbbs_data:/data
     network_mode: "service:api-core"

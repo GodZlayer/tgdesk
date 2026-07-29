@@ -6,6 +6,8 @@ import (
 	"encoding/binary"
 	"fmt"
 	"net"
+	"os"
+	"path/filepath"
 	"runtime"
 	"sync"
 	"unsafe"
@@ -77,7 +79,7 @@ func stopWireGuardNT(name string) error {
 }
 
 var (
-	wgNTDLL              = windows.NewLazyDLL("wireguard.dll")
+	wgNTDLL              = windows.NewLazyDLL(wireGuardNTDLLPath())
 	wgNTCreateAdapter    = wgNTDLL.NewProc("WireGuardCreateAdapter")
 	wgNTOpenAdapter      = wgNTDLL.NewProc("WireGuardOpenAdapter")
 	wgNTSetConfiguration = wgNTDLL.NewProc("WireGuardSetConfiguration")
@@ -85,6 +87,14 @@ var (
 	wgNTHandlesMu        sync.Mutex
 	wgNTHandles          []uintptr
 )
+
+func wireGuardNTDLLPath() string {
+	executable, err := os.Executable()
+	if err != nil {
+		return "wireguard.dll"
+	}
+	return filepath.Join(filepath.Dir(executable), "wireguard.dll")
+}
 
 func appendNativeStruct[T any](dst []byte, value *T) []byte {
 	return append(dst, unsafe.Slice((*byte)(unsafe.Pointer(value)), unsafe.Sizeof(*value))...)

@@ -47,7 +47,7 @@ func runDeviceControlLoop(cfg *agentConfig, remoteReady bool) error {
 				default:
 				}
 			}
-			if msg.Type == "ready" || msg.Type == "update_available" {
+			if msg.Version != "" {
 				setServerUpdateVersion(msg.Version)
 			}
 			if msg.State == "suspenso" {
@@ -59,8 +59,10 @@ func runDeviceControlLoop(cfg *agentConfig, remoteReady bool) error {
 
 	heartbeatTick := time.NewTicker(5 * time.Second)
 	telemetryTick := time.NewTicker(30 * time.Second)
+	remoteRetryTick := time.NewTicker(15 * time.Second)
 	defer heartbeatTick.Stop()
 	defer telemetryTick.Stop()
+	defer remoteRetryTick.Stop()
 
 	sendHeartbeat := func() error {
 		return conn.WriteJSON(deviceControlMessage{
@@ -84,12 +86,14 @@ func runDeviceControlLoop(cfg *agentConfig, remoteReady bool) error {
 	var hardware HardwareSnapshot
 	var statistics any
 	var collectedAt string
+	var remoteError string
 	writeCurrentStatus := func() {
 		writeStatus(tgdeskStatus{
 			State: "ativo", Hostname: localHostname(), DeviceID: cfg.DeviceID,
 			VirtualIP: cfg.VirtualIP, RustdeskID: cfg.RustdeskID, TunnelUp: true,
 			Hardware: hardware, Statistics: statistics, CollectedAt: collectedAt,
 			RemoteReady: remoteReady, FilesReady: remoteReady,
+			RemoteError: remoteError,
 		})
 	}
 	for {
@@ -103,6 +107,25 @@ func runDeviceControlLoop(cfg *agentConfig, remoteReady bool) error {
 				return err
 			}
 			writeCurrentStatus()
+		case <-remoteRetryTick.C:
+			if !remoteReady {
+				if err := setupRemoteAccess(cfg); err != nil {
+					remoteError = err.Error()
+				} else {
+					remoteReady = true
+					remoteError = ""
+					if cfg.RustdeskID != "" {
+						_ = conn.WriteJSON(deviceControlMessage{
+							Type:    "rustdesk_status",
+							Payload: map[string]string{"rustdesk_id": cfg.RustdeskID},
+						})
+					}
+					if err := sendHeartbeat(); err != nil {
+						return err
+					}
+				}
+				writeCurrentStatus()
+			}
 		case <-telemetryTick.C:
 			hardware = collectHardwareSnapshot()
 			collectedAt = time.Now().UTC().Format(time.RFC3339)

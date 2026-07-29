@@ -141,7 +141,7 @@ func registerDevice() (*agentConfig, error) {
 	if err != nil {
 		return nil, err
 	}
-	if status != http.StatusCreated {
+	if status != http.StatusCreated && status != http.StatusOK {
 		return nil, fmt.Errorf("registro falhou (status %d)", status)
 	}
 	fmt.Println("========================================================")
@@ -207,6 +207,12 @@ func submitWGKey(cfg *agentConfig, pub wgKey) (*wgKeyResponse, error) {
 // 10.70.2.x+), acesso remoto e telemetria.
 func runHost(args []string) {
 	log.SetFlags(0)
+	logDir := filepath.Join(tgdeskDataDir(), "logs")
+	_ = os.MkdirAll(logDir, 0755)
+	if logFile, err := os.OpenFile(filepath.Join(logDir, "host.log"),
+		os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644); err == nil {
+		log.SetOutput(logFile)
+	}
 	// --server define o endereço do plano de controle (passado pelo tgdesk.exe).
 	for i := 0; i < len(args); i++ {
 		if args[i] == "--server" && i+1 < len(args) {
@@ -267,20 +273,19 @@ func runHost(args []string) {
 						RemoteError: err.Error(),
 						FilesError:  "aguardando o módulo de acesso remoto privado",
 					})
-					time.Sleep(2 * time.Second)
-					continue
+				} else {
+					remoteReady = true
+					writeStatus(tgdeskStatus{
+						State:       "ativo",
+						Hostname:    localHostname(),
+						DeviceID:    cfg.DeviceID,
+						VirtualIP:   cfg.VirtualIP,
+						RustdeskID:  cfg.RustdeskID,
+						TunnelUp:    true,
+						RemoteReady: true,
+						FilesReady:  true,
+					})
 				}
-				remoteReady = true
-				writeStatus(tgdeskStatus{
-					State:       "ativo",
-					Hostname:    localHostname(),
-					DeviceID:    cfg.DeviceID,
-					VirtualIP:   cfg.VirtualIP,
-					RustdeskID:  cfg.RustdeskID,
-					TunnelUp:    true,
-					RemoteReady: true,
-					FilesReady:  true,
-				})
 			}
 			if err := runDeviceControlLoop(cfg, remoteReady); err != nil {
 				privateFailures++
@@ -347,6 +352,16 @@ func runHost(args []string) {
 			if !tunnelUp {
 				if err := bringUpTunnel(cfg); err != nil {
 					log.Printf("falha ao subir túnel WireGuard: %v", err)
+					writeStatus(tgdeskStatus{
+						State:       state,
+						PairingCode: cfg.PairingCode,
+						Hostname:    localHostname(),
+						DeviceID:    cfg.DeviceID,
+						VirtualIP:   cfg.VirtualIP,
+						RustdeskID:  cfg.RustdeskID,
+						TunnelUp:    false,
+						Error:       "Falha ao iniciar a rede TGDesk: " + err.Error(),
+					})
 				} else {
 					tunnelUp = true
 				}

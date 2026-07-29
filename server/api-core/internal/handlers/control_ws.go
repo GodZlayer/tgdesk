@@ -85,6 +85,8 @@ func (s *Server) DeviceControlWS(w http.ResponseWriter, r *http.Request) {
 		}
 		switch msg.Type {
 		case "heartbeat":
+			var capabilities presence.Capabilities
+			_ = json.Unmarshal(msg.Payload, &capabilities)
 			if err := s.Pool.QueryRow(r.Context(),
 				`SELECT state FROM devices WHERE id=$1`, deviceID).Scan(&state); err != nil {
 				return
@@ -92,10 +94,18 @@ func (s *Server) DeviceControlWS(w http.ResponseWriter, r *http.Request) {
 			_, _ = s.Pool.Exec(r.Context(),
 				`UPDATE devices SET last_seen_at=now() WHERE id=$1`, deviceID)
 			_ = presence.Heartbeat(r.Context(), s.RDB, deviceID)
+			_ = presence.SetCapabilities(r.Context(), s.RDB, deviceID, capabilities)
 			_ = presence.Publish(r.Context(), s.RDB,
 				presence.Event{Type: "presence", TargetID: deviceID,
-					Payload: map[string]any{"presence": "online"}})
-			_ = conn.WriteJSON(map[string]any{"type": "heartbeat_ack", "state": state})
+					Payload: map[string]any{
+						"presence":     "online",
+						"remote_ready": capabilities.RemoteReady,
+						"files_ready":  capabilities.FilesReady,
+					}})
+			_ = conn.WriteJSON(map[string]any{
+				"type": "heartbeat_ack", "state": state,
+				"version": os.Getenv("CLIENT_VERSION"),
+			})
 			if state != models.DeviceStateAtivo {
 				return
 			}
@@ -282,15 +292,15 @@ func (s *Server) PairingContext(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) controlSnapshot(ctx context.Context, technicianID, role string) (map[string]any, error) {
-	orgQuery := `SELECT id,name,status,created_at FROM organizations ORDER BY created_at`
-	netQuery := `SELECT id,organization_id,name,coalesce(cidr_virtual,''),status,created_at FROM networks ORDER BY created_at`
-	devQuery := `SELECT id,network_id,hostname,coalesce(display_name,''),coalesce(mac,''),coalesce(wg_pubkey,''),role,state,last_seen_at,created_at,updated_at,coalesce(rustdesk_id,'') FROM devices ORDER BY created_at DESC`
+	orgQuery := `SELECT id,name,status,owner_technician_id,created_at FROM organizations ORDER BY created_at`
+	netQuery := `SELECT id,organization_id,name,coalesce(cidr_virtual,''),status,created_by_technician_id,created_at FROM networks ORDER BY created_at`
+	devQuery := `SELECT d.id,d.network_id,coalesce((SELECT array_agg(dn.network_id::text ORDER BY dn.created_at) FROM device_networks dn WHERE dn.device_id=d.id),ARRAY[]::text[]),d.hostname,coalesce(d.display_name,''),coalesce(d.mac,''),coalesce(d.wg_pubkey,''),d.role,d.state,d.last_seen_at,d.created_at,d.updated_at,coalesce(d.rustdesk_id,'') FROM devices d ORDER BY d.created_at DESC`
 	args := []any{}
 	if role != models.RoleSuperAdmin {
 		args = []any{technicianID}
-		orgQuery = `SELECT DISTINCT o.id,o.name,o.status,o.created_at FROM organizations o LEFT JOIN networks n ON n.organization_id=o.id WHERE o.id IN (SELECT organization_id FROM technician_assignments WHERE technician_id=$1 AND organization_id IS NOT NULL) OR n.id IN (SELECT network_id FROM technician_assignments WHERE technician_id=$1 AND network_id IS NOT NULL) ORDER BY o.created_at`
-		netQuery = `SELECT id,organization_id,name,coalesce(cidr_virtual,''),status,created_at FROM networks WHERE organization_id IN (SELECT organization_id FROM technician_assignments WHERE technician_id=$1 AND organization_id IS NOT NULL) OR id IN (SELECT network_id FROM technician_assignments WHERE technician_id=$1 AND network_id IS NOT NULL) ORDER BY created_at`
-		devQuery = `SELECT d.id,d.network_id,d.hostname,coalesce(d.display_name,''),coalesce(d.mac,''),coalesce(d.wg_pubkey,''),d.role,d.state,d.last_seen_at,d.created_at,d.updated_at,coalesce(d.rustdesk_id,'') FROM devices d JOIN networks n ON d.network_id=n.id WHERE n.organization_id IN (SELECT organization_id FROM technician_assignments WHERE technician_id=$1 AND organization_id IS NOT NULL) OR n.id IN (SELECT network_id FROM technician_assignments WHERE technician_id=$1 AND network_id IS NOT NULL) ORDER BY d.created_at DESC`
+		orgQuery = `SELECT DISTINCT o.id,o.name,o.status,o.owner_technician_id,o.created_at FROM organizations o LEFT JOIN networks n ON n.organization_id=o.id WHERE o.id IN (SELECT organization_id FROM technician_assignments WHERE technician_id=$1 AND organization_id IS NOT NULL) OR n.id IN (SELECT network_id FROM technician_assignments WHERE technician_id=$1 AND network_id IS NOT NULL) ORDER BY o.created_at`
+		netQuery = `SELECT id,organization_id,name,coalesce(cidr_virtual,''),status,created_by_technician_id,created_at FROM networks WHERE organization_id IN (SELECT organization_id FROM technician_assignments WHERE technician_id=$1 AND organization_id IS NOT NULL) OR id IN (SELECT network_id FROM technician_assignments WHERE technician_id=$1 AND network_id IS NOT NULL) ORDER BY created_at`
+		devQuery = `SELECT DISTINCT d.id,d.network_id,coalesce((SELECT array_agg(dn2.network_id::text ORDER BY dn2.created_at) FROM device_networks dn2 WHERE dn2.device_id=d.id),ARRAY[]::text[]),d.hostname,coalesce(d.display_name,''),coalesce(d.mac,''),coalesce(d.wg_pubkey,''),d.role,d.state,d.last_seen_at,d.created_at,d.updated_at,coalesce(d.rustdesk_id,'') FROM devices d JOIN device_networks dn ON dn.device_id=d.id JOIN networks n ON dn.network_id=n.id WHERE n.organization_id IN (SELECT organization_id FROM technician_assignments WHERE technician_id=$1 AND organization_id IS NOT NULL) OR n.id IN (SELECT network_id FROM technician_assignments WHERE technician_id=$1 AND network_id IS NOT NULL) ORDER BY d.created_at DESC`
 	}
 	orgs := []models.Organization{}
 	rows, err := s.Pool.Query(ctx, orgQuery, args...)
@@ -299,7 +309,9 @@ func (s *Server) controlSnapshot(ctx context.Context, technicianID, role string)
 	}
 	for rows.Next() {
 		var o models.Organization
-		if rows.Scan(&o.ID, &o.Name, &o.Status, &o.CreatedAt) == nil {
+		if rows.Scan(&o.ID, &o.Name, &o.Status, &o.OwnerTechnicianID, &o.CreatedAt) == nil {
+			o.CanManage = role == models.RoleSuperAdmin ||
+				(o.OwnerTechnicianID != nil && *o.OwnerTechnicianID == technicianID)
 			orgs = append(orgs, o)
 		}
 	}
@@ -311,7 +323,9 @@ func (s *Server) controlSnapshot(ctx context.Context, technicianID, role string)
 	}
 	for rows.Next() {
 		var n models.Network
-		if rows.Scan(&n.ID, &n.OrganizationID, &n.Name, &n.CIDRVirtual, &n.Status, &n.CreatedAt) == nil {
+		if rows.Scan(&n.ID, &n.OrganizationID, &n.Name, &n.CIDRVirtual, &n.Status, &n.CreatedBy, &n.CreatedAt) == nil {
+			n.CanManage = role == models.RoleSuperAdmin ||
+				(n.CreatedBy != nil && *n.CreatedBy == technicianID)
 			nets = append(nets, n)
 		}
 	}
@@ -323,7 +337,7 @@ func (s *Server) controlSnapshot(ctx context.Context, technicianID, role string)
 	}
 	for rows.Next() {
 		var d models.Device
-		if rows.Scan(&d.ID, &d.NetworkID, &d.Hostname, &d.DisplayName, &d.MAC, &d.WGPubkey, &d.Role, &d.State, &d.LastSeenAt, &d.CreatedAt, &d.UpdatedAt, &d.RustdeskID) == nil {
+		if rows.Scan(&d.ID, &d.NetworkID, &d.NetworkIDs, &d.Hostname, &d.DisplayName, &d.MAC, &d.WGPubkey, &d.Role, &d.State, &d.LastSeenAt, &d.CreatedAt, &d.UpdatedAt, &d.RustdeskID) == nil {
 			if d.State == models.DeviceStateAtivo && presence.IsOnline(ctx, s.RDB, d.ID) {
 				d.Presence = "online"
 			} else if d.State == models.DeviceStateAtivo {
@@ -331,6 +345,9 @@ func (s *Server) controlSnapshot(ctx context.Context, technicianID, role string)
 			} else {
 				d.Presence = d.State
 			}
+			capabilities := presence.GetCapabilities(ctx, s.RDB, d.ID)
+			d.RemoteReady = capabilities.RemoteReady
+			d.FilesReady = capabilities.FilesReady
 			var raw []byte
 			if s.Pool.QueryRow(ctx, `SELECT hardware FROM telemetry_snapshots
 				WHERE device_id=$1 ORDER BY coletado_em DESC LIMIT 1`, d.ID).Scan(&raw) == nil {

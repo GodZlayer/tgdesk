@@ -15,7 +15,7 @@ import (
 // and optional demo organizations/networks (SEED_ORGANIZATIONS) from env vars.
 // It is idempotent: existing usernames are left untouched unless ForceReseed is set.
 func Run(ctx context.Context, pool *pgxpool.Pool, cfg config.Config) error {
-	if cfg.SeedOrgs != "" {
+	if cfg.EnableDemoSeed && cfg.SeedOrgs != "" {
 		if err := seedOrganizations(ctx, pool, cfg.SeedOrgs); err != nil {
 			return err
 		}

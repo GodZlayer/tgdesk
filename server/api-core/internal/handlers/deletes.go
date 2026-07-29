@@ -71,16 +71,53 @@ func (s *Server) DeleteTechnician(w http.ResponseWriter, r *http.Request, id str
 	writeJSON(w, http.StatusOK, map[string]string{"status": "apagado"})
 }
 
+// DeleteGuestDevice rejects a pending pairing request. It deliberately refuses
+// active or suspended devices so this action cannot remove an already managed
+// computer by mistake.
+func (s *Server) DeleteGuestDevice(w http.ResponseWriter, r *http.Request, id string) {
+	tag, err := s.Pool.Exec(r.Context(),
+		`DELETE FROM devices WHERE id=$1 AND state='guest'`, id)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "falha ao recusar dispositivo")
+		return
+	}
+	if tag.RowsAffected() == 0 {
+		writeErr(w, http.StatusConflict,
+			"dispositivo não encontrado ou já vinculado")
+		return
+	}
+	_ = presence.Clear(r.Context(), s.RDB, id)
+	s.audit(r, "recusar_dispositivo_guest", id)
+	_ = presence.Publish(r.Context(), s.RDB,
+		presence.Event{Type: "guest_rejected", TargetID: id})
+	writeJSON(w, http.StatusOK, map[string]string{"status": "recusado"})
+}
+
 // DeleteNetwork removes the network. Devices under it are kept (history,
 // telemetry) but detached — network_id is set to NULL via FK (ON DELETE
 // SET NULL) instead of being deleted along with the network.
 func (s *Server) DeleteNetwork(w http.ResponseWriter, r *http.Request, id string) {
+	if !s.canManageNetwork(r, id) {
+		writeErr(w, http.StatusForbidden, "somente o criador da rede pode apaga-la")
+		return
+	}
 	tx, err := s.Pool.Begin(r.Context())
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "falha ao iniciar exclusão")
 		return
 	}
 	defer tx.Rollback(r.Context())
+	if _, err := tx.Exec(r.Context(), `
+		UPDATE devices d SET network_id=(
+			SELECT dn.network_id FROM device_networks dn
+			WHERE dn.device_id=d.id AND dn.network_id<>$1
+			ORDER BY dn.created_at LIMIT 1)
+		WHERE d.network_id=$1 AND EXISTS (
+			SELECT 1 FROM device_networks dn
+			WHERE dn.device_id=d.id AND dn.network_id<>$1)`, id); err != nil {
+		writeErr(w, http.StatusInternalServerError, "falha ao preservar vinculos alternativos")
+		return
+	}
 	deviceIDs, err := s.resetDevicesForPairing(r.Context(), tx,
 		`SELECT id,wg_pubkey FROM devices WHERE network_id=$1 FOR UPDATE`, id)
 	if err != nil {
@@ -117,6 +154,20 @@ func (s *Server) DeleteOrganization(w http.ResponseWriter, r *http.Request, id s
 		return
 	}
 	defer tx.Rollback(r.Context())
+	if _, err := tx.Exec(r.Context(), `
+		UPDATE devices d SET network_id=(
+			SELECT dn.network_id FROM device_networks dn
+			JOIN networks n ON n.id=dn.network_id
+			WHERE dn.device_id=d.id AND n.organization_id<>$1
+			ORDER BY dn.created_at LIMIT 1)
+		WHERE d.network_id IN (SELECT id FROM networks WHERE organization_id=$1)
+		  AND EXISTS (
+			SELECT 1 FROM device_networks dn
+			JOIN networks n ON n.id=dn.network_id
+			WHERE dn.device_id=d.id AND n.organization_id<>$1)`, id); err != nil {
+		writeErr(w, http.StatusInternalServerError, "falha ao preservar vinculos alternativos")
+		return
+	}
 	deviceIDs, err := s.resetDevicesForPairing(r.Context(), tx, `
 		SELECT id,wg_pubkey FROM devices WHERE network_id IN
 		(SELECT id FROM networks WHERE organization_id=$1) FOR UPDATE`, id)

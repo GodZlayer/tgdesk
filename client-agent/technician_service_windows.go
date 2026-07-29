@@ -103,10 +103,28 @@ func runTechnicianService(serverURL string) int {
 		appendAgentLog("vpn-service: renovar sessão: %v; nova tentativa em 10s", err)
 		time.Sleep(10 * time.Second)
 	}
-	// O Host cria primeiro o adaptador usado pelo próprio computador. Isso
-	// também faz a aba Cliente sair do código de pareamento antes de iniciar
-	// o segundo adaptador exclusivo do modo Admin/Tech.
-	time.Sleep(8 * time.Second)
+	// O túnel Admin/Tech é secundário. Ele não deve disputar rotas nem o
+	// driver enquanto o túnel principal do dispositivo ainda está nascendo.
+	lastWaitingLog := time.Time{}
+	for {
+		var status struct {
+			State    string `json:"state"`
+			TunnelUp bool   `json:"tunnel_up"`
+		}
+		statusFile, readErr := os.Open(statusPath())
+		if readErr == nil {
+			decodeErr := json.NewDecoder(statusFile).Decode(&status)
+			_ = statusFile.Close()
+			if decodeErr == nil && status.State == "ativo" && status.TunnelUp {
+				break
+			}
+		}
+		if time.Since(lastWaitingLog) >= 30*time.Second {
+			appendAgentLog("vpn-service: aguardando o túnel principal do dispositivo")
+			lastWaitingLog = time.Now()
+		}
+		time.Sleep(2 * time.Second)
+	}
 	appendAgentLog("vpn-service: iniciando túnel Admin/Tech")
 	return runTechnician([]string{"--server", serverURL, "--token", token})
 }

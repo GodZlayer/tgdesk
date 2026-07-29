@@ -78,14 +78,44 @@ func (s *Server) CreateTechnician(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "nome é obrigatório")
 		return
 	}
+	tx, err := s.Pool.Begin(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "falha ao criar tecnico")
+		return
+	}
+	defer tx.Rollback(r.Context())
 	var t models.Technician
-	err := s.Pool.QueryRow(r.Context(), `
+	err = tx.QueryRow(r.Context(), `
 		INSERT INTO technicians (username, password_hash, role, created_via_env) VALUES ($1, $2, $3, false)
 		RETURNING id, username, role, created_via_env, status, created_at`,
 		req.Name, "!key-only!", models.RoleTecnico,
 	).Scan(&t.ID, &t.Username, &t.Role, &t.CreatedViaEnv, &t.Status, &t.CreatedAt)
 	if err != nil {
 		writeErr(w, http.StatusConflict, "usuário já existe")
+		return
+	}
+	var organizationID string
+	err = tx.QueryRow(r.Context(), `
+		INSERT INTO organizations(name, owner_technician_id)
+		VALUES ($1, $2) RETURNING id`, t.Username, t.ID).Scan(&organizationID)
+	if err != nil {
+		err = tx.QueryRow(r.Context(), `
+			INSERT INTO organizations(name, owner_technician_id)
+			VALUES ($1 || ' - Tecnico', $2) RETURNING id`,
+			t.Username, t.ID).Scan(&organizationID)
+	}
+	if err != nil {
+		writeErr(w, http.StatusConflict, "falha ao criar organizacao pessoal")
+		return
+	}
+	if _, err = tx.Exec(r.Context(), `
+		INSERT INTO technician_assignments(technician_id, organization_id)
+		VALUES ($1, $2)`, t.ID, organizationID); err != nil {
+		writeErr(w, http.StatusInternalServerError, "falha ao vincular organizacao pessoal")
+		return
+	}
+	if err = tx.Commit(r.Context()); err != nil {
+		writeErr(w, http.StatusInternalServerError, "falha ao concluir criacao do tecnico")
 		return
 	}
 	writeJSON(w, http.StatusCreated, t)

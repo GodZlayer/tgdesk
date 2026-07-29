@@ -73,21 +73,38 @@ type createNetworkRequest struct {
 }
 
 func (s *Server) CreateNetwork(w http.ResponseWriter, r *http.Request) {
+	claims := middleware.ClaimsFrom(r.Context())
 	var req createNetworkRequest
-	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Name == "" || req.OrganizationID == "" {
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Name == "" {
 		writeErr(w, http.StatusBadRequest, "organization_id e name são obrigatórios")
+		return
+	}
+	if claims.Role != models.RoleSuperAdmin {
+		if err := s.Pool.QueryRow(r.Context(),
+			`SELECT id FROM organizations WHERE owner_technician_id=$1`,
+			claims.TechnicianID).Scan(&req.OrganizationID); err != nil {
+			writeErr(w, http.StatusConflict, "organizacao pessoal indisponivel")
+			return
+		}
+	}
+	if req.OrganizationID == "" {
+		writeErr(w, http.StatusBadRequest, "organization_id obrigatorio")
 		return
 	}
 	var n models.Network
 	err := s.Pool.QueryRow(r.Context(), `
-		INSERT INTO networks (organization_id, name, cidr_virtual) VALUES ($1, $2, $3)
-		RETURNING id, organization_id, name, coalesce(cidr_virtual, ''), status, created_at`,
-		req.OrganizationID, req.Name, req.CIDRVirtual,
-	).Scan(&n.ID, &n.OrganizationID, &n.Name, &n.CIDRVirtual, &n.Status, &n.CreatedAt)
+		INSERT INTO networks (organization_id, name, cidr_virtual, created_by_technician_id)
+		VALUES ($1, $2, $3, $4)
+		RETURNING id, organization_id, name, coalesce(cidr_virtual, ''), status,
+		          created_by_technician_id, created_at`,
+		req.OrganizationID, req.Name, req.CIDRVirtual, claims.TechnicianID,
+	).Scan(&n.ID, &n.OrganizationID, &n.Name, &n.CIDRVirtual, &n.Status,
+		&n.CreatedBy, &n.CreatedAt)
 	if err != nil {
 		writeErr(w, http.StatusConflict, "rede já existe ou dados inválidos")
 		return
 	}
+	n.CanManage = true
 	writeJSON(w, http.StatusCreated, n)
 }
 

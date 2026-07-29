@@ -20,8 +20,17 @@ type Event struct {
 	Timestamp int64  `json:"timestamp"`
 }
 
+type Capabilities struct {
+	RemoteReady bool `json:"remote_ready"`
+	FilesReady  bool `json:"files_ready"`
+}
+
 func presenceKey(deviceID string) string {
 	return "presence:device:" + deviceID
+}
+
+func capabilitiesKey(deviceID string) string {
+	return "capabilities:device:" + deviceID
 }
 
 // Heartbeat marks a device as online for HeartbeatTTL.
@@ -35,9 +44,29 @@ func IsOnline(ctx context.Context, rdb *redis.Client, deviceID string) bool {
 	return err == nil && n > 0
 }
 
+func SetCapabilities(ctx context.Context, rdb *redis.Client, deviceID string, capabilities Capabilities) error {
+	raw, err := json.Marshal(capabilities)
+	if err != nil {
+		return err
+	}
+	return rdb.Set(ctx, capabilitiesKey(deviceID), raw, HeartbeatTTL).Err()
+}
+
+func GetCapabilities(ctx context.Context, rdb *redis.Client, deviceID string) Capabilities {
+	raw, err := rdb.Get(ctx, capabilitiesKey(deviceID)).Bytes()
+	if err != nil {
+		return Capabilities{}
+	}
+	var capabilities Capabilities
+	if json.Unmarshal(raw, &capabilities) != nil {
+		return Capabilities{}
+	}
+	return capabilities
+}
+
 // Clear removes the heartbeat key, forcing a device to read as offline immediately.
 func Clear(ctx context.Context, rdb *redis.Client, deviceID string) error {
-	return rdb.Del(ctx, presenceKey(deviceID)).Err()
+	return rdb.Del(ctx, presenceKey(deviceID), capabilitiesKey(deviceID)).Err()
 }
 
 func Publish(ctx context.Context, rdb *redis.Client, evt Event) error {

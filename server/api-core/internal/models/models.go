@@ -3,10 +3,12 @@ package models
 import "time"
 
 type Organization struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	Status    string    `json:"status"`
-	CreatedAt time.Time `json:"created_at"`
+	ID                string    `json:"id"`
+	Name              string    `json:"name"`
+	Status            string    `json:"status"`
+	OwnerTechnicianID *string   `json:"owner_technician_id,omitempty"`
+	CanManage         bool      `json:"can_manage"`
+	CreatedAt         time.Time `json:"created_at"`
 }
 
 type Network struct {
@@ -15,12 +17,15 @@ type Network struct {
 	Name           string    `json:"name"`
 	CIDRVirtual    string    `json:"cidr_virtual,omitempty"`
 	Status         string    `json:"status"`
+	CreatedBy      *string   `json:"created_by_technician_id,omitempty"`
+	CanManage      bool      `json:"can_manage"`
 	CreatedAt      time.Time `json:"created_at"`
 }
 
 type Device struct {
 	ID          string     `json:"id"`
 	NetworkID   *string    `json:"network_id"`
+	NetworkIDs  []string   `json:"network_ids"`
 	Hostname    string     `json:"hostname"`
 	DisplayName string     `json:"display_name,omitempty"`
 	MAC         string     `json:"mac,omitempty"`
@@ -34,6 +39,8 @@ type Device struct {
 	CreatedAt   time.Time  `json:"created_at"`
 	UpdatedAt   time.Time  `json:"updated_at"`
 	Presence    string     `json:"presence,omitempty"` // online | desligada | offline (calculado, não persistido)
+	RemoteReady bool       `json:"remote_ready"`
+	FilesReady  bool       `json:"files_ready"`
 	HealthLevel string     `json:"health_level,omitempty"`
 }
 

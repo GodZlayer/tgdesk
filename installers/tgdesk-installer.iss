@@ -3,7 +3,7 @@
 ; uso único validada pelo servidor dentro do próprio TGDesk.
 
 #define MyAppName "TGDesk"
-#define MyAppVersion "0.3.23"
+#define MyAppVersion "0.3.37"
 #define MyAppPublisher "TGDesk"
 
 [Setup]
@@ -16,7 +16,7 @@ DefaultGroupName=TGDesk
 DisableProgramGroupPage=yes
 PrivilegesRequired=admin
 OutputDir=.\output
-OutputBaseFilename=tgdesk-installer-0.3.23
+OutputBaseFilename=tgdesk-installer-0.3.37
 Compression=lzma2
 SolidCompression=yes
 ArchitecturesInstallIn64BitMode=x64compatible
