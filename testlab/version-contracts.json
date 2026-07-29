@@ -1,0 +1,49 @@
+{
+  "schema_version": 1,
+  "versions": [
+    {
+      "version": "0.3.48",
+      "name": "Base unificada operacional",
+      "includes": [
+        "installer-clean-migration",
+        "identity-and-control-keys",
+        "single-product-runtime",
+        "vpn-websocket-control-plane",
+        "telemetry-and-analysis",
+        "client-information-ui",
+        "management-rbac-hierarchy",
+        "deletion-and-suspension",
+        "device-inventory-and-health-ui",
+        "modular-update",
+        "remote-security-and-authorization",
+        "remote-experience",
+        "manual-diagnostics",
+        "supervisor-branding",
+        "server-deployment-and-recovery",
+        "stability-and-fault-recovery"
+      ]
+    },
+    {
+      "version": "0.4.0",
+      "name": "Chamados e ordem de serviço",
+      "includes": [
+        "support-ticket-and-service-order"
+      ]
+    },
+    {
+      "version": "1.0.0",
+      "name": "Supervisor e técnico freelancer",
+      "includes": [
+        "freelancer-dispatch-v1",
+        "onsite-proof-and-export"
+      ]
+    },
+    {
+      "version": "1.1.0",
+      "name": "Cliente avulso",
+      "includes": [
+        "standalone-client-v1-1"
+      ]
+    }
+  ]
+}

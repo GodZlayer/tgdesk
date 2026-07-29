@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"os"
 	"path/filepath"
@@ -26,6 +27,39 @@ type tgdeskStatus struct {
 	CurrentVersion  string           `json:"current_version"`
 	UpdateAvailable bool             `json:"update_available"`
 	UpdateVersion   string           `json:"update_version,omitempty"`
+	Branding        BrandingState    `json:"branding"`
+}
+
+type BrandingState struct {
+	Enabled       bool   `json:"enabled"`
+	Name          string `json:"name"`
+	LogoBase64    string `json:"logo_base64,omitempty"`
+	FaviconBase64 string `json:"favicon_base64,omitempty"`
+	UpdatedAt     string `json:"updated_at,omitempty"`
+}
+
+func syncBrandFavicon(branding BrandingState) {
+	dir := filepath.Join(tgdeskDataDir(), "branding")
+	target := filepath.Join(dir, "favicon.ico")
+	if !branding.Enabled || branding.FaviconBase64 == "" {
+		_ = os.Remove(target)
+		return
+	}
+	data, err := base64.StdEncoding.DecodeString(branding.FaviconBase64)
+	if err != nil || len(data) < 6 || data[0] != 0 || data[1] != 0 ||
+		data[2] != 1 || data[3] != 0 {
+		return
+	}
+	if os.MkdirAll(dir, 0700) != nil {
+		return
+	}
+	temp := target + ".tmp"
+	if os.WriteFile(temp, data, 0600) != nil {
+		return
+	}
+	if os.Rename(temp, target) != nil {
+		_ = os.Remove(temp)
+	}
 }
 
 var updateState struct {

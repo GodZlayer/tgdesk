@@ -68,9 +68,16 @@ func (s *Server) DeviceControlWS(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer conn.Close()
+	_, _ = s.Pool.Exec(r.Context(), `
+		UPDATE diagnostic_runs SET status='failed',error='execução interrompida',
+			finished_at=now()
+		WHERE device_id=$1 AND status='running'
+		  AND started_at < now()-interval '15 minutes'`, deviceID)
+	branding, brandSignature := s.deviceBranding(r.Context(), deviceID)
 	_ = conn.WriteJSON(map[string]any{
 		"type": "ready", "state": state,
 		"version": os.Getenv("CLIENT_VERSION"),
+		"payload": map[string]any{"branding": branding},
 	})
 
 	for {
@@ -106,6 +113,36 @@ func (s *Server) DeviceControlWS(w http.ResponseWriter, r *http.Request) {
 				"type": "heartbeat_ack", "state": state,
 				"version": os.Getenv("CLIENT_VERSION"),
 			})
+			if latestBranding, latestSignature := s.deviceBranding(r.Context(), deviceID); latestSignature != brandSignature {
+				brandSignature = latestSignature
+				_ = conn.WriteJSON(map[string]any{
+					"type": "branding", "payload": latestBranding,
+				})
+			}
+			var runID string
+			var tests []byte
+			if s.Pool.QueryRow(r.Context(), `
+				WITH next AS (
+					SELECT id FROM diagnostic_runs
+					WHERE device_id=$1 AND status='queued'
+					  AND NOT EXISTS (
+						SELECT 1 FROM diagnostic_runs active
+						WHERE active.device_id=$1 AND active.status='running'
+					  )
+					ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED
+				)
+				UPDATE diagnostic_runs d SET status='running',started_at=now()
+				FROM next WHERE d.id=next.id
+				RETURNING d.id,d.tests`, deviceID).Scan(&runID, &tests) == nil {
+				var selected []string
+				_ = json.Unmarshal(tests, &selected)
+				if len(selected) == 1 {
+					_ = conn.WriteJSON(map[string]any{
+						"type": "diagnostic_run", "id": runID,
+						"payload": map[string]any{"test": selected[0]},
+					})
+				}
+			}
 			if state != models.DeviceStateAtivo {
 				return
 			}
@@ -133,6 +170,45 @@ func (s *Server) DeviceControlWS(w http.ResponseWriter, r *http.Request) {
 				_, _ = s.Pool.Exec(r.Context(),
 					`UPDATE devices SET rustdesk_id=$1,updated_at=now() WHERE id=$2`,
 					payload.ID, deviceID)
+			}
+		case "diagnostic_progress":
+			var payload struct {
+				Progress int    `json:"progress"`
+				Test     string `json:"test"`
+				Message  string `json:"message"`
+			}
+			if json.Unmarshal(msg.Payload, &payload) == nil && msg.ID != "" {
+				_, _ = s.Pool.Exec(r.Context(), `
+					UPDATE diagnostic_runs SET progress=$1,current_test=$2
+					WHERE id=$3 AND device_id=$4 AND status='running'`,
+					payload.Progress, payload.Test, msg.ID, deviceID)
+				_ = presence.Publish(r.Context(), s.RDB, presence.Event{
+					Type: "diagnostic_progress", TargetID: deviceID,
+					Payload: map[string]any{"id": msg.ID, "status": "running",
+						"progress": payload.Progress, "test": payload.Test, "message": payload.Message},
+				})
+			}
+		case "diagnostic_result":
+			var payload struct {
+				Status  string `json:"status"`
+				Results any    `json:"results"`
+				Error   string `json:"error"`
+			}
+			if json.Unmarshal(msg.Payload, &payload) == nil && msg.ID != "" {
+				status := payload.Status
+				if status != "completed" && status != "failed" {
+					status = "failed"
+				}
+				_, _ = s.Pool.Exec(r.Context(), `
+					UPDATE diagnostic_runs SET status=$1,progress=100,results=$2,
+						error=$3,finished_at=now()
+					WHERE id=$4 AND device_id=$5 AND status='running'`,
+					status, payload.Results, payload.Error, msg.ID, deviceID)
+				_ = presence.Publish(r.Context(), s.RDB, presence.Event{
+					Type: "diagnostic_result", TargetID: deviceID,
+					Payload: map[string]any{"id": msg.ID, "status": status,
+						"progress": 100, "results": payload.Results, "error": payload.Error},
+				})
 			}
 		}
 	}
@@ -265,7 +341,9 @@ func (s *Server) TechnicianControlWS(w http.ResponseWriter, r *http.Request) {
 func privateRPCPath(path string) bool {
 	for _, prefix := range []string{
 		"/api/v1/pairing/", "/api/v1/devices", "/api/v1/organizations",
-		"/api/v1/networks", "/api/v1/technicians", "/api/v1/admin/",
+		"/api/v1/networks", "/api/v1/subnetworks", "/api/v1/technicians", "/api/v1/branding/",
+		"/api/v1/admin/",
+		"/api/v1/support/",
 	} {
 		if path == strings.TrimSuffix(prefix, "/") || strings.HasPrefix(path, prefix) {
 			return true
@@ -288,19 +366,22 @@ func (s *Server) PairingContext(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"organizations": snapshot["organizations"],
 		"networks":      snapshot["networks"],
+		"subnetworks":   snapshot["subnetworks"],
 	})
 }
 
 func (s *Server) controlSnapshot(ctx context.Context, technicianID, role string) (map[string]any, error) {
 	orgQuery := `SELECT id,name,status,owner_technician_id,created_at FROM organizations ORDER BY created_at`
 	netQuery := `SELECT id,organization_id,name,coalesce(cidr_virtual,''),status,created_by_technician_id,created_at FROM networks ORDER BY created_at`
-	devQuery := `SELECT d.id,d.network_id,coalesce((SELECT array_agg(dn.network_id::text ORDER BY dn.created_at) FROM device_networks dn WHERE dn.device_id=d.id),ARRAY[]::text[]),d.hostname,coalesce(d.display_name,''),coalesce(d.mac,''),coalesce(d.wg_pubkey,''),d.role,d.state,d.last_seen_at,d.created_at,d.updated_at,coalesce(d.rustdesk_id,'') FROM devices d ORDER BY d.created_at DESC`
+	subnetQuery := `SELECT id,network_id,name,status,created_by_technician_id,created_at FROM subnetworks ORDER BY created_at`
+	devQuery := `SELECT d.id,d.network_id,coalesce((SELECT array_agg(dn.network_id::text ORDER BY dn.created_at) FROM device_networks dn WHERE dn.device_id=d.id),ARRAY[]::text[]),d.subnetwork_id,d.hostname,coalesce(d.display_name,''),coalesce(d.mac,''),coalesce(d.wg_pubkey,''),d.role,d.state,d.last_seen_at,d.created_at,d.updated_at,coalesce(d.rustdesk_id,'') FROM devices d ORDER BY d.created_at DESC`
 	args := []any{}
 	if role != models.RoleSuperAdmin {
 		args = []any{technicianID}
-		orgQuery = `SELECT DISTINCT o.id,o.name,o.status,o.owner_technician_id,o.created_at FROM organizations o LEFT JOIN networks n ON n.organization_id=o.id WHERE o.id IN (SELECT organization_id FROM technician_assignments WHERE technician_id=$1 AND organization_id IS NOT NULL) OR n.id IN (SELECT network_id FROM technician_assignments WHERE technician_id=$1 AND network_id IS NOT NULL) ORDER BY o.created_at`
-		netQuery = `SELECT id,organization_id,name,coalesce(cidr_virtual,''),status,created_by_technician_id,created_at FROM networks WHERE organization_id IN (SELECT organization_id FROM technician_assignments WHERE technician_id=$1 AND organization_id IS NOT NULL) OR id IN (SELECT network_id FROM technician_assignments WHERE technician_id=$1 AND network_id IS NOT NULL) ORDER BY created_at`
-		devQuery = `SELECT DISTINCT d.id,d.network_id,coalesce((SELECT array_agg(dn2.network_id::text ORDER BY dn2.created_at) FROM device_networks dn2 WHERE dn2.device_id=d.id),ARRAY[]::text[]),d.hostname,coalesce(d.display_name,''),coalesce(d.mac,''),coalesce(d.wg_pubkey,''),d.role,d.state,d.last_seen_at,d.created_at,d.updated_at,coalesce(d.rustdesk_id,'') FROM devices d JOIN device_networks dn ON dn.device_id=d.id JOIN networks n ON dn.network_id=n.id WHERE n.organization_id IN (SELECT organization_id FROM technician_assignments WHERE technician_id=$1 AND organization_id IS NOT NULL) OR n.id IN (SELECT network_id FROM technician_assignments WHERE technician_id=$1 AND network_id IS NOT NULL) ORDER BY d.created_at DESC`
+		orgQuery = `SELECT DISTINCT o.id,o.name,o.status,o.owner_technician_id,o.created_at FROM organizations o LEFT JOIN networks n ON n.organization_id=o.id WHERE o.owner_technician_id=$1 OR n.id IN (SELECT network_id FROM technician_assignments WHERE technician_id=$1 AND network_id IS NOT NULL) ORDER BY o.created_at`
+		netQuery = `SELECT id,organization_id,name,coalesce(cidr_virtual,''),status,created_by_technician_id,created_at FROM networks WHERE organization_id IN (SELECT id FROM organizations WHERE owner_technician_id=$1) OR id IN (SELECT network_id FROM technician_assignments WHERE technician_id=$1 AND network_id IS NOT NULL) ORDER BY created_at`
+		subnetQuery = `SELECT s.id,s.network_id,s.name,s.status,s.created_by_technician_id,s.created_at FROM subnetworks s JOIN networks n ON n.id=s.network_id WHERE n.organization_id IN (SELECT id FROM organizations WHERE owner_technician_id=$1) OR n.id IN (SELECT network_id FROM technician_assignments WHERE technician_id=$1 AND network_id IS NOT NULL) ORDER BY s.created_at`
+		devQuery = `SELECT DISTINCT d.id,d.network_id,coalesce((SELECT array_agg(dn2.network_id::text ORDER BY dn2.created_at) FROM device_networks dn2 WHERE dn2.device_id=d.id),ARRAY[]::text[]),d.subnetwork_id,d.hostname,coalesce(d.display_name,''),coalesce(d.mac,''),coalesce(d.wg_pubkey,''),d.role,d.state,d.last_seen_at,d.created_at,d.updated_at,coalesce(d.rustdesk_id,'') FROM devices d JOIN device_networks dn ON dn.device_id=d.id JOIN networks n ON dn.network_id=n.id WHERE n.organization_id IN (SELECT id FROM organizations WHERE owner_technician_id=$1) OR n.id IN (SELECT network_id FROM technician_assignments WHERE technician_id=$1 AND network_id IS NOT NULL) ORDER BY d.created_at DESC`
 	}
 	orgs := []models.Organization{}
 	rows, err := s.Pool.Query(ctx, orgQuery, args...)
@@ -324,9 +405,35 @@ func (s *Server) controlSnapshot(ctx context.Context, technicianID, role string)
 	for rows.Next() {
 		var n models.Network
 		if rows.Scan(&n.ID, &n.OrganizationID, &n.Name, &n.CIDRVirtual, &n.Status, &n.CreatedBy, &n.CreatedAt) == nil {
-			n.CanManage = role == models.RoleSuperAdmin ||
-				(n.CreatedBy != nil && *n.CreatedBy == technicianID)
+			n.CanManage = role == models.RoleSuperAdmin
+			if !n.CanManage {
+				_ = s.Pool.QueryRow(ctx, `
+					SELECT EXISTS(SELECT 1 FROM organizations
+						WHERE id=$1 AND owner_technician_id=$2)`,
+					n.OrganizationID, technicianID).Scan(&n.CanManage)
+			}
 			nets = append(nets, n)
+		}
+	}
+	rows.Close()
+	subnets := []models.Subnetwork{}
+	rows, err = s.Pool.Query(ctx, subnetQuery, args...)
+	if err != nil {
+		return nil, err
+	}
+	for rows.Next() {
+		var sn models.Subnetwork
+		if rows.Scan(&sn.ID, &sn.NetworkID, &sn.Name, &sn.Status, &sn.CreatedBy, &sn.CreatedAt) == nil {
+			sn.CanManage = role == models.RoleSuperAdmin
+			if !sn.CanManage {
+				_ = s.Pool.QueryRow(ctx, `
+					SELECT EXISTS(SELECT 1 FROM subnetworks s
+						JOIN networks n ON n.id=s.network_id
+						JOIN organizations o ON o.id=n.organization_id
+						WHERE s.id=$1 AND o.owner_technician_id=$2)`,
+					sn.ID, technicianID).Scan(&sn.CanManage)
+			}
+			subnets = append(subnets, sn)
 		}
 	}
 	rows.Close()
@@ -337,7 +444,7 @@ func (s *Server) controlSnapshot(ctx context.Context, technicianID, role string)
 	}
 	for rows.Next() {
 		var d models.Device
-		if rows.Scan(&d.ID, &d.NetworkID, &d.NetworkIDs, &d.Hostname, &d.DisplayName, &d.MAC, &d.WGPubkey, &d.Role, &d.State, &d.LastSeenAt, &d.CreatedAt, &d.UpdatedAt, &d.RustdeskID) == nil {
+		if rows.Scan(&d.ID, &d.NetworkID, &d.NetworkIDs, &d.SubnetworkID, &d.Hostname, &d.DisplayName, &d.MAC, &d.WGPubkey, &d.Role, &d.State, &d.LastSeenAt, &d.CreatedAt, &d.UpdatedAt, &d.RustdeskID) == nil {
 			if d.State == models.DeviceStateAtivo && presence.IsOnline(ctx, s.RDB, d.ID) {
 				d.Presence = "online"
 			} else if d.State == models.DeviceStateAtivo {
@@ -348,17 +455,10 @@ func (s *Server) controlSnapshot(ctx context.Context, technicianID, role string)
 			capabilities := presence.GetCapabilities(ctx, s.RDB, d.ID)
 			d.RemoteReady = capabilities.RemoteReady
 			d.FilesReady = capabilities.FilesReady
-			var raw []byte
-			if s.Pool.QueryRow(ctx, `SELECT hardware FROM telemetry_snapshots
-				WHERE device_id=$1 ORDER BY coletado_em DESC LIMIT 1`, d.ID).Scan(&raw) == nil {
-				var h hardwareSample
-				if json.Unmarshal(raw, &h) == nil {
-					d.HealthLevel, _ = analyzeHardwareHealth(h)["level"].(string)
-				}
-			}
+			d.HealthLevel, _ = s.recentHardwareHealth(ctx, d.ID)["level"].(string)
 			devices = append(devices, d)
 		}
 	}
 	rows.Close()
-	return map[string]any{"type": "snapshot", "organizations": orgs, "networks": nets, "devices": devices}, nil
+	return map[string]any{"type": "snapshot", "organizations": orgs, "networks": nets, "subnetworks": subnets, "devices": devices}, nil
 }

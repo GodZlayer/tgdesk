@@ -42,7 +42,8 @@ func (s *Server) canManageNetwork(r *http.Request, networkID string) bool {
 	}
 	var ownerID *string
 	if s.Pool.QueryRow(r.Context(),
-		`SELECT created_by_technician_id FROM networks WHERE id=$1`,
+		`SELECT o.owner_technician_id FROM networks n
+		 JOIN organizations o ON o.id=n.organization_id WHERE n.id=$1`,
 		networkID).Scan(&ownerID) != nil {
 		return false
 	}
@@ -63,17 +64,66 @@ func (s *Server) dropTechnicianHubPeer(technicianID string) {
 	}
 }
 
-// SuspendTechnician suspends the account and force-ends its active sessions.
+// SuspendTechnician suspends the account and cascades through its personal
+// organization, networks and linked devices.
 func (s *Server) SuspendTechnician(w http.ResponseWriter, r *http.Request, id string) {
-	if _, err := s.Pool.Exec(r.Context(), `UPDATE technicians SET status='suspenso' WHERE id=$1`, id); err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao suspender técnico")
+	tx, err := s.Pool.Begin(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "falha ao iniciar suspensão do técnico")
 		return
 	}
-	_, _ = s.Pool.Exec(r.Context(), `UPDATE sessions SET fim=now() WHERE technician_id=$1 AND fim IS NULL`, id)
+	defer tx.Rollback(r.Context())
+	tag, err := tx.Exec(r.Context(),
+		`UPDATE technicians SET status='suspenso' WHERE id=$1`, id)
+	if err != nil || tag.RowsAffected() == 0 {
+		writeErr(w, http.StatusNotFound, "técnico não encontrado")
+		return
+	}
+	_, _ = tx.Exec(r.Context(),
+		`UPDATE sessions SET fim=now() WHERE technician_id=$1 AND fim IS NULL`, id)
+	_, _ = tx.Exec(r.Context(), `
+		UPDATE organizations SET status='suspensa',suspension_scope='technician'
+		WHERE owner_technician_id=$1 AND status='ativa'`, id)
+	_, _ = tx.Exec(r.Context(), `
+		UPDATE networks SET status='suspensa',suspension_scope='technician'
+		WHERE organization_id IN
+			(SELECT id FROM organizations WHERE owner_technician_id=$1)
+		  AND status='ativa'`, id)
+	rows, err := tx.Query(r.Context(), `
+		UPDATE devices SET state='suspenso',suspension_scope='technician',updated_at=now()
+		WHERE state='ativo' AND EXISTS (
+			SELECT 1 FROM device_networks dn
+			JOIN networks n ON n.id=dn.network_id
+			JOIN organizations o ON o.id=n.organization_id
+			WHERE dn.device_id=devices.id AND o.owner_technician_id=$1)
+		RETURNING id`, id)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "falha ao suspender dispositivos do técnico")
+		return
+	}
+	var deviceIDs []string
+	for rows.Next() {
+		var deviceID string
+		if rows.Scan(&deviceID) == nil {
+			deviceIDs = append(deviceIDs, deviceID)
+		}
+	}
+	rows.Close()
+	if err = tx.Commit(r.Context()); err != nil {
+		writeErr(w, http.StatusInternalServerError, "falha ao concluir suspensão do técnico")
+		return
+	}
+	for _, deviceID := range deviceIDs {
+		_ = presence.Clear(r.Context(), s.RDB, deviceID)
+		s.dropHubPeer(deviceID)
+	}
 	s.dropTechnicianHubPeer(id)
 	s.audit(r, "suspender_tecnico", id)
-	_ = presence.Publish(r.Context(), s.RDB, presence.Event{Type: "suspend_technician", TargetID: id})
-	writeJSON(w, http.StatusOK, map[string]string{"status": "suspenso"})
+	_ = presence.Publish(r.Context(), s.RDB,
+		presence.Event{Type: "suspend_technician", TargetID: id, Payload: deviceIDs})
+	writeJSON(w, http.StatusOK, map[string]string{
+		"status": "suspenso", "devices_afetados": itoa(len(deviceIDs)),
+	})
 }
 
 // SuspendDevice preserves the link but stops connectivity and monitoring.
@@ -97,13 +147,16 @@ func (s *Server) SuspendNetwork(w http.ResponseWriter, r *http.Request, id strin
 		return
 	}
 	if _, err := s.Pool.Exec(r.Context(), `UPDATE networks SET status='suspensa',
-		suspension_scope='network' WHERE id=$1`, id); err != nil {
+		suspension_scope='network' WHERE id=$1 AND status='ativa'`, id); err != nil {
 		writeErr(w, http.StatusInternalServerError, "falha ao suspender rede")
 		return
 	}
 	rows, _ := s.Pool.Query(r.Context(), `UPDATE devices SET state='suspenso',
 		suspension_scope='network', updated_at=now()
-		WHERE network_id=$1 AND state='ativo' RETURNING id`, id)
+		WHERE state='ativo' AND EXISTS (
+			SELECT 1 FROM device_networks dn
+			WHERE dn.device_id=devices.id AND dn.network_id=$1)
+		RETURNING id`, id)
 	var deviceIDs []string
 	for rows.Next() {
 		var did string
@@ -123,7 +176,8 @@ func (s *Server) SuspendNetwork(w http.ResponseWriter, r *http.Request, id strin
 
 // SuspendOrganization cascades suspension across its active networks and devices.
 func (s *Server) SuspendOrganization(w http.ResponseWriter, r *http.Request, id string) {
-	if _, err := s.Pool.Exec(r.Context(), `UPDATE organizations SET status='suspensa' WHERE id=$1`, id); err != nil {
+	if _, err := s.Pool.Exec(r.Context(), `UPDATE organizations SET status='suspensa',
+		suspension_scope='organization' WHERE id=$1 AND status='ativa'`, id); err != nil {
 		writeErr(w, http.StatusInternalServerError, "falha ao suspender organização")
 		return
 	}
@@ -132,7 +186,9 @@ func (s *Server) SuspendOrganization(w http.ResponseWriter, r *http.Request, id 
 		WHERE organization_id=$1 AND status='ativa'`, id)
 	rows, _ := s.Pool.Query(r.Context(), `
 		UPDATE devices SET state='suspenso', suspension_scope='organization', updated_at=now()
-		WHERE state='ativo' AND network_id IN (SELECT id FROM networks WHERE organization_id=$1)
+		WHERE state='ativo' AND EXISTS (
+			SELECT 1 FROM device_networks dn JOIN networks n ON n.id=dn.network_id
+			WHERE dn.device_id=devices.id AND n.organization_id=$1)
 		RETURNING id`, id)
 	var deviceIDs []string
 	for rows.Next() {
@@ -176,10 +232,35 @@ func (s *Server) ResumeDevice(w http.ResponseWriter, r *http.Request, id string)
 }
 
 func (s *Server) ResumeTechnician(w http.ResponseWriter, r *http.Request, id string) {
-	tag, err := s.Pool.Exec(r.Context(),
+	tx, err := s.Pool.Begin(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "falha ao iniciar reativação do técnico")
+		return
+	}
+	defer tx.Rollback(r.Context())
+	tag, err := tx.Exec(r.Context(),
 		`UPDATE technicians SET status='ativo' WHERE id=$1`, id)
 	if err != nil || tag.RowsAffected() == 0 {
 		writeErr(w, http.StatusNotFound, "técnico não encontrado")
+		return
+	}
+	_, _ = tx.Exec(r.Context(), `
+		UPDATE organizations SET status='ativa',suspension_scope=NULL
+		WHERE owner_technician_id=$1 AND suspension_scope='technician'`, id)
+	_, _ = tx.Exec(r.Context(), `
+		UPDATE networks SET status='ativa',suspension_scope=NULL
+		WHERE organization_id IN
+			(SELECT id FROM organizations WHERE owner_technician_id=$1)
+		  AND suspension_scope='technician'`, id)
+	_, _ = tx.Exec(r.Context(), `
+		UPDATE devices SET state='ativo',suspension_scope=NULL,updated_at=now()
+		WHERE suspension_scope='technician' AND EXISTS (
+			SELECT 1 FROM device_networks dn
+			JOIN networks n ON n.id=dn.network_id
+			JOIN organizations o ON o.id=n.organization_id
+			WHERE dn.device_id=devices.id AND o.owner_technician_id=$1)`, id)
+	if err = tx.Commit(r.Context()); err != nil {
+		writeErr(w, http.StatusInternalServerError, "falha ao concluir reativação do técnico")
 		return
 	}
 	s.audit(r, "reativar_tecnico", id)
@@ -208,20 +289,36 @@ func (s *Server) ResumeNetwork(w http.ResponseWriter, r *http.Request, id string
 		suspension_scope=NULL WHERE id=$1`, id)
 	_, _ = s.Pool.Exec(r.Context(), `UPDATE devices SET state='ativo',
 		suspension_scope=NULL,updated_at=now()
-		WHERE network_id=$1 AND suspension_scope='network'`, id)
+		WHERE suspension_scope='network' AND EXISTS (
+			SELECT 1 FROM device_networks dn
+			WHERE dn.device_id=devices.id AND dn.network_id=$1)`, id)
 	s.audit(r, "reativar_rede", id)
 	_ = presence.Publish(r.Context(), s.RDB, presence.Event{Type: "resume_network", TargetID: id})
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ativa"})
 }
 
 func (s *Server) ResumeOrganization(w http.ResponseWriter, r *http.Request, id string) {
-	_, _ = s.Pool.Exec(r.Context(), `UPDATE organizations SET status='ativa' WHERE id=$1`, id)
+	var ownerStatus string
+	if err := s.Pool.QueryRow(r.Context(), `
+		SELECT coalesce(t.status,'ativo') FROM organizations o
+		LEFT JOIN technicians t ON t.id=o.owner_technician_id
+		WHERE o.id=$1`, id).Scan(&ownerStatus); err != nil {
+		writeErr(w, http.StatusNotFound, "organização não encontrada")
+		return
+	}
+	if ownerStatus != "ativo" {
+		writeErr(w, http.StatusConflict, "reative primeiro o técnico responsável")
+		return
+	}
+	_, _ = s.Pool.Exec(r.Context(), `UPDATE organizations SET status='ativa',
+		suspension_scope=NULL WHERE id=$1`, id)
 	_, _ = s.Pool.Exec(r.Context(), `UPDATE networks SET status='ativa',
 		suspension_scope=NULL WHERE organization_id=$1 AND suspension_scope='organization'`, id)
 	_, _ = s.Pool.Exec(r.Context(), `UPDATE devices SET state='ativo',
 		suspension_scope=NULL,updated_at=now()
-		WHERE suspension_scope='organization' AND network_id IN
-			(SELECT id FROM networks WHERE organization_id=$1)`, id)
+		WHERE suspension_scope='organization' AND EXISTS (
+			SELECT 1 FROM device_networks dn JOIN networks n ON n.id=dn.network_id
+			WHERE dn.device_id=devices.id AND n.organization_id=$1)`, id)
 	s.audit(r, "reativar_organizacao", id)
 	_ = presence.Publish(r.Context(), s.RDB, presence.Event{Type: "resume_organization", TargetID: id})
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ativa"})

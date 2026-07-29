@@ -1,0 +1,4 @@
+releases/
+rustdesk-server-src/
+.env
+*.log

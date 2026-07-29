@@ -1,0 +1,95 @@
+name: tgdesk-testlab
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: "no"
+    environment:
+      POSTGRES_USER: tgdesk_test
+      POSTGRES_PASSWORD: tgdesk_test
+      POSTGRES_DB: tgdesk_test
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tgdesk_test -d tgdesk_test"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    volumes:
+      - pg_test:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    restart: "no"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+
+  api-core:
+    build:
+      context: ../server
+      dockerfile: api-core/Dockerfile.test
+    restart: "no"
+    cap_add:
+      - NET_ADMIN
+    devices:
+      - "/dev/net/tun:/dev/net/tun"
+    environment:
+      DATABASE_URL: postgres://tgdesk_test:tgdesk_test@postgres:5432/tgdesk_test?sslmode=disable
+      REDIS_ADDR: redis:6379
+      JWT_SECRET: tgdesk-testlab-only
+      LISTEN_ADDR: ":8080"
+      ENABLE_DEMO_SEED: "false"
+      FORCE_RESEED: "false"
+      HUB_LISTEN_PORT: "51820"
+      HUB_CIDR: "10.70.0.1/16"
+      HUB_KEY_FILE: "/data/hub_private_key"
+      HUB_PUBLIC_ADDR: "host.docker.internal:41821"
+      RENDEZVOUS_KEY_FILE: "/hbbs-data/id_ed25519.pub"
+      RENDEZVOUS_PUBLIC_HOST: "10.70.0.1"
+      CLIENT_VERSION: "${TGDESK_TEST_VERSION:-0.3.48}"
+      BRANDING_DIR: "/branding"
+    ports:
+      - "127.0.0.1:18090:8080"
+      - "127.0.0.1:41821:51820/udp"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    volumes:
+      - hub_test:/data
+      - hbbs_test:/hbbs-data:ro
+      - branding_test:/branding
+
+  relay:
+    build:
+      context: ../server
+      dockerfile: rendezvous.Dockerfile
+    restart: "no"
+    command: ["/usr/local/bin/hbbr"]
+    network_mode: "service:api-core"
+    depends_on:
+      - api-core
+    volumes:
+      - hbbr_test:/data
+
+  rendezvous:
+    build:
+      context: ../server
+      dockerfile: rendezvous.Dockerfile
+    restart: "no"
+    command: ["/usr/local/bin/hbbs", "-r", "10.70.0.1:21117"]
+    network_mode: "service:api-core"
+    depends_on:
+      - api-core
+      - relay
+    volumes:
+      - hbbs_test:/data
+
+volumes:
+  pg_test:
+  hub_test:
+  hbbs_test:
+  hbbr_test:
+  branding_test:

@@ -1,0 +1,5 @@
+releases/
+api-core/
+migrations/
+.env
+*.log

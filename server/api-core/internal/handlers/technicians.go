@@ -11,21 +11,33 @@ import (
 )
 
 func (s *Server) ListTechnicians(w http.ResponseWriter, r *http.Request) {
-	rs, err := s.Pool.Query(r.Context(), `SELECT id, username, role, created_via_env, status, created_at FROM technicians ORDER BY created_at`)
+	rs, err := s.Pool.Query(r.Context(), `
+		SELECT id, username, role, created_via_env, status, created_at,
+		       branding_enabled,brand_name,brand_logo_file<>''
+		FROM technicians ORDER BY created_at`)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "falha ao listar técnicos")
 		return
 	}
 	defer rs.Close()
 
-	techs := []models.Technician{}
+	techs := []map[string]any{}
 	for rs.Next() {
 		var t models.Technician
-		if err := rs.Scan(&t.ID, &t.Username, &t.Role, &t.CreatedViaEnv, &t.Status, &t.CreatedAt); err != nil {
+		var brandingEnabled, hasBrandLogo bool
+		var brandName string
+		if err := rs.Scan(&t.ID, &t.Username, &t.Role, &t.CreatedViaEnv, &t.Status,
+			&t.CreatedAt, &brandingEnabled, &brandName, &hasBrandLogo); err != nil {
 			writeErr(w, http.StatusInternalServerError, "falha ao ler técnicos")
 			return
 		}
-		techs = append(techs, t)
+		item, _ := json.Marshal(t)
+		var data map[string]any
+		_ = json.Unmarshal(item, &data)
+		data["branding_enabled"] = brandingEnabled
+		data["brand_name"] = brandName
+		data["has_brand_logo"] = hasBrandLogo
+		techs = append(techs, data)
 	}
 	writeJSON(w, http.StatusOK, techs)
 }

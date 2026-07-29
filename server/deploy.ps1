@@ -15,7 +15,11 @@ try {
         throw 'Falha ao recriar hbbr/hbbs.'
     }
 
-    docker exec server-api-core-1 sh -c 'nc -z 10.70.0.1 21116 && nc -z 10.70.0.1 21117'
+    $apiContainer = (docker compose ps -q api-core).Trim()
+    if (-not $apiContainer) {
+        throw 'Container api-core não encontrado.'
+    }
+    docker exec $apiContainer sh -c 'nc -z 10.70.0.1 21116 && nc -z 10.70.0.1 21117'
     if ($LASTEXITCODE -ne 0) {
         throw 'hbbs/hbbr não responderam dentro da VPN.'
     }

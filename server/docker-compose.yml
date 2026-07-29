@@ -1,6 +1,9 @@
+name: server-tgdesk
+
 services:
   postgres:
     image: postgres:16-alpine
+    restart: unless-stopped
     environment:
       POSTGRES_USER: tgdesk
       POSTGRES_PASSWORD: tgdesk
@@ -15,6 +18,7 @@ services:
 
   redis:
     image: redis:7-alpine
+    restart: unless-stopped
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -22,6 +26,7 @@ services:
       retries: 10
 
   api-core:
+    restart: unless-stopped
     build:
       context: .
       dockerfile: api-core/Dockerfile
@@ -46,6 +51,7 @@ services:
       RENDEZVOUS_KEY_FILE: "/hbbs-data/id_ed25519.pub"
       RENDEZVOUS_PUBLIC_HOST: ${RENDEZVOUS_PUBLIC_HOST:-10.70.0.1}
       CLIENT_VERSION: ${CLIENT_VERSION:-0.3.0}
+      BRANDING_DIR: "/branding"
     ports:
       # Escuta em TODAS as interfaces (0.0.0.0) para aceitar clients de outras
       # redes via o IP público. O controle (8090/TCP) e o hub WireGuard
@@ -55,6 +61,7 @@ services:
     volumes:
       - tgdesk_hub_data:/data
       - tgdesk_hbbs_data:/hbbs-data:ro
+      - tgdesk_branding_data:/branding
     depends_on:
       postgres:
         condition: service_healthy
@@ -66,6 +73,7 @@ services:
   # host: só ficam alcançáveis por quem já está dentro do túnel, como exige o
   # plano de arquitetura (plano de dados 100% dentro da VPN, estilo Hamachi).
   relay:
+    restart: unless-stopped
     build:
       context: .
       dockerfile: rendezvous.Dockerfile
@@ -77,6 +85,7 @@ services:
       - api-core
 
   rendezvous:
+    restart: unless-stopped
     build:
       context: .
       dockerfile: rendezvous.Dockerfile
@@ -90,6 +99,17 @@ services:
 
 volumes:
   tgdesk_pg_data:
+    name: server_tgdesk_pg_data
+    external: true
   tgdesk_hub_data:
+    name: server_tgdesk_hub_data
+    external: true
   tgdesk_hbbs_data:
+    name: server_tgdesk_hbbs_data
+    external: true
   tgdesk_hbbr_data:
+    name: server_tgdesk_hbbr_data
+    external: true
+  tgdesk_branding_data:
+    name: server_tgdesk_branding_data
+    external: true

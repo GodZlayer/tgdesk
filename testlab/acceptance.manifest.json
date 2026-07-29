@@ -1,0 +1,287 @@
+{
+  "schema_version": 2,
+  "rule": "Uma versão só pode ser promovida quando todos os critérios obrigatórios possuem evidência real aprovada na mesma execução.",
+  "scenarios": [
+    {
+      "id": "installer-clean-migration",
+      "surface": "windows",
+      "assertions": [
+        {"id": "installer.flow.5-pages", "criterion": "Instalador executa boas-vindas, chave opcional, limpeza, instalação/validação e conclusão nessa ordem"},
+        {"id": "installer.cleanup.legacy-files", "criterion": "Remove arquivos, serviços, tarefas, inicialização, AppData e ProgramData legados de TGDesk e componentes incorporados"},
+        {"id": "installer.cleanup.legacy-registry", "criterion": "Remove registros e identificadores obsoletos sem remover dados fora do escopo TGDesk"},
+        {"id": "installer.identity.optional-preserve", "criterion": "Primeira tela permite manter ou recriar identidade; preservar mantém device_id e vínculo"},
+        {"id": "installer.identity.clean-new", "criterion": "Instalação limpa gera identidade segura nova segundo a política do servidor"},
+        {"id": "installer.no-autostart-before-finish", "criterion": "TGDesk não inicia antes da conclusão do instalador"},
+        {"id": "installer.reboot-contract", "criterion": "Quando reinício é necessário o instalador não abre o app e registra início único no próximo logon"},
+        {"id": "installer.artifact.signature-version", "criterion": "Artefato final possui versão, hashes e conteúdo coerentes com o release"}
+      ]
+    },
+    {
+      "id": "identity-and-control-keys",
+      "surface": "backend+installer+windows",
+      "assertions": [
+        {"id": "key.single-use.atomic", "criterion": "Chave de controle é aceita exatamente uma vez e reuso concorrente recebe conflito"},
+        {"id": "key.server-bound", "criterion": "Chave só é aceita pelo servidor emissor"},
+        {"id": "key.machine-bound", "criterion": "Credencial resultante fica vinculada à identidade segura da máquina"},
+        {"id": "key.admin.singleton", "criterion": "Existe uma única máquina Admin real: o computador original"},
+        {"id": "key.role.no-login", "criterion": "Papel client/supervisor/Admin deriva da instalação e não exige usuário/senha"},
+        {"id": "key.reinstall.original-admin", "criterion": "Reinstalação autorizada restaura o Admin original sem criar segundo Admin"},
+        {"id": "key.revocation.propagates", "criterion": "Suspensão ou revogação invalida sessão e acesso privado em tempo real"}
+      ]
+    },
+    {
+      "id": "single-product-runtime",
+      "surface": "windows",
+      "assertions": [
+        {"id": "runtime.single-ui-process", "criterion": "Há somente uma instância de UI TGDesk por sessão"},
+        {"id": "runtime.service-ui-contract", "criterion": "Serviço e UI usam o mesmo produto e executável principal com papéis explicitamente distintos"},
+        {"id": "runtime.no-foreign-branding", "criterion": "Nenhuma tela apresenta nomes ou ícones dos componentes incorporados"},
+        {"id": "runtime.maximized-start", "criterion": "Janela principal inicia maximizada"},
+        {"id": "runtime.close-to-tray", "criterion": "Fechar minimiza para bandeja e não encerra serviço/VPN"},
+        {"id": "runtime.tray-start", "criterion": "Inicialização com Windows cria uma única UI e ícone TGDesk na bandeja"},
+        {"id": "runtime.autostart-toggle", "criterion": "Inicialização automática pode ser desativada e reativada nas configurações"}
+      ]
+    },
+    {
+      "id": "vpn-websocket-control-plane",
+      "surface": "backend+vpn+websocket+windows",
+      "assertions": [
+        {"id": "vpn.bootstrap.public-only", "criterion": "IP público é usado apenas para bootstrap, autenticação inicial e recuperação do atualizador"},
+        {"id": "vpn.adapter.up", "criterion": "Serviço cria adaptador e endereço 10.70.x após autorização"},
+        {"id": "vpn.private-data-plane", "criterion": "Telemetria, presença, gestão e acesso remoto operam dentro da VPN"},
+        {"id": "ws.single-control-channel", "criterion": "Cliente mantém canal WebSocket persistente como plano de controle"},
+        {"id": "ws.push.update", "criterion": "Disponibilidade de atualização é enviada pelo servidor sem polling pesado"},
+        {"id": "ws.telemetry.realtime", "criterion": "Telemetria e presença chegam pelo WebSocket e atualizam interfaces em tempo real"},
+        {"id": "ws.disconnect.truth", "criterion": "Queda do servidor muda o estado para reconectando/offline após timeout declarado"},
+        {"id": "ws.reconnect.automatic", "criterion": "Retorno do servidor reconecta automaticamente sem reiniciar Windows"},
+        {"id": "vpn.suspension.disconnect", "criterion": "Suspensão encerra VPN, monitoramento e capacidades privadas imediatamente"}
+      ]
+    },
+    {
+      "id": "telemetry-and-analysis",
+      "surface": "agent+backend+websocket+windows",
+      "assertions": [
+        {"id": "telemetry.cpu.current", "criterion": "Uso e clock atual de CPU são medidas atuais, variáveis e coerentes com Windows"},
+        {"id": "telemetry.cpu.history", "criterion": "Servidor calcula média, mínimo, pico e tendência em janela declarada"},
+        {"id": "telemetry.memory", "criterion": "Memória total, usada, disponível, pressão e tendência são coerentes"},
+        {"id": "telemetry.storage", "criterion": "Capacidade, ocupação, saúde, latência, erros e tendência são coletados quando disponíveis"},
+        {"id": "telemetry.gpu", "criterion": "GPU reporta modelo, uso, memória e temperatura somente quando a fonte é válida"},
+        {"id": "telemetry.temperature", "criterion": "Temperaturas válidas ficam verdes; ausência de sensor é desconhecida e não falsa falha"},
+        {"id": "telemetry.network", "criterion": "Interfaces, qualidade, perda, latência e variação são diferenciadas de simples conectividade"},
+        {"id": "telemetry.os-events", "criterion": "Travamentos, reinícios, erros de disco, drivers e eventos críticos alimentam análise"},
+        {"id": "telemetry.alert.server-average", "criterion": "Alertas usam médias/histórico do servidor, não pico instantâneo isolado"},
+        {"id": "telemetry.thresholds.cpu", "criterion": "CPU média 75% perigosa, 85% crítica e 95% máxima conforme regra definida"},
+        {"id": "telemetry.thresholds.storage", "criterion": "Armazenamento 85% gera alerta leve e 95% crítico mesmo com disco saudável"},
+        {"id": "telemetry.retention", "criterion": "Retenção e agregação não fazem o cliente pesado nem crescem sem limite"}
+      ]
+    },
+    {
+      "id": "client-information-ui",
+      "surface": "windows-ui",
+      "assertions": [
+        {"id": "client.ui.non-technical", "criterion": "Cliente vê linguagem simples e não recebe diagnóstico técnico suficiente para autoatendimento"},
+        {"id": "client.ui.status-colors", "criterion": "Cada indicador usa verde, amarelo ou vermelho conforme severidade calculada"},
+        {"id": "client.ui.no-false-attention", "criterion": "Problema isolado leve não transforma toda a tela em alarme desproporcional"},
+        {"id": "client.ui.responsive", "criterion": "Tela inteira permanece utilizável em resoluções e escalas DPI suportadas sem controles cortados"},
+        {"id": "client.ui.live-state", "criterion": "Estado, horário e cartões refletem dados atuais e histórico confirmado"},
+        {"id": "client.ui.suspended-message", "criterion": "Cliente suspenso vê somente a orientação para contatar o responsável definido"},
+        {"id": "client.ui.role-simulation", "criterion": "Admin e supervisor possuem a mesma aba Cliente como simulação fiel"}
+      ]
+    },
+    {
+      "id": "management-rbac-hierarchy",
+      "surface": "backend+websocket+windows",
+      "assertions": [
+        {"id": "rbac.admin-superset", "criterion": "Admin pode executar toda função de supervisor e gestão"},
+        {"id": "rbac.supervisor-scope", "criterion": "Supervisor vê somente sua organização e rede TGDevs explicitamente atribuída"},
+        {"id": "hierarchy.org-network-subnetwork-device", "criterion": "Organização, rede, sub-rede e dispositivo são persistidos e exibidos nessa hierarquia"},
+        {"id": "hierarchy.supervisor.unlimited", "criterion": "Supervisor cria quantas redes e sub-redes forem necessárias em sua organização"},
+        {"id": "hierarchy.names.rules", "criterion": "Admin renomeia organizações extras; organização do supervisor acompanha o nome dele"},
+        {"id": "hierarchy.network.rename", "criterion": "Supervisor renomeia suas redes e Admin renomeia todas"},
+        {"id": "hierarchy.subnetwork.lifecycle", "criterion": "Supervisor/Admin cria, renomeia, suspende, reativa e exclui sub-redes conforme política"},
+        {"id": "hierarchy.multi-network.control-only", "criterion": "Somente Admin e supervisor podem participar de várias redes; cliente não"},
+        {"id": "hierarchy.self-identification", "criterion": "Lista identifica claramente o dispositivo atual"},
+        {"id": "hierarchy.server-propagation", "criterion": "Renomes e vínculos propagam a todos os supervisores autorizados via WebSocket"}
+      ]
+    },
+    {
+      "id": "deletion-and-suspension",
+      "surface": "backend+websocket+windows",
+      "assertions": [
+        {"id": "delete.organization.cascade", "criterion": "Excluir organização remove redes/sub-redes e devolve dispositivos a guest com novo código"},
+        {"id": "delete.network.unbind", "criterion": "Excluir rede desvincula dispositivos que não permanecem autorizados por outra rede"},
+        {"id": "delete.guest.reject", "criterion": "Admin pode remover/rejeitar dispositivo guest da lista"},
+        {"id": "delete.no-resurrection", "criterion": "Entidades excluídas não reaparecem por seed, cache, snapshot ou reconexão"},
+        {"id": "suspend.technician.cascade", "criterion": "Suspender supervisor suspende organização, redes, sub-redes e dispositivos em cascata"},
+        {"id": "suspend.organization.cascade", "criterion": "Suspender organização preserva vínculos e suspende descendentes"},
+        {"id": "suspend.network.cascade", "criterion": "Suspender rede preserva vínculos e suspende dispositivos"},
+        {"id": "suspend.subnetwork.cascade", "criterion": "Suspender sub-rede preserva vínculo e suspende somente seus dispositivos"},
+        {"id": "suspend.device.only", "criterion": "Dispositivo individual pode ser suspenso sem afetar irmãos"},
+        {"id": "resume.same-scope-only", "criterion": "Retomada restaura somente recursos suspensos pelo mesmo escopo"}
+      ]
+    },
+    {
+      "id": "device-inventory-and-health-ui",
+      "surface": "backend+websocket+windows-ui",
+      "assertions": [
+        {"id": "devices.no-duplicates", "criterion": "Mesmo dispositivo não aparece duplicado por MAC, device_id, vínculo ou snapshot"},
+        {"id": "devices.display-name", "criterion": "Nome visual pode ser alterado sem mudar hostname do Windows e propaga aos autorizados"},
+        {"id": "devices.alert.badge", "criterion": "Cada dispositivo exibe maior severidade ativa"},
+        {"id": "networks.alert.aggregate", "criterion": "Rede exibe um único alerta igual ao mais crítico entre seus dispositivos"},
+        {"id": "devices.details.visual", "criterion": "Visão geral e abas usam visualizações úteis, não blocos de texto cru"},
+        {"id": "devices.details.realtime", "criterion": "Detalhes atualizam via WebSocket sem recarregamento"},
+        {"id": "devices.remote.button.truth", "criterion": "Botão remoto aparece somente para outro dispositivo realmente acessível"}
+      ]
+    },
+    {
+      "id": "modular-update",
+      "surface": "backend+websocket+service+windows",
+      "assertions": [
+        {"id": "update.push.button", "criterion": "Servidor envia evento e botão aparece automaticamente apenas quando há versão superior"},
+        {"id": "update.no-self-update", "criterion": "Versão instalada nunca oferece atualização para ela mesma"},
+        {"id": "update.one-action.one-version", "criterion": "Um clique instala exatamente uma versão e exibe a versão correta imediatamente"},
+        {"id": "update.modular.changed-files", "criterion": "Somente módulos alterados são baixados e verificados por hash"},
+        {"id": "update.service-vpn-continuity", "criterion": "UI pode reiniciar sem encerrar serviço/VPN conforme contrato"},
+        {"id": "update.ui-restarts", "criterion": "Aplicação fecha, atualiza, reabre e restaura papel/estado automaticamente"},
+        {"id": "update.force-command", "criterion": "Atualização forçada funciona sem instalador completo quando plano de controle está indisponível"},
+        {"id": "update.settings-button", "criterion": "Configurações possuem atualização forçada com progresso e diagnóstico visível"},
+        {"id": "update.rollback", "criterion": "Falha de hash, cópia ou inicialização restaura módulos anteriores"},
+        {"id": "update.mass-scale", "criterion": "Distribuição em massa não causa tempestade de polling nem indisponibilidade do servidor"}
+      ]
+    },
+    {
+      "id": "remote-security-and-authorization",
+      "surface": "backend+vpn+two-windows-vms",
+      "assertions": [
+        {"id": "remote.no-password", "criterion": "Acesso autorizado não solicita senha interativa nem falha por senha residual"},
+        {"id": "remote.uac-elevation", "criterion": "Sessão acompanha área segura/UAC com elevação autorizada"},
+        {"id": "remote.scope", "criterion": "Supervisor acessa somente dispositivos de redes autorizadas; Admin acessa todos"},
+        {"id": "remote.no-self", "criterion": "Não é possível iniciar acesso remoto ao próprio dispositivo"},
+        {"id": "remote.online-truth", "criterion": "Botão e conexão usam presença/capacidade reais, não estado obsoleto"},
+        {"id": "remote.session-audit", "criterion": "Início, fim, ator, alvo e motivo ficam auditáveis"},
+        {"id": "remote.disconnect-restore", "criterion": "Desconexão sempre restaura entrada local e revoga permissões temporárias"}
+      ]
+    },
+    {
+      "id": "remote-experience",
+      "surface": "two-windows-vms-ui",
+      "assertions": [
+        {"id": "remote.single-toolbar", "criterion": "Existe exatamente uma barra TGDesk e nenhuma barra incorporada sobreposta"},
+        {"id": "remote.fullscreen.true", "criterion": "Fullscreen ocupa corretamente a tela/monitor e oculta navegação externa"},
+        {"id": "remote.mouse.alignment", "criterion": "Mouse permanece alinhado em fullscreen, janela e escalas DPI suportadas"},
+        {"id": "remote.keyboard-routing", "criterion": "Atalho alterna comandos Windows entre máquina local e remota"},
+        {"id": "remote.input-lock", "criterion": "Supervisor pode bloquear/desbloquear mouse e teclado do cliente com atalho e fail-safe"},
+        {"id": "remote.annotation", "criterion": "Caneta, cor, espessura, borracha e limpar sincronizam na tela do cliente"},
+        {"id": "remote.clipboard.default-off", "criterion": "Clipboard inicia desativado e funciona somente após autorização explícita"},
+        {"id": "remote.files.default-off", "criterion": "Transferência de arquivo inicia desativada e funciona somente após autorização explícita"},
+        {"id": "remote.chat.integrated", "criterion": "Funções expostas como chat são integradas e funcionais ou removidas da UI"},
+        {"id": "remote.no-restart-loop", "criterion": "Sessão não exibe reiniciado pelo parceiro repetidamente"}
+      ]
+    },
+    {
+      "id": "manual-diagnostics",
+      "surface": "agent+backend+websocket+windows-ui",
+      "assertions": [
+        {"id": "diagnostics.manual-only", "criterion": "Cada teste pesado é iniciado separadamente e manualmente por supervisor/Admin"},
+        {"id": "diagnostics.catalog", "criterion": "Catálogo declara duração, impacto, requisito e risco de CPU, GPU, memória, internet e armazenamento"},
+        {"id": "diagnostics.safe-cancel", "criterion": "Teste pode ser cancelado e nunca deixa carga/processo órfão"},
+        {"id": "diagnostics.progress-live", "criterion": "Progresso e etapa chegam em tempo real pelo canal privado"},
+        {"id": "diagnostics.visual-report", "criterion": "Resultado gera relatório visual TGDesk, histórico e dados brutos auditáveis"},
+        {"id": "diagnostics.remote-menu", "criterion": "Testes podem ser iniciados no menu da sessão remota ativa"},
+        {"id": "diagnostics.badblocks-safety", "criterion": "Testes destrutivos de armazenamento são proibidos; verificação usa modo seguro e consentido"}
+      ]
+    },
+    {
+      "id": "supervisor-branding",
+      "surface": "backend+websocket+windows-ui",
+      "assertions": [
+        {"id": "branding.admin-enable", "criterion": "Somente Admin habilita personalização para cada supervisor"},
+        {"id": "branding.client-only", "criterion": "Marca personalizada aparece somente nos clientes vinculados ao supervisor"},
+        {"id": "branding.control-keeps-tgdesk", "criterion": "Computador do supervisor e Admin mantêm identidade TGDesk"},
+        {"id": "branding.name-logo-favicon", "criterion": "Nome, logo e favicon alimentam janela, tarefa, bandeja e superfícies do cliente"},
+        {"id": "branding.crop-resize", "criterion": "Editor oferece crop e redimensionamento preservando qualidade"},
+        {"id": "branding.preview-exact", "criterion": "Preview reproduz dimensões e composição vistas pelo cliente"},
+        {"id": "branding.server-storage", "criterion": "Assets ficam no servidor com validação de tipo, tamanho, hash e cache versionado"},
+        {"id": "branding.live-refresh", "criterion": "Aplicar/remover marca atualiza clientes sem ativos obsoletos"}
+      ]
+    },
+    {
+      "id": "support-ticket-and-service-order",
+      "surface": "backend+websocket+windows-ui",
+      "assertions": [
+        {"id": "ticket.client-open", "criterion": "Cliente abre chamado no lugar da orientação e recebe confirmação"},
+        {"id": "ticket.live-state", "criterion": "Fila, respostas e mudanças de estado propagam em tempo real"},
+        {"id": "ticket.supervisor-queue", "criterion": "Supervisor/Admin filtra, prioriza, atribui e responde chamados autorizados"},
+        {"id": "ticket.os-conversion", "criterion": "Chamado pode virar ordem de serviço preservando histórico"},
+        {"id": "ticket.audit", "criterion": "Mensagens, anexos, responsáveis, horários e transições são auditáveis"},
+        {"id": "ticket.close-reopen", "criterion": "Fechamento e reabertura obedecem estados válidos e permissões"},
+        {"id": "ticket.notifications", "criterion": "Notificações são push e não exigem polling pesado"}
+      ]
+    },
+    {
+      "id": "freelancer-dispatch-v1",
+      "surface": "backend+windows-ui",
+      "assertions": [
+        {"id": "freelancer.new-role", "criterion": "Novo técnico freelancer possui UI própria de chamados e não gerencia rede visível"},
+        {"id": "freelancer.supervisor-link", "criterion": "Freelancer pertence a supervisor/organização por vínculo interno"},
+        {"id": "freelancer.request-data", "criterion": "Supervisor publica pedido com dados técnicos, localização, modalidade e prazo"},
+        {"id": "freelancer.dynamic-queue", "criterion": "Servidor ranqueia localização, disponibilidade, qualidade e expiração"},
+        {"id": "freelancer.staggered-offer", "criterion": "Oferta aparece em tempos diferentes conforme prioridade sem vazamento de escopo"},
+        {"id": "freelancer.atomic-accept", "criterion": "Somente um freelancer aceita cada chamado de forma atômica"},
+        {"id": "freelancer.client-tab", "criterion": "Freelancer mantém sua própria aba Cliente sem receber gestão de redes"},
+        {"id": "freelancer.admin-superset", "criterion": "Admin pode supervisionar todas as funções do freelancer"}
+      ]
+    },
+    {
+      "id": "onsite-proof-and-export",
+      "surface": "backend+windows-ui",
+      "assertions": [
+        {"id": "onsite.geolocation-consent", "criterion": "Geolocalização é capturada com consentimento, precisão e horário"},
+        {"id": "onsite.photos", "criterion": "Fotos de chegada, execução e conclusão preservam metadados e integridade"},
+        {"id": "onsite.signature", "criterion": "Assinatura digital ou foto de documento assinado fica vinculada à OS"},
+        {"id": "onsite.print", "criterion": "OS pode ser impressa com identidade, itens, valores e aceite"},
+        {"id": "onsite.export", "criterion": "Documento final exportável reproduz dados e anexos autorizados"},
+        {"id": "onsite.offline-sync", "criterion": "Coleta temporariamente offline sincroniza sem duplicar ou perder evidência"}
+      ]
+    },
+    {
+      "id": "standalone-client-v1-1",
+      "surface": "backend+windows-ui",
+      "assertions": [
+        {"id": "standalone.request-entry", "criterion": "Abaixo do código existe solicitação discreta de acesso avulso"},
+        {"id": "standalone.public-scope", "criterion": "Cliente avulso entra em organização única e escopo público logicamente isolado"},
+        {"id": "standalone.virtual-onsite", "criterion": "Chamado avulso permite modalidade virtual ou presencial"},
+        {"id": "standalone.remote-ticket-bound", "criterion": "Acesso remoto temporário só existe dentro de chamado virtual aceito"},
+        {"id": "standalone.analysis-permission", "criterion": "Freelancer acessa verificações, testes e análises somente pelo chamado"},
+        {"id": "standalone.permission-revoke", "criterion": "Fechar, cancelar ou expirar chamado revoga acesso e dados temporários"},
+        {"id": "standalone.privacy", "criterion": "Cliente avulso não enxerga organizações, redes ou outros dispositivos"}
+      ]
+    },
+    {
+      "id": "server-deployment-and-recovery",
+      "surface": "docker+backend",
+      "assertions": [
+        {"id": "server.compose-name", "criterion": "Projeto Docker aparece como server-tgdesk"},
+        {"id": "server.auto-restart", "criterion": "Containers iniciam com Docker e recuperam após reinício"},
+        {"id": "server.volumes-persistent", "criterion": "Dados persistem em volumes nomeados sem ressuscitar seeds excluídos"},
+        {"id": "server.relay-namespace", "criterion": "Relay e rendezvous compartilham o namespace atual da API após recriação"},
+        {"id": "server.private-ports", "criterion": "21116/21117 ficam acessíveis na VPN e não expostos publicamente sem necessidade"},
+        {"id": "server.health-observable", "criterion": "Saúde, migrações e falhas críticas produzem estado observável"}
+      ]
+    },
+    {
+      "id": "stability-and-fault-recovery",
+      "surface": "docker+two-windows-vms",
+      "assertions": [
+        {"id": "stability.reconnect-cycles", "criterion": "Múltiplos ciclos servidor off/on recuperam VPN, WebSocket, telemetria e papel"},
+        {"id": "stability.update-cycles", "criterion": "Atualizações sequenciais não regressam versão nem exigem clique duplicado"},
+        {"id": "stability.service-restarts", "criterion": "Reinícios do serviço não criam processos ou adaptadores duplicados"},
+        {"id": "stability.ui-cycles", "criterion": "Abrir, fechar, bandeja, restaurar e logon repetidos mantêm uma UI"},
+        {"id": "stability.remote-cycles", "criterion": "Sessões remotas repetidas não vazam processo, entrada, clipboard ou permissão"},
+        {"id": "stability.telemetry-load", "criterion": "Telemetria de muitos dispositivos mantém latência e uso dentro do baseline medido"},
+        {"id": "stability.no-infinite-wait", "criterion": "Todo estado de conexão, atualização, teste e sessão possui timeout e diagnóstico"},
+        {"id": "stability.crash-free", "criterion": "Execução prolongada termina com zero crash crítico"}
+      ]
+    }
+  ]
+}

@@ -179,7 +179,9 @@ func (s *Server) Bind(w http.ResponseWriter, r *http.Request) {
 
 	var deviceID string
 	err := s.Pool.QueryRow(r.Context(), `
-		UPDATE devices SET network_id=$1, state='ativo', pairing_code=NULL, updated_at=now()
+		UPDATE devices SET network_id=$1,
+			subnetwork_id=(SELECT id FROM subnetworks WHERE network_id=$1 ORDER BY (name='Principal') DESC,created_at LIMIT 1),
+			state='ativo', pairing_code=NULL, updated_at=now()
 		WHERE pairing_code=$2 AND state='guest'
 		RETURNING id`, req.NetworkID, strings.ToUpper(req.PairingCode),
 	).Scan(&deviceID)
@@ -208,13 +210,13 @@ func (s *Server) ListDevices(w http.ResponseWriter, r *http.Request) {
 	var query string
 	var args []any
 	if claims.Role == models.RoleSuperAdmin {
-		query = `SELECT id, network_id, hostname, coalesce(display_name,''), coalesce(mac,''), coalesce(wg_pubkey,''), role, state, last_seen_at, created_at, updated_at, coalesce(rustdesk_id,'') FROM devices ORDER BY created_at DESC`
+		query = `SELECT id, network_id, subnetwork_id, hostname, coalesce(display_name,''), coalesce(mac,''), coalesce(wg_pubkey,''), role, state, last_seen_at, created_at, updated_at, coalesce(rustdesk_id,'') FROM devices ORDER BY created_at DESC`
 	} else {
 		query = `
-			SELECT d.id, d.network_id, d.hostname, coalesce(d.display_name,''), coalesce(d.mac,''), coalesce(d.wg_pubkey,''), d.role, d.state, d.last_seen_at, d.created_at, d.updated_at, coalesce(d.rustdesk_id,'')
+			SELECT d.id, d.network_id, d.subnetwork_id, d.hostname, coalesce(d.display_name,''), coalesce(d.mac,''), coalesce(d.wg_pubkey,''), d.role, d.state, d.last_seen_at, d.created_at, d.updated_at, coalesce(d.rustdesk_id,'')
 			FROM devices d
 			JOIN networks n ON d.network_id = n.id
-			WHERE n.organization_id IN (SELECT organization_id FROM technician_assignments WHERE technician_id=$1 AND organization_id IS NOT NULL)
+			WHERE n.organization_id IN (SELECT id FROM organizations WHERE owner_technician_id=$1)
 			   OR n.id IN (SELECT network_id FROM technician_assignments WHERE technician_id=$1 AND network_id IS NOT NULL)
 			ORDER BY d.created_at DESC`
 		args = append(args, claims.TechnicianID)
@@ -230,7 +232,7 @@ func (s *Server) ListDevices(w http.ResponseWriter, r *http.Request) {
 	devices := []models.Device{}
 	for rs.Next() {
 		var d models.Device
-		if err := rs.Scan(&d.ID, &d.NetworkID, &d.Hostname, &d.DisplayName, &d.MAC, &d.WGPubkey, &d.Role, &d.State, &d.LastSeenAt, &d.CreatedAt, &d.UpdatedAt, &d.RustdeskID); err != nil {
+		if err := rs.Scan(&d.ID, &d.NetworkID, &d.SubnetworkID, &d.Hostname, &d.DisplayName, &d.MAC, &d.WGPubkey, &d.Role, &d.State, &d.LastSeenAt, &d.CreatedAt, &d.UpdatedAt, &d.RustdeskID); err != nil {
 			writeErr(w, http.StatusInternalServerError, "falha ao ler dispositivos")
 			return
 		}
@@ -244,14 +246,7 @@ func (s *Server) ListDevices(w http.ResponseWriter, r *http.Request) {
 		capabilities := presence.GetCapabilities(r.Context(), s.RDB, d.ID)
 		d.RemoteReady = capabilities.RemoteReady
 		d.FilesReady = capabilities.FilesReady
-		var raw []byte
-		if s.Pool.QueryRow(r.Context(), `SELECT hardware FROM telemetry_snapshots
-			WHERE device_id=$1 ORDER BY coletado_em DESC LIMIT 1`, d.ID).Scan(&raw) == nil {
-			var h hardwareSample
-			if json.Unmarshal(raw, &h) == nil {
-				d.HealthLevel, _ = analyzeHardwareHealth(h)["level"].(string)
-			}
-		}
+		d.HealthLevel, _ = s.recentHardwareHealth(r.Context(), d.ID)["level"].(string)
 		devices = append(devices, d)
 	}
 	writeJSON(w, http.StatusOK, devices)
@@ -276,6 +271,44 @@ func (s *Server) ClaimControlMachine(w http.ResponseWriter, r *http.Request, dev
 
 type updateDeviceNetworksRequest struct {
 	NetworkIDs []string `json:"network_ids"`
+}
+
+type updateDeviceSubnetworkRequest struct {
+	SubnetworkID string `json:"subnetwork_id"`
+}
+
+func (s *Server) UpdateDeviceSubnetwork(w http.ResponseWriter, r *http.Request, deviceID string) {
+	claims := middleware.ClaimsFrom(r.Context())
+	var req updateDeviceSubnetworkRequest
+	if json.NewDecoder(r.Body).Decode(&req) != nil || req.SubnetworkID == "" {
+		writeErr(w, http.StatusBadRequest, "subnetwork_id obrigatório")
+		return
+	}
+	var networkID, organizationID string
+	if err := s.Pool.QueryRow(r.Context(), `
+		SELECT s.network_id,n.organization_id FROM subnetworks s
+		JOIN networks n ON n.id=s.network_id
+		JOIN device_networks dn ON dn.network_id=n.id
+		WHERE s.id=$1 AND dn.device_id=$2`, req.SubnetworkID, deviceID).
+		Scan(&networkID, &organizationID); err != nil {
+		writeErr(w, http.StatusConflict, "a sub-rede não pertence a uma rede do dispositivo")
+		return
+	}
+	if claims.Role != models.RoleSuperAdmin {
+		allowed, err := s.technicianCanAccess(r.Context(), claims.TechnicianID, organizationID, networkID)
+		if err != nil || !allowed {
+			writeErr(w, http.StatusForbidden, "sem permissão para esta sub-rede")
+			return
+		}
+	}
+	if _, err := s.Pool.Exec(r.Context(),
+		`UPDATE devices SET network_id=$1,subnetwork_id=$2,updated_at=now() WHERE id=$3`,
+		networkID, req.SubnetworkID, deviceID); err != nil {
+		writeErr(w, http.StatusInternalServerError, "falha ao mover dispositivo")
+		return
+	}
+	_ = presence.Publish(r.Context(), s.RDB, presence.Event{Type: "device_subnetwork_changed", TargetID: deviceID})
+	writeJSON(w, http.StatusOK, map[string]any{"id": deviceID, "subnetwork_id": req.SubnetworkID})
 }
 
 func (s *Server) UpdateDeviceNetworks(w http.ResponseWriter, r *http.Request, deviceID string) {
@@ -367,29 +400,70 @@ func (s *Server) UpdateDeviceDisplayName(w http.ResponseWriter, r *http.Request,
 		writeErr(w, http.StatusBadRequest, "nome de exibição deve ter no máximo 80 caracteres")
 		return
 	}
-	var orgID, netID string
+	var orgID, netID, controlRole string
+	var controlTechnicianID *string
 	if err := s.Pool.QueryRow(r.Context(), `
-		SELECT n.organization_id,n.id FROM devices d
-		JOIN networks n ON n.id=d.network_id WHERE d.id=$1`, deviceID).
-		Scan(&orgID, &netID); err != nil {
+		SELECT n.organization_id,n.id,d.control_technician_id,coalesce(t.role,'')
+		FROM devices d
+		JOIN networks n ON n.id=d.network_id
+		LEFT JOIN technicians t ON t.id=d.control_technician_id
+		WHERE d.id=$1`, deviceID).
+		Scan(&orgID, &netID, &controlTechnicianID, &controlRole); err != nil {
 		writeErr(w, http.StatusNotFound, "dispositivo não encontrado")
 		return
 	}
 	if claims.Role != models.RoleSuperAdmin {
+		if controlTechnicianID != nil && controlRole == models.RoleTecnico &&
+			*controlTechnicianID != claims.TechnicianID {
+			writeErr(w, http.StatusForbidden, "somente o próprio técnico ou o Admin pode alterar este nome")
+			return
+		}
 		ok, err := s.technicianCanAccess(r.Context(), claims.TechnicianID, orgID, netID)
 		if err != nil || !ok {
 			writeErr(w, http.StatusForbidden, "sem permissão para esse dispositivo")
 			return
 		}
 	}
-	if _, err := s.Pool.Exec(r.Context(), `
+	if controlTechnicianID != nil && controlRole == models.RoleTecnico && req.DisplayName == "" {
+		writeErr(w, http.StatusBadRequest, "o nome do computador do técnico não pode ficar vazio")
+		return
+	}
+	tx, err := s.Pool.Begin(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "falha ao alterar nome do dispositivo")
+		return
+	}
+	defer tx.Rollback(r.Context())
+	if _, err = tx.Exec(r.Context(), `
 		UPDATE devices SET display_name=nullif($1,''),updated_at=now() WHERE id=$2`,
 		req.DisplayName, deviceID); err != nil {
 		writeErr(w, http.StatusInternalServerError, "falha ao alterar nome do dispositivo")
 		return
 	}
+	if controlTechnicianID != nil && controlRole == models.RoleTecnico {
+		if _, err = tx.Exec(r.Context(),
+			`UPDATE technicians SET username=$1 WHERE id=$2`,
+			req.DisplayName, *controlTechnicianID); err != nil {
+			writeErr(w, http.StatusConflict, "nome de técnico já utilizado")
+			return
+		}
+		if _, err = tx.Exec(r.Context(),
+			`UPDATE organizations SET name=$1 WHERE owner_technician_id=$2`,
+			req.DisplayName, *controlTechnicianID); err != nil {
+			writeErr(w, http.StatusConflict, "nome de organização já utilizado")
+			return
+		}
+	}
+	if err = tx.Commit(r.Context()); err != nil {
+		writeErr(w, http.StatusInternalServerError, "falha ao concluir alteração do nome")
+		return
+	}
 	_ = presence.Publish(r.Context(), s.RDB,
 		presence.Event{Type: "device_renamed", TargetID: deviceID})
+	if controlTechnicianID != nil && controlRole == models.RoleTecnico {
+		_ = presence.Publish(r.Context(), s.RDB,
+			presence.Event{Type: "technician_renamed", TargetID: *controlTechnicianID})
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"id": deviceID, "display_name": req.DisplayName,
 	})
@@ -555,8 +629,8 @@ func (s *Server) ReportRustdeskID(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"rustdesk_id": req.RustdeskID})
 }
 
-// technicianCanAccess checks whether a technician's assignments cover the given org/network.
-// An empty organizationID or networkID is treated as "not applicable" rather than a literal match.
+// technicianCanAccess grants the supervisor their own organization and only
+// explicitly assigned networks outside it (for example their TGDevs network).
 func (s *Server) technicianCanAccess(ctx context.Context, technicianID, organizationID, networkID string) (bool, error) {
 	var orgArg, netArg any
 	if organizationID != "" {
@@ -567,9 +641,11 @@ func (s *Server) technicianCanAccess(ctx context.Context, technicianID, organiza
 	}
 	var count int
 	err := s.Pool.QueryRow(ctx, `
-		SELECT count(*) FROM technician_assignments
-		WHERE technician_id = $1
-		  AND ((organization_id = $2::uuid) OR (network_id = $3::uuid))`,
+		SELECT count(*) WHERE
+			EXISTS (SELECT 1 FROM organizations
+				WHERE id=$2::uuid AND owner_technician_id=$1)
+			OR EXISTS (SELECT 1 FROM technician_assignments
+				WHERE technician_id=$1 AND network_id=$3::uuid)`,
 		technicianID, orgArg, netArg,
 	).Scan(&count)
 	if err != nil {
@@ -587,9 +663,12 @@ func (s *Server) technicianCanAccessDevice(
 			SELECT 1
 			FROM device_networks dn
 			JOIN networks n ON n.id=dn.network_id
-			JOIN technician_assignments a ON a.technician_id=$1
-			  AND (a.organization_id=n.organization_id OR a.network_id=n.id)
 			WHERE dn.device_id=$2
+			  AND (
+				n.organization_id IN (SELECT id FROM organizations WHERE owner_technician_id=$1)
+				OR n.id IN (SELECT network_id FROM technician_assignments
+					WHERE technician_id=$1 AND network_id IS NOT NULL)
+			  )
 		)`, technicianID, deviceID).Scan(&allowed)
 	return allowed, err
 }

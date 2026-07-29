@@ -20,7 +20,7 @@ import (
 )
 
 const (
-	compiledClientVersion = "0.3.36"
+	compiledClientVersion = "0.3.48"
 	privateAPIBase        = "http://10.70.0.1:8080"
 	recoveryAPIBase       = "http://168.232.199.161:8090"
 )

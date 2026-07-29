@@ -78,7 +78,23 @@ func (s *Server) PresenceWS(w http.ResponseWriter, r *http.Request) {
 // network/organization-level events) and checks it against technician_assignments.
 func (s *Server) eventVisibleTo(ctx context.Context, technicianID string, evt presence.Event) bool {
 	switch evt.Type {
-	case "presence", "telemetry", "bind", "suspend_device", "resume_device", "device_renamed":
+	case "branding_permission":
+		return evt.TargetID == technicianID
+	case "ticket_created", "ticket_message", "ticket_state", "service_order", "dispatch_offered", "dispatch_accepted":
+		var orgID, netID string
+		err := s.Pool.QueryRow(ctx, `SELECT organization_id,coalesce(network_id,'00000000-0000-0000-0000-000000000000') FROM support_tickets WHERE id=$1`, evt.TargetID).Scan(&orgID, &netID)
+		if err != nil {
+			return false
+		}
+		var assigned bool
+		_ = s.Pool.QueryRow(ctx, `SELECT assigned_freelancer_id=$2 FROM support_tickets WHERE id=$1`, evt.TargetID, technicianID).Scan(&assigned)
+		if assigned {
+			return true
+		}
+		ok, _ := s.technicianCanAccess(ctx, technicianID, orgID, netID)
+		return ok
+	case "presence", "telemetry", "bind", "suspend_device", "resume_device", "device_renamed",
+		"diagnostic_progress", "diagnostic_result":
 		var orgID, netID string
 		err := s.Pool.QueryRow(ctx, `
 			SELECT n.organization_id, n.id FROM devices d

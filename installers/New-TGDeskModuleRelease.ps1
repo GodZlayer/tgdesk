@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory = $false)]
-    [string]$Version = '0.3.37',
+    [string]$Version = '0.3.48',
     [Parameter(Mandatory = $false)]
     [string]$Source = "$PSScriptRoot\stage-unified",
     [Parameter(Mandatory = $false)]

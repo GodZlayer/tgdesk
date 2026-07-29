@@ -11,6 +11,7 @@ import (
 
 type deviceControlMessage struct {
 	Type    string `json:"type"`
+	ID      string `json:"id,omitempty"`
 	State   string `json:"state,omitempty"`
 	Version string `json:"version,omitempty"`
 	Payload any    `json:"payload,omitempty"`
@@ -34,6 +35,10 @@ func runDeviceControlLoop(cfg *agentConfig, remoteReady bool) error {
 
 	readErr := make(chan error, 1)
 	statsCh := make(chan any, 1)
+	brandingCh := make(chan BrandingState, 1)
+	diagnosticCh := make(chan diagnosticRequest, 1)
+	diagnosticProgressCh := make(chan diagnosticProgress, 8)
+	diagnosticResultCh := make(chan diagnosticResult, 1)
 	go func() {
 		for {
 			var msg deviceControlMessage
@@ -45,6 +50,40 @@ func runDeviceControlLoop(cfg *agentConfig, remoteReady bool) error {
 				select {
 				case statsCh <- msg.Payload:
 				default:
+				}
+			}
+			if msg.Type == "ready" || msg.Type == "branding" {
+				raw, _ := json.Marshal(msg.Payload)
+				var branding BrandingState
+				if msg.Type == "ready" {
+					var payload struct {
+						Branding BrandingState `json:"branding"`
+					}
+					if json.Unmarshal(raw, &payload) == nil {
+						branding = payload.Branding
+					}
+				} else {
+					_ = json.Unmarshal(raw, &branding)
+				}
+				if branding.Name == "" {
+					branding.Name = "TGDesk"
+				}
+				syncBrandFavicon(branding)
+				select {
+				case brandingCh <- branding:
+				default:
+				}
+			}
+			if msg.Type == "diagnostic_run" && msg.ID != "" {
+				raw, _ := json.Marshal(msg.Payload)
+				var payload struct {
+					Test string `json:"test"`
+				}
+				if json.Unmarshal(raw, &payload) == nil && payload.Test != "" {
+					select {
+					case diagnosticCh <- diagnosticRequest{ID: msg.ID, Test: payload.Test}:
+					default:
+					}
 				}
 			}
 			if msg.Version != "" {
@@ -87,6 +126,7 @@ func runDeviceControlLoop(cfg *agentConfig, remoteReady bool) error {
 	var statistics any
 	var collectedAt string
 	var remoteError string
+	branding := BrandingState{Name: "TGDesk"}
 	writeCurrentStatus := func() {
 		writeStatus(tgdeskStatus{
 			State: "ativo", Hostname: localHostname(), DeviceID: cfg.DeviceID,
@@ -94,6 +134,7 @@ func runDeviceControlLoop(cfg *agentConfig, remoteReady bool) error {
 			Hardware: hardware, Statistics: statistics, CollectedAt: collectedAt,
 			RemoteReady: remoteReady, FilesReady: remoteReady,
 			RemoteError: remoteError,
+			Branding:    branding,
 		})
 	}
 	for {
@@ -102,6 +143,22 @@ func runDeviceControlLoop(cfg *agentConfig, remoteReady bool) error {
 			return err
 		case statistics = <-statsCh:
 			writeCurrentStatus()
+		case branding = <-brandingCh:
+			writeCurrentStatus()
+		case request := <-diagnosticCh:
+			go runDiagnostic(request, diagnosticProgressCh, diagnosticResultCh)
+		case progress := <-diagnosticProgressCh:
+			if err := conn.WriteJSON(deviceControlMessage{
+				Type: "diagnostic_progress", ID: progress.ID, Payload: progress,
+			}); err != nil {
+				return err
+			}
+		case result := <-diagnosticResultCh:
+			if err := conn.WriteJSON(deviceControlMessage{
+				Type: "diagnostic_result", ID: result.ID, Payload: result,
+			}); err != nil {
+				return err
+			}
 		case <-heartbeatTick.C:
 			if err := sendHeartbeat(); err != nil {
 				return err
