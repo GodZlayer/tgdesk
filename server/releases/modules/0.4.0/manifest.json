@@ -1,0 +1,78 @@
+{
+  "version": "0.4.0",
+  "generated_at": "2026-07-30T02:45:00+00:00",
+  "files": [
+    {
+      "path": "tgdesk.exe",
+      "sha256": "82554960917c57e4f03a796b1644fd40983ae739bf0d406f1739e7561dda0e48",
+      "size": 445952,
+      "scope": "service"
+    },
+    {
+      "path": "tgdesk_agent.dll",
+      "sha256": "f602ecd0d902a34f4ec9efe52667cc1c300adfb6454c28b0258b36384f2a68b3",
+      "size": 5833216,
+      "scope": "service"
+    },
+    {
+      "path": "librustdesk.dll",
+      "sha256": "46f7f13da4e29bd575b14ab871f7e40138833f2bc742c511b89863a0e974dd21",
+      "size": 30939648,
+      "scope": "service"
+    },
+    {
+      "path": "wireguard.dll",
+      "sha256": "b1b85e072c45d81358be29d94c599dc76652f912be8c0f0a41e2d5d89a6461d3",
+      "size": 1352800,
+      "scope": "service"
+    },
+    {
+      "path": "flutter_windows.dll",
+      "sha256": "b66713715a7aeaa2f88ba18838aa7c245556eaaeb31c82da3f5aebcb71a7715e",
+      "size": 18181632,
+      "scope": "ui"
+    },
+    {
+      "path": "version.txt",
+      "sha256": "e05aa6698b5ad56a5ad2ab541319258df3df12267ff1fd2439accf0625e04a3f",
+      "size": 7,
+      "scope": "ui"
+    },
+    {
+      "path": "data/app.so",
+      "sha256": "6b392075678bad92ec91a2dbbd19adff2fc971d7f45f507e053bc5a10fc783e1",
+      "size": 12911520,
+      "scope": "ui"
+    },
+    {
+      "path": "data/flutter_assets/AssetManifest.bin",
+      "sha256": "3b1118684f4acf21587550cfd510cabf835fb86da67a64fffffffff5b8d00586",
+      "size": 4386,
+      "scope": "ui"
+    },
+    {
+      "path": "data/flutter_assets/AssetManifest.json",
+      "sha256": "8c30b0dada9daf4a96b88f86843a1e43388daa693a3d8c78137517e11dabf586",
+      "size": 3895,
+      "scope": "ui"
+    },
+    {
+      "path": "data/flutter_assets/FontManifest.json",
+      "sha256": "068f1cc96816fab157a6813ce233731e46bf661ad84d0018381fb58b19396886",
+      "size": 483,
+      "scope": "ui"
+    },
+    {
+      "path": "data/flutter_assets/NOTICES.Z",
+      "sha256": "4d7882f6611dc645502aa98d218598a64105781da56974efc7a9ad6517d48b37",
+      "size": 112864,
+      "scope": "ui"
+    },
+    {
+      "path": "data/icudtl.dat",
+      "sha256": "c12537022ef818991a7bfed41a76d8d6ae962ffbc0e6511ac762a5d0845e7f7c",
+      "size": 778864,
+      "scope": "ui"
+    }
+  ]
+}
