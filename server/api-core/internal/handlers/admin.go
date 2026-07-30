@@ -82,6 +82,10 @@ func (s *Server) SuspendTechnician(w http.ResponseWriter, r *http.Request, id st
 	_, _ = tx.Exec(r.Context(),
 		`UPDATE sessions SET fim=now() WHERE technician_id=$1 AND fim IS NULL`, id)
 	_, _ = tx.Exec(r.Context(), `
+		UPDATE technician_machine_credentials
+		SET status='revogado',last_used_at=now()
+		WHERE technician_id=$1 AND status='ativo'`, id)
+	_, _ = tx.Exec(r.Context(), `
 		UPDATE organizations SET status='suspensa',suspension_scope='technician'
 		WHERE owner_technician_id=$1 AND status='ativa'`, id)
 	_, _ = tx.Exec(r.Context(), `

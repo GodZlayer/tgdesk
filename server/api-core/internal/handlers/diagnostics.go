@@ -7,6 +7,7 @@ import (
 
 	"tgdesk/api-core/internal/middleware"
 	"tgdesk/api-core/internal/models"
+	"tgdesk/api-core/internal/presence"
 )
 
 var diagnosticCatalog = []map[string]any{
@@ -111,4 +112,37 @@ func (s *Server) ListDiagnostics(w http.ResponseWriter, r *http.Request, deviceI
 		})
 	}
 	writeJSON(w, http.StatusOK, out)
+}
+
+// CancelDiagnostic is scoped through the same device authorization as start/list.
+// Queued work is finalized immediately; running work is marked cancelled and the
+// device control channel delivers an idempotent cancellation signal.
+func (s *Server) CancelDiagnostic(w http.ResponseWriter, r *http.Request, deviceID, runID string) {
+	if !s.diagnosticDeviceAccess(r, deviceID) {
+		writeErr(w, http.StatusForbidden, "sem permissão para esse dispositivo")
+		return
+	}
+	var status string
+	var running bool
+	err := s.Pool.QueryRow(r.Context(), `
+		UPDATE diagnostic_runs
+		SET status='cancelled',
+		    error='cancelado pelo técnico',
+		    finished_at=CASE WHEN status='queued' THEN now() ELSE finished_at END
+		WHERE id=$1 AND device_id=$2
+		  AND status IN ('queued','running','cancelled')
+		RETURNING status,started_at IS NOT NULL AND finished_at IS NULL`,
+		runID, deviceID).Scan(&status, &running)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "diagnóstico não encontrado ou já concluído")
+		return
+	}
+	_ = presence.Publish(r.Context(), s.RDB, presence.Event{
+		Type: "diagnostic_result", TargetID: deviceID,
+		Payload: map[string]any{"id": runID, "status": status, "cancel_pending": running},
+	})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"id": runID, "device_id": deviceID, "status": status,
+		"cancel_pending": running, "idempotent": true,
+	})
 }

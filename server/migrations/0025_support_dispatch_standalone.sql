@@ -2,6 +2,11 @@
 ALTER TABLE technicians DROP CONSTRAINT IF EXISTS technicians_role_check;
 ALTER TABLE technicians ADD CONSTRAINT technicians_role_check
     CHECK (role IN ('super_admin', 'tecnico', 'freelancer'));
+ALTER TABLE technician_machine_credentials
+    DROP CONSTRAINT IF EXISTS technician_machine_credentials_control_role_check;
+ALTER TABLE technician_machine_credentials
+    ADD CONSTRAINT technician_machine_credentials_control_role_check
+    CHECK (control_role IN ('super_admin', 'tecnico', 'freelancer'));
 
 CREATE TABLE support_tickets (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),

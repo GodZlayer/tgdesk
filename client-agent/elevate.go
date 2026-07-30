@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"syscall"
+	"time"
 
 	"golang.org/x/sys/windows"
 )
@@ -91,11 +92,27 @@ func acquireHostSingleton() bool {
 	if err != nil {
 		return true
 	}
-	hostSingleton, err = windows.CreateMutex(nil, false, name)
-	if err == windows.ERROR_ALREADY_EXISTS {
-		return false
+	// During a Windows service restart SCM can start the replacement while
+	// the previous process is still releasing its embedded Host thread. Do
+	// not permanently lose the Host on that short overlap: retry for a
+	// bounded interval. Each failed CreateMutex returns a real handle to the
+	// existing object, which must be closed before retrying.
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		var candidate windows.Handle
+		candidate, err = windows.CreateMutex(nil, false, name)
+		if err != windows.ERROR_ALREADY_EXISTS {
+			hostSingleton = candidate
+			return true
+		}
+		if candidate != 0 {
+			_ = windows.CloseHandle(candidate)
+		}
+		if time.Now().After(deadline) {
+			return false
+		}
+		time.Sleep(100 * time.Millisecond)
 	}
-	return true
 }
 
 func releaseHostSingleton() {

@@ -33,10 +33,22 @@ Invoke-TestWorker 'isolated-backend' `
     (Join-Path $repo 'testlab\Test-TGDeskIsolatedBackend.ps1') @('-Action','Validate')
 Invoke-TestWorker 'control-key' `
     (Join-Path $repo 'testlab\Test-TGDeskControlKey.ps1')
+Invoke-TestWorker 'orphan-backend-contracts' `
+    (Join-Path $repo 'testlab\Test-TGDeskOrphanBackendContracts.ps1')
+Invoke-TestWorker 'functional-contracts' `
+    (Join-Path $repo 'testlab\Test-TGDeskFunctionalContracts.ps1')
+Invoke-TestWorker 'installer-update-contracts' `
+    (Join-Path $repo 'testlab\Test-TGDeskInstallerUpdate.ps1')
+Invoke-TestWorker 'client-ui-contracts' `
+    (Join-Path $repo 'testlab\Test-TGDeskClientUiContracts.ps1')
 Invoke-TestWorker 'hierarchy' `
     (Join-Path $repo 'testlab\Test-TGDeskHierarchy.ps1')
 Invoke-TestWorker 'deletion-identity' `
     (Join-Path $repo 'testlab\Test-TGDeskDeletionIdentity.ps1')
+Invoke-TestWorker 'management-lifecycle' `
+    (Join-Path $repo 'testlab\Test-TGDeskManagementLifecycle.ps1')
+Invoke-TestWorker 'control-telemetry' `
+    (Join-Path $repo 'testlab\Test-TGDeskControlTelemetry.ps1')
 Invoke-TestWorker 'support-v110' `
     (Join-Path $repo 'testlab\Test-TGDeskSupportV110.ps1')
 Invoke-TestWorker 'server-runtime' `

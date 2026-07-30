@@ -44,14 +44,16 @@ services:
       HUB_LISTEN_PORT: "51820"
       HUB_CIDR: "10.70.0.1/16"
       HUB_KEY_FILE: "/data/hub_private_key"
-      HUB_PUBLIC_ADDR: "host.docker.internal:41821"
+      # Hyper-V guests cannot resolve Docker's host.docker.internal alias.
+      # The deterministic lab switch gateway is their reachable host endpoint.
+      HUB_PUBLIC_ADDR: "172.18.80.1:41821"
       RENDEZVOUS_KEY_FILE: "/hbbs-data/id_ed25519.pub"
       RENDEZVOUS_PUBLIC_HOST: "10.70.0.1"
       CLIENT_VERSION: "${TGDESK_TEST_VERSION:-0.3.48}"
       BRANDING_DIR: "/branding"
     ports:
       - "127.0.0.1:18090:8080"
-      - "127.0.0.1:41821:51820/udp"
+      - "41821:51820/udp"
     depends_on:
       postgres:
         condition: service_healthy

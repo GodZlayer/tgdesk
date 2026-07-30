@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/url"
@@ -37,6 +38,7 @@ func runDeviceControlLoop(cfg *agentConfig, remoteReady bool) error {
 	statsCh := make(chan any, 1)
 	brandingCh := make(chan BrandingState, 1)
 	diagnosticCh := make(chan diagnosticRequest, 1)
+	diagnosticCancelCh := make(chan string, 1)
 	diagnosticProgressCh := make(chan diagnosticProgress, 8)
 	diagnosticResultCh := make(chan diagnosticResult, 1)
 	go func() {
@@ -86,6 +88,12 @@ func runDeviceControlLoop(cfg *agentConfig, remoteReady bool) error {
 					}
 				}
 			}
+			if msg.Type == "diagnostic_cancel" && msg.ID != "" {
+				select {
+				case diagnosticCancelCh <- msg.ID:
+				default:
+				}
+			}
 			if msg.Version != "" {
 				setServerUpdateVersion(msg.Version)
 			}
@@ -127,6 +135,7 @@ func runDeviceControlLoop(cfg *agentConfig, remoteReady bool) error {
 	var collectedAt string
 	var remoteError string
 	branding := BrandingState{Name: "TGDesk"}
+	activeDiagnostics := map[string]context.CancelFunc{}
 	writeCurrentStatus := func() {
 		writeStatus(tgdeskStatus{
 			State: "ativo", Hostname: localHostname(), DeviceID: cfg.DeviceID,
@@ -146,7 +155,13 @@ func runDeviceControlLoop(cfg *agentConfig, remoteReady bool) error {
 		case branding = <-brandingCh:
 			writeCurrentStatus()
 		case request := <-diagnosticCh:
-			go runDiagnostic(request, diagnosticProgressCh, diagnosticResultCh)
+			ctx, cancel := context.WithCancel(context.Background())
+			activeDiagnostics[request.ID] = cancel
+			go runDiagnostic(ctx, request, diagnosticProgressCh, diagnosticResultCh)
+		case id := <-diagnosticCancelCh:
+			if cancel := activeDiagnostics[id]; cancel != nil {
+				cancel()
+			}
 		case progress := <-diagnosticProgressCh:
 			if err := conn.WriteJSON(deviceControlMessage{
 				Type: "diagnostic_progress", ID: progress.ID, Payload: progress,
@@ -154,6 +169,10 @@ func runDeviceControlLoop(cfg *agentConfig, remoteReady bool) error {
 				return err
 			}
 		case result := <-diagnosticResultCh:
+			if cancel := activeDiagnostics[result.ID]; cancel != nil {
+				cancel()
+				delete(activeDiagnostics, result.ID)
+			}
 			if err := conn.WriteJSON(deviceControlMessage{
 				Type: "diagnostic_result", ID: result.ID, Payload: result,
 			}); err != nil {

@@ -35,6 +35,27 @@ try {
     $apiInspect = docker inspect $api.ID | ConvertFrom-Json
     $relayInspect = docker inspect $relay.ID | ConvertFrom-Json
     $rendezvousInspect = docker inspect $rendezvous.ID | ConvertFrom-Json
+    $restartPolicies = @(
+        $containers | ForEach-Object {
+            $inspection = docker inspect $_.ID | ConvertFrom-Json
+            [string]$inspection[0].HostConfig.RestartPolicy.Name
+        }
+    )
+    Add-Assertion 'server.auto-restart' `
+        (@($restartPolicies | Where-Object { $_ -ne 'unless-stopped' }).Count -eq 0) `
+        @{restart_policies = $restartPolicies}
+
+    $namedMounts = @(
+        $apiInspect[0].Mounts + (docker inspect $relay.ID | ConvertFrom-Json)[0].Mounts +
+        (docker inspect $rendezvous.ID | ConvertFrom-Json)[0].Mounts |
+            Where-Object Type -eq 'volume' | ForEach-Object Name | Select-Object -Unique
+    )
+    $seedDisabled = ((docker inspect $api.ID | ConvertFrom-Json)[0].Config.Env -contains 'ENABLE_DEMO_SEED=false') -and
+        ((docker inspect $api.ID | ConvertFrom-Json)[0].Config.Env -contains 'FORCE_RESEED=false')
+    Add-Assertion 'server.volumes-persistent' `
+        ($namedMounts.Count -ge 3 -and $seedDisabled) `
+        @{named_volumes = $namedMounts; demo_seed_disabled = $seedDisabled}
+
     $expectedMode = "container:$($apiInspect[0].Id)"
     Add-Assertion 'server.relay-namespace' `
         ($relayInspect[0].HostConfig.NetworkMode -eq $expectedMode -and

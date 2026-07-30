@@ -40,3 +40,31 @@ func TestHealthUsesAverageInsteadOfCurrentSample(t *testing.T) {
 		t.Fatalf("instantaneous spike raised health level: got %v", got)
 	}
 }
+
+func TestStorageAndUnknownTemperatureHealth(t *testing.T) {
+	hardware := hardwareSample{}
+	hardware.Storage = append(hardware.Storage, struct {
+		ID          string   `json:"id"`
+		Model       string   `json:"model"`
+		UsedPct     float64  `json:"used_pct"`
+		SMARTStatus string   `json:"smart_status"`
+		LifePct     *float64 `json:"life_pct"`
+		Temperature *float64 `json:"temperature"`
+		Volumes     []struct {
+			Label   string  `json:"label"`
+			UsedPct float64 `json:"used_pct"`
+		} `json:"volumes"`
+	}{ID: "disk0", Model: "Disk", UsedPct: 95, SMARTStatus: "Healthy"})
+
+	health := analyzeHardwareHealth(
+		hardware,
+		metricStats{}, metricStats{}, metricStats{}, metricStats{}, metricStats{}, 3,
+	)
+	if got := health["level"]; got != "maximum" {
+		t.Fatalf("95%% storage did not produce maximum severity: got %v", got)
+	}
+	metrics := health["metrics"].(map[string]any)
+	if got := metrics["temperature"].(map[string]any)["level"]; got != "normal" {
+		t.Fatalf("missing temperature sensor produced false alert: got %v", got)
+	}
+}

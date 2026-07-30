@@ -78,7 +78,7 @@ func (s *Server) PresenceWS(w http.ResponseWriter, r *http.Request) {
 // network/organization-level events) and checks it against technician_assignments.
 func (s *Server) eventVisibleTo(ctx context.Context, technicianID string, evt presence.Event) bool {
 	switch evt.Type {
-	case "branding_permission":
+	case "branding_permission", "technician_renamed":
 		return evt.TargetID == technicianID
 	case "ticket_created", "ticket_message", "ticket_state", "service_order", "dispatch_offered", "dispatch_accepted":
 		var orgID, netID string
@@ -105,11 +105,22 @@ func (s *Server) eventVisibleTo(ctx context.Context, technicianID string, evt pr
 		}
 		ok, _ := s.technicianCanAccess(ctx, technicianID, orgID, netID)
 		return ok
-	case "suspend_network", "resume_network":
+	case "suspend_network", "resume_network", "network_renamed":
 		ok, _ := s.technicianCanAccess(ctx, technicianID, "", evt.TargetID)
 		return ok
-	case "suspend_organization", "resume_organization":
+	case "suspend_organization", "resume_organization", "organization_renamed":
 		ok, _ := s.technicianCanAccess(ctx, technicianID, evt.TargetID, "")
+		return ok
+	case "subnetwork_renamed", "suspend_subnetwork", "resume_subnetwork":
+		var orgID, netID string
+		err := s.Pool.QueryRow(ctx, `
+			SELECT n.organization_id,n.id FROM subnetworks s
+			JOIN networks n ON n.id=s.network_id WHERE s.id=$1`,
+			evt.TargetID).Scan(&orgID, &netID)
+		if err != nil {
+			return false
+		}
+		ok, _ := s.technicianCanAccess(ctx, technicianID, orgID, netID)
 		return ok
 	default:
 		return false

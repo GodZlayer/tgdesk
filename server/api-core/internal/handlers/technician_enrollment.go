@@ -65,6 +65,10 @@ func secretDigest(secret string) []byte {
 	return sum[:]
 }
 
+func enrollmentServerID(jwtSecret string) string {
+	return hex.EncodeToString(secretDigest(jwtSecret))[:16]
+}
+
 // CreateTechnicianEnrollmentKey returns the complete .tgdesk-key payload once.
 // Only its digest remains in PostgreSQL.
 func (s *Server) CreateTechnicianEnrollmentKey(w http.ResponseWriter, r *http.Request, technicianID string) {
@@ -100,7 +104,7 @@ func (s *Server) CreateTechnicianEnrollmentKey(w http.ResponseWriter, r *http.Re
 
 	writeJSON(w, http.StatusCreated, enrollmentKeyFile{
 		Format: controlKeyFormat, KeyID: keyID, Secret: secret,
-		ServerID: hex.EncodeToString(secretDigest(s.Cfg.JWTSecret))[:16],
+		ServerID: enrollmentServerID(s.Cfg.JWTSecret),
 	})
 }
 
@@ -111,7 +115,9 @@ func (s *Server) RedeemTechnicianEnrollment(w http.ResponseWriter, r *http.Reque
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil ||
 		(req.Key.Format != controlKeyFormat && req.Key.Format != legacyTechnicianFormat) ||
 		req.Key.KeyID == "" ||
-		req.Key.Secret == "" || strings.TrimSpace(req.MachineID) == "" {
+		req.Key.Secret == "" ||
+		req.Key.ServerID != enrollmentServerID(s.Cfg.JWTSecret) ||
+		strings.TrimSpace(req.MachineID) == "" {
 		writeErr(w, http.StatusBadRequest, "arquivo-chave inválido")
 		return
 	}

@@ -113,10 +113,20 @@ func (s *Server) DeviceControlWS(w http.ResponseWriter, r *http.Request) {
 				"type": "heartbeat_ack", "state": state,
 				"version": os.Getenv("CLIENT_VERSION"),
 			})
-			if latestBranding, latestSignature := s.deviceBranding(r.Context(), deviceID); latestSignature != brandSignature {
+			if latestBranding, latestSignature := s.deviceBranding(r.Context(), deviceID); brandingChanged(brandSignature, latestSignature) {
 				brandSignature = latestSignature
 				_ = conn.WriteJSON(map[string]any{
 					"type": "branding", "payload": latestBranding,
+				})
+			}
+			var cancelledRunID string
+			if s.Pool.QueryRow(r.Context(), `
+				SELECT id FROM diagnostic_runs
+				WHERE device_id=$1 AND status='cancelled'
+				  AND started_at IS NOT NULL AND finished_at IS NULL
+				ORDER BY created_at LIMIT 1`, deviceID).Scan(&cancelledRunID) == nil {
+				_ = conn.WriteJSON(map[string]any{
+					"type": "diagnostic_cancel", "id": cancelledRunID,
 				})
 			}
 			var runID string
@@ -152,8 +162,14 @@ func (s *Server) DeviceControlWS(w http.ResponseWriter, r *http.Request) {
 			}
 			if json.Unmarshal(msg.Payload, &payload) == nil {
 				_, _ = s.Pool.Exec(r.Context(), `
-					INSERT INTO telemetry_snapshots (device_id,hardware)
-					VALUES ($1,$2)`, deviceID, payload.Hardware)
+					WITH inserted AS (
+						INSERT INTO telemetry_snapshots (device_id,hardware)
+						VALUES ($1,$2)
+						RETURNING 1
+					)
+					DELETE FROM telemetry_snapshots
+					WHERE coletado_em < now()-interval '30 days'`,
+					deviceID, payload.Hardware)
 				stats := s.hardwareStatistics(r.Context(), deviceID)
 				_ = conn.WriteJSON(map[string]any{"type": "telemetry_stats", "payload": stats})
 				_ = presence.Publish(r.Context(), s.RDB,
@@ -196,13 +212,13 @@ func (s *Server) DeviceControlWS(w http.ResponseWriter, r *http.Request) {
 			}
 			if json.Unmarshal(msg.Payload, &payload) == nil && msg.ID != "" {
 				status := payload.Status
-				if status != "completed" && status != "failed" {
+				if status != "completed" && status != "failed" && status != "cancelled" {
 					status = "failed"
 				}
 				_, _ = s.Pool.Exec(r.Context(), `
 					UPDATE diagnostic_runs SET status=$1,progress=100,results=$2,
 						error=$3,finished_at=now()
-					WHERE id=$4 AND device_id=$5 AND status='running'`,
+					WHERE id=$4 AND device_id=$5 AND status IN ('running','cancelled')`,
 					status, payload.Results, payload.Error, msg.ID, deviceID)
 				_ = presence.Publish(r.Context(), s.RDB, presence.Event{
 					Type: "diagnostic_result", TargetID: deviceID,
@@ -323,6 +339,11 @@ func (s *Server) TechnicianControlWS(w http.ResponseWriter, r *http.Request) {
 			if claims.Role != models.RoleSuperAdmin &&
 				!s.eventVisibleTo(r.Context(), claims.TechnicianID, evt) {
 				continue
+			}
+			if evt.Type == "suspend_technician" &&
+				evt.TargetID == claims.TechnicianID {
+				_ = write(map[string]any{"type": "session_revoked"})
+				return
 			}
 			if err := write(map[string]any{"type": "event", "event": evt}); err != nil {
 				return

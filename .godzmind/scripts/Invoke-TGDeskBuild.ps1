@@ -103,21 +103,71 @@ Invoke-Step 'flutter-analyze' {
 }
 
 if ($Scope -eq 'Full') {
-    Invoke-Step 'rust-check' {
+    Invoke-Step 'rust-contracts' {
         Push-Location (Join-Path $repo 'client-rustdesk-src')
-        try { & cargo check --locked } finally { Pop-Location }
+        try {
+            # Valida lockfile e resolução sem exigir um VCPKG global. A
+            # compilação nativa real ocorre logo abaixo pelo build Windows do
+            # Flutter, que usa os artefatos e toolchain oficiais do produto.
+            & cargo metadata --locked --no-deps --format-version 1
+        } finally { Pop-Location }
     }
     Invoke-Step 'flutter-windows-release' {
         Push-Location (Join-Path $repo 'client-rustdesk-src\flutter')
         try { & C:\flutter\bin\flutter.bat build windows --release } finally { Pop-Location }
     }
+    Invoke-Step 'installer-stage-sync' {
+        $releaseDir = Join-Path $repo 'client-rustdesk-src\flutter\build\windows\x64\runner\Release'
+        $stageDir = Join-Path $repo 'installers\stage-unified'
+        if (-not (Test-Path -LiteralPath (Join-Path $releaseDir 'tgdesk.exe'))) {
+            throw "Build Flutter sem tgdesk.exe: $releaseDir"
+        }
+        Copy-Item -Path (Join-Path $releaseDir '*') -Destination $stageDir -Recurse -Force
+        $version = [regex]::Match(
+            (Get-Content -LiteralPath (Join-Path $repo 'installers\tgdesk-installer.iss') -Raw),
+            '#define MyAppVersion "([^"]+)"'
+        ).Groups[1].Value
+        if (-not $version) { throw 'Versão do instalador não encontrada' }
+        Set-Content -LiteralPath (Join-Path $stageDir 'version.txt') -Value $version `
+            -Encoding ascii -NoNewline
+    }
     Invoke-Step 'installer-compile' {
         $iscc = @(
+            (Join-Path $env:LOCALAPPDATA 'Programs\Inno Setup 6\ISCC.exe'),
             'C:\Program Files (x86)\Inno Setup 6\ISCC.exe',
             'C:\Program Files\Inno Setup 6\ISCC.exe'
         ) | Where-Object { Test-Path $_ } | Select-Object -First 1
         if (-not $iscc) { throw 'ISCC.exe não encontrado' }
         & $iscc (Join-Path $repo 'installers\tgdesk-installer.iss')
+    }
+    Invoke-Step 'installer-artifact-metadata' {
+        $iss = Get-Content -LiteralPath (Join-Path $repo 'installers\tgdesk-installer.iss') -Raw
+        $version = [regex]::Match($iss, '#define MyAppVersion "([^"]+)"').Groups[1].Value
+        $installer = Join-Path $repo "installers\output\tgdesk-installer-$version.exe"
+        if (-not (Test-Path -LiteralPath $installer)) { throw "Instalador ausente: $installer" }
+        $stage = Join-Path $repo 'installers\stage-unified'
+        $metadata = [ordered]@{
+            schema_version = 1
+            version = $version
+            installer = [ordered]@{
+                path = $installer
+                size = (Get-Item -LiteralPath $installer).Length
+                sha256 = (Get-FileHash -LiteralPath $installer -Algorithm SHA256).Hash.ToLowerInvariant()
+            }
+            stage_files = @(
+                Get-ChildItem -LiteralPath $stage -File -Recurse | ForEach-Object {
+                    [ordered]@{
+                        path = $_.FullName.Substring($stage.Length).TrimStart('\').Replace('\', '/')
+                        size = $_.Length
+                        sha256 = (Get-FileHash -LiteralPath $_.FullName -Algorithm SHA256).Hash.ToLowerInvariant()
+                    }
+                } | Sort-Object path
+            )
+            generated_at = [DateTimeOffset]::UtcNow.ToString('o')
+        }
+        $metadata | ConvertTo-Json -Depth 6 |
+            Set-Content -LiteralPath (Join-Path $repo "installers\output\tgdesk-installer-$version.metadata.json") `
+                -Encoding utf8
     }
 }
 

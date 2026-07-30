@@ -2,7 +2,9 @@ package handlers
 
 import (
 	"context"
+	"crypto/sha256"
 	"encoding/base64"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -45,21 +47,30 @@ func readBrandLogo(fileName string) []byte {
 
 func brandJSON(record brandRecord, includeLogo bool) map[string]any {
 	result := map[string]any{
-		"enabled":     record.Enabled,
-		"name":        record.Name,
-		"has_logo":    record.LogoFile != "",
-		"has_favicon": record.FaviconFile != "",
-		"updated_at":  record.UpdatedAt.UTC().Format(time.RFC3339Nano),
+		"enabled":       record.Enabled,
+		"name":          record.Name,
+		"has_logo":      record.LogoFile != "",
+		"has_favicon":   record.FaviconFile != "",
+		"updated_at":    record.UpdatedAt.UTC().Format(time.RFC3339Nano),
+		"asset_version": record.UpdatedAt.UTC().UnixNano(),
 	}
 	if includeLogo {
 		if logo := readBrandLogo(record.LogoFile); len(logo) > 0 {
 			result["logo_base64"] = base64.StdEncoding.EncodeToString(logo)
+			sum := sha256.Sum256(logo)
+			result["logo_sha256"] = hex.EncodeToString(sum[:])
 		}
 		if favicon := readBrandLogo(record.FaviconFile); len(favicon) > 0 {
 			result["favicon_base64"] = base64.StdEncoding.EncodeToString(favicon)
+			sum := sha256.Sum256(favicon)
+			result["favicon_sha256"] = hex.EncodeToString(sum[:])
 		}
 	}
 	return result
+}
+
+func brandingChanged(previous, latest string) bool {
+	return previous != latest
 }
 
 func (s *Server) technicianBrand(ctx context.Context, technicianID string) (brandRecord, error) {

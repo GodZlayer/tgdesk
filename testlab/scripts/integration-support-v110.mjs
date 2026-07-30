@@ -19,7 +19,7 @@ async function redeem(key,machine) { return (await request("/api/v1/auth/control
 
 let socket;
 try {
-  const admin=await redeem(JSON.parse(fs.readFileSync(keyPath,"utf8")),`support-admin-${Date.now()}`);
+  const admin=await redeem(JSON.parse(fs.readFileSync(keyPath,"utf8")),"testlab-admin-vm");
   const suffix=Date.now().toString(36);
   const supervisor=(await request("/api/v1/technicians",{method:"POST",token:admin.token,body:{name:`Supervisor ${suffix}`}})).data;
   const orgs=(await request("/api/v1/organizations",{token:admin.token})).data;
@@ -28,8 +28,10 @@ try {
   const device=(await request("/api/v1/devices/register",{method:"POST",body:{hostname:`AVULSO-${suffix}`,mac:`02:11:22:${suffix.slice(-2)}:44:55`,role:"host"}})).data;
 
   socket=new WebSocket(`ws://10.70.0.1:8080/ws/control/technician?token=${encodeURIComponent(admin.token)}`);
-  const events=[]; await new Promise((resolve,reject)=>{const t=setTimeout(()=>reject(new Error("admin websocket timeout")),10000);socket.addEventListener("open",()=>{clearTimeout(t);resolve()},{once:true});socket.addEventListener("error",()=>reject(new Error("admin websocket failed")),{once:true})});
-  socket.addEventListener("message",ev=>{const x=JSON.parse(ev.data);if(x.type==="event")events.push(x.event)});
+  const events=[];
+  const ready=new Promise((resolve,reject)=>{const t=setTimeout(()=>reject(new Error("admin websocket snapshot timeout")),10000);socket.addEventListener("message",ev=>{const x=JSON.parse(ev.data);if(x.type==="event")events.push(x.event);if(x.type==="snapshot"){clearTimeout(t);resolve();}});});
+  await new Promise((resolve,reject)=>{const t=setTimeout(()=>reject(new Error("admin websocket timeout")),10000);socket.addEventListener("open",()=>{clearTimeout(t);resolve()},{once:true});socket.addEventListener("error",()=>reject(new Error("admin websocket failed")),{once:true})});
+  await ready;
 
   const opened=(await request("/api/v1/support/client/tickets",{method:"POST",body:{device_id:device.device_id,device_token:device.device_token,title:"Computador lento",description:"Análise solicitada",modality:"virtual",standalone:true,location:{latitude:-23.55,longitude:-46.63}}})).data;
   assertion(opened.confirmation&&opened.status==="open","ticket.client-open","client receives ticket confirmation",opened);
@@ -48,7 +50,7 @@ try {
   let audit=(await request(`/api/v1/support/tickets/${opened.id}/audit`,{token:admin.token})).data;
   assertion(audit.some(x=>x.type==="opened")&&audit.some(x=>x.type==="message")&&audit.some(x=>x.type==="service_order"),"ticket.audit","messages attachments actors timestamps and transitions are auditable",audit.map(x=>x.type));
 
-  const f1=(await request("/api/v1/admin/freelancers",{method:"POST",token:admin.token,body:{name:`Freelancer A ${suffix}`,supervisor_id:supervisor.id,organization_id:org.id,quality_score:95,latitude:-23.55,longitude:-46.63}})).data;
+  const f1=(await request("/api/v1/admin/freelancers",{method:"POST",token:admin.token,body:{name:`Freelancer A ${suffix}`,supervisor_id:supervisor.id,organization_id:org.id,quality_score:100,latitude:-23.55,longitude:-46.63}})).data;
   const f2=(await request("/api/v1/admin/freelancers",{method:"POST",token:admin.token,body:{name:`Freelancer B ${suffix}`,supervisor_id:supervisor.id,organization_id:org.id,quality_score:70,latitude:-22.90,longitude:-43.20}})).data;
   assertion(f1.role==="freelancer"&&f1.network_management===false&&f1.client_tab===true,"freelancer.new-role","freelancer role has ticket UI contract without visible network management",f1);
   assertion(f1.supervisor_id===supervisor.id&&f1.organization_id===org.id,"freelancer.supervisor-link","freelancer is internally linked to supervisor organization",f1);
@@ -63,7 +65,7 @@ try {
 
   const dispatched=(await request(`/api/v1/support/tickets/${opened.id}/dispatch`,{method:"POST",token:admin.token,body:{latitude:-23.55,longitude:-46.63,deadline_at:new Date(Date.now()+3600000).toISOString()}})).data;
   assertion(dispatched.ranking_factors.includes("location")&&dispatched.ranking_factors.includes("quality"),"freelancer.dynamic-queue","queue declares location availability quality and expiration ranking",dispatched);
-  assertion(dispatched.offers===2,"freelancer.request-data","supervisor request contains technical location modality and deadline data",dispatched);
+  assertion(dispatched.offers>=2&&dispatched.request_data?.location&&dispatched.request_data?.deadline_at,"freelancer.request-data","supervisor request contains technical location modality and deadline data",dispatched);
   assertion(dispatched.stagger_seconds===30,"freelancer.staggered-offer","offers are staggered by deterministic rank");
   const q1=(await request("/api/v1/support/freelancer/queue",{token:auth1.token})).data;
   const q2=(await request("/api/v1/support/freelancer/queue",{token:auth2.token})).data;

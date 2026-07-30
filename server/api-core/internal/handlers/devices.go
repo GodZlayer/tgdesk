@@ -644,6 +644,10 @@ func (s *Server) technicianCanAccess(ctx context.Context, technicianID, organiza
 		SELECT count(*) WHERE
 			EXISTS (SELECT 1 FROM organizations
 				WHERE id=$2::uuid AND owner_technician_id=$1)
+			OR EXISTS (
+				SELECT 1 FROM networks n
+				JOIN organizations o ON o.id=n.organization_id
+				WHERE n.id=$3::uuid AND o.owner_technician_id=$1)
 			OR EXISTS (SELECT 1 FROM technician_assignments
 				WHERE technician_id=$1 AND network_id=$3::uuid)`,
 		technicianID, orgArg, netArg,

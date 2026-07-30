@@ -36,9 +36,21 @@ type diagnosticResult struct {
 	Error   string         `json:"error,omitempty"`
 }
 
-func runDiagnostic(req diagnosticRequest, progress chan<- diagnosticProgress, result chan<- diagnosticResult) {
+type contextReader struct {
+	ctx context.Context
+	r   io.Reader
+}
+
+func (r contextReader) Read(buffer []byte) (int, error) {
+	if err := r.ctx.Err(); err != nil {
+		return 0, err
+	}
+	return r.r.Read(buffer)
+}
+
+func runDiagnostic(ctx context.Context, req diagnosticRequest, progress chan<- diagnosticProgress, result chan<- diagnosticResult) {
 	progress <- diagnosticProgress{ID: req.ID, Test: req.Test, Progress: 5, Message: "Preparando teste"}
-	ctx, cancel := context.WithTimeout(context.Background(), 12*time.Minute)
+	ctx, cancel := context.WithTimeout(ctx, 12*time.Minute)
 	defer cancel()
 	started := time.Now()
 	data, err := executeDiagnostic(ctx, req.Test, func(percent int, message string) {
@@ -50,6 +62,9 @@ func runDiagnostic(req diagnosticRequest, progress chan<- diagnosticProgress, re
 	status, errorText := "completed", ""
 	if err != nil {
 		status, errorText = "failed", err.Error()
+		if ctx.Err() == context.Canceled {
+			status, errorText = "cancelled", "cancelado pelo técnico"
+		}
 	}
 	result <- diagnosticResult{ID: req.ID, Status: status, Results: data, Error: errorText}
 }
@@ -62,7 +77,7 @@ func executeDiagnostic(ctx context.Context, test string, progress func(int, stri
 	case "cpu_stress":
 		return cpuStress(ctx, progress)
 	case "memory_integrity":
-		return memoryIntegrity(progress)
+		return memoryIntegrity(ctx, progress)
 	case "internet_quality":
 		return internetQuality(ctx, progress)
 	case "disk_performance":
@@ -121,15 +136,21 @@ func cpuStress(ctx context.Context, progress func(int, string)) (map[string]any,
 	}, nil
 }
 
-func memoryIntegrity(progress func(int, string)) (map[string]any, error) {
+func memoryIntegrity(ctx context.Context, progress func(int, string)) (map[string]any, error) {
 	const bytesToTest = 128 * 1024 * 1024
 	progress(20, "Reservando 128 MB para verificação")
 	block := make([]byte, bytesToTest)
 	for i := range block {
+		if i%(1024*1024) == 0 && ctx.Err() != nil {
+			return map[string]any{}, ctx.Err()
+		}
 		block[i] = byte((i*31 + 17) & 0xff)
 	}
 	progress(60, "Validando padrões gravados")
 	for i, value := range block {
+		if i%(1024*1024) == 0 && ctx.Err() != nil {
+			return map[string]any{}, ctx.Err()
+		}
 		if value != byte((i*31+17)&0xff) {
 			return map[string]any{"bytes_tested": bytesToTest, "error_offset": i},
 				fmt.Errorf("divergência de memória no offset %d", i)
@@ -151,7 +172,15 @@ func internetQuality(ctx context.Context, progress func(int, string)) (map[strin
 	progress(50, "Testando acesso HTTPS externo")
 	client := &http.Client{Timeout: 15 * time.Second}
 	httpStart := time.Now()
-	resp, httpErr := client.Get("https://www.cloudflare.com/cdn-cgi/trace")
+	request, requestErr := http.NewRequestWithContext(ctx, http.MethodGet,
+		"https://www.cloudflare.com/cdn-cgi/trace", nil)
+	var resp *http.Response
+	var httpErr error
+	if requestErr != nil {
+		httpErr = requestErr
+	} else {
+		resp, httpErr = client.Do(request)
+	}
 	httpMs := time.Since(httpStart).Milliseconds()
 	status := 0
 	if resp != nil {
@@ -209,7 +238,7 @@ func diskPerformance(ctx context.Context, progress func(int, string)) (map[strin
 		return map[string]any{}, err
 	}
 	hash := sha256.New()
-	_, err = io.Copy(hash, file)
+	_, err = io.Copy(hash, contextReader{ctx: ctx, r: file})
 	file.Close()
 	readSeconds := time.Since(start).Seconds()
 	return map[string]any{

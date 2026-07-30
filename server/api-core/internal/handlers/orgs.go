@@ -150,6 +150,10 @@ type createNetworkRequest struct {
 
 func (s *Server) CreateNetwork(w http.ResponseWriter, r *http.Request) {
 	claims := middleware.ClaimsFrom(r.Context())
+	if claims.Role == models.RoleFreelancer {
+		writeErr(w, http.StatusForbidden, "freelancer não gerencia redes")
+		return
+	}
 	var req createNetworkRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Name == "" {
 		writeErr(w, http.StatusBadRequest, "organization_id e name são obrigatórios")

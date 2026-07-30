@@ -2,11 +2,14 @@
 param(
     [ValidateSet('Discover', 'ValidateBackend', 'ValidateMedia', 'ValidateVMPrerequisites', 'Run')]
     [string]$Action = 'Run',
-    [string]$ConfigPath = (Join-Path $PSScriptRoot 'lab.config.json')
+    [string]$ConfigPath = ''
 )
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+if (-not $ConfigPath) {
+    $ConfigPath = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) 'lab.config.json'
+}
 
 function Resolve-LabPath {
     param([string]$Base, [string]$Value)

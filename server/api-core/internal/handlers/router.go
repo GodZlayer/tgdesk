@@ -31,7 +31,20 @@ func NewRouter(s *Server) http.Handler {
 	mux.HandleFunc("GET /api/v1/client/modules/{version}/{path...}", s.DownloadClientModule)
 	mux.HandleFunc("POST /api/v1/support/client/tickets", s.ClientOpenTicket)
 
-	auth := middleware.RequireAuth(s.Cfg.JWTSecret)
+	jwtAuth := middleware.RequireAuth(s.Cfg.JWTSecret)
+	auth := func(h http.Handler) http.Handler {
+		return jwtAuth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			claims := middleware.ClaimsFrom(r.Context())
+			var status string
+			if claims == nil || s.Pool.QueryRow(r.Context(),
+				`SELECT status FROM technicians WHERE id=$1`, claims.TechnicianID).
+				Scan(&status) != nil || status != "ativo" {
+				writeErr(w, http.StatusUnauthorized, "sessão revogada ou suspensa")
+				return
+			}
+			h.ServeHTTP(w, r)
+		}))
+	}
 	private := func(h http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if !requestFromVPN(r) {
@@ -131,6 +144,9 @@ func NewRouter(s *Server) http.Handler {
 	}))))
 	mux.Handle("POST /api/v1/devices/{id}/diagnostics", private(auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.StartDiagnostic(w, r, r.PathValue("id"))
+	}))))
+	mux.Handle("POST /api/v1/devices/{id}/diagnostics/{run_id}/cancel", private(auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.CancelDiagnostic(w, r, r.PathValue("id"), r.PathValue("run_id"))
 	}))))
 	mux.Handle("POST /api/v1/networks/{id}/suspend", private(auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.SuspendNetwork(w, r, r.PathValue("id"))

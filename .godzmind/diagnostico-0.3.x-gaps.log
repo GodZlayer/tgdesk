@@ -1,0 +1,8 @@
+﻿{
+    "scenarios":  20,
+    "criteria":  161,
+    "passed":  124,
+    "failed":  2,
+    "gaps":  35,
+    "coverage_percent":  77.02
+}

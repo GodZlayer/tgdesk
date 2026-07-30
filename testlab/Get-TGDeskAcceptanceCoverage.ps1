@@ -40,10 +40,13 @@ if (Test-Path -LiteralPath $ArtifactsPath) {
             if ($measuredAt -lt $evidenceSince) { continue }
             foreach ($assertion in @($document.assertions)) {
                 if (-not $assertion.id -or -not $assertion.state) { continue }
+                $current = $observations[[string]$assertion.id]
+                if ($current -and $current.observed_at -gt $measuredAt) { continue }
                 $observations[[string]$assertion.id] = [pscustomobject]@{
                     state = [string]$assertion.state
                     evidence = $file.FullName
                     measured_at = $document.measured_at
+                    observed_at = $measuredAt
                     details = $assertion.details
                 }
             }

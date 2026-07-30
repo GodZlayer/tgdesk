@@ -1,0 +1,5 @@
+C:\Users\santo\Documents\TGDESK\.godzmind\scripts\Invoke-TGDeskBuild.ps1 : NÆo ‚ poss¡vel localizar um parƒmetro que 
+coincida com o nome de parƒmetro 'Fast'.
+    + CategoryInfo          : InvalidArgument: (:) [Invoke-TGDeskBuild.ps1], ParentContainsErrorRecordException
+    + FullyQualifiedErrorId : NamedParameterNotFound,Invoke-TGDeskBuild.ps1
+ 

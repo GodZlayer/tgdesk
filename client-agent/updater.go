@@ -176,19 +176,12 @@ func stageModularUpdate() (updating bool, requireInstaller bool, err error) {
 		return false, false, err
 	}
 	installDir := filepath.Dir(exe)
-	changed := make([]moduleFile, 0)
-	for _, item := range manifest.Files {
-		if !safeModulePath(item.Path) || len(item.SHA256) != 64 {
-			return false, false, fmt.Errorf("módulo inválido no manifesto")
-		}
-		target := filepath.Join(installDir, filepath.FromSlash(item.Path))
-		hash, _ := fileSHA256(target)
-		if !strings.EqualFold(hash, item.SHA256) {
-			if item.Scope == "service" {
-				return false, true, nil
-			}
-			changed = append(changed, item)
-		}
+	changed, requiresInstaller, err := selectChangedModules(manifest, installDir)
+	if err != nil {
+		return false, false, err
+	}
+	if requiresInstaller {
+		return false, true, nil
 	}
 	if len(changed) == 0 {
 		return false, false, nil
@@ -217,6 +210,26 @@ func stageModularUpdate() (updating bool, requireInstaller bool, err error) {
 		return false, false, err
 	}
 	return true, false, nil
+}
+
+func selectChangedModules(manifest moduleManifest, installDir string) (
+	[]moduleFile, bool, error,
+) {
+	changed := make([]moduleFile, 0)
+	for _, item := range manifest.Files {
+		if !safeModulePath(item.Path) || len(item.SHA256) != 64 {
+			return nil, false, fmt.Errorf("módulo inválido no manifesto")
+		}
+		target := filepath.Join(installDir, filepath.FromSlash(item.Path))
+		hash, _ := fileSHA256(target)
+		if !strings.EqualFold(hash, item.SHA256) {
+			if item.Scope == "service" {
+				return nil, true, nil
+			}
+			changed = append(changed, item)
+		}
+	}
+	return changed, false, nil
 }
 
 func launchStagedUpdaterElevated(exe, staging, installDir string, parentPID uint32) error {
@@ -269,7 +282,9 @@ func getUpdate(client *http.Client, path string) (*http.Response, string, error)
 
 func safeModulePath(path string) bool {
 	clean := filepath.Clean(filepath.FromSlash(path))
-	return path != "" && clean != "." && !filepath.IsAbs(clean) &&
+	return path != "" && clean != "." && !strings.HasPrefix(path, "/") &&
+		!strings.HasPrefix(path, `\`) && !strings.Contains(clean, ":") &&
+		!filepath.IsAbs(clean) &&
 		clean != ".." && !strings.HasPrefix(clean, ".."+string(filepath.Separator))
 }
 
@@ -304,6 +319,43 @@ func applyStagedModules(staging, installDir string, parentPID uint32) error {
 	filesRoot := filepath.Join(staging, "files")
 	rollback := filepath.Join(tgdeskDataDir(), "updates", "rollback",
 		fmt.Sprintf("%d", time.Now().Unix()))
+	applied, err := applyModuleTransaction(filesRoot, installDir, rollback)
+	if err != nil {
+		if rollbackErr := restoreModuleTransaction(applied, installDir, rollback); rollbackErr != nil {
+			return fmt.Errorf("atualização falhou: %v; rollback falhou: %w", err, rollbackErr)
+		}
+		return err
+	}
+	app := exec.Command(filepath.Join(installDir, "tgdesk.exe"))
+	if err := app.Start(); err != nil {
+		if rollbackErr := restoreModuleTransaction(applied, installDir, rollback); rollbackErr != nil {
+			return fmt.Errorf("reinício falhou: %v; rollback falhou: %w", err, rollbackErr)
+		}
+		return fmt.Errorf("não foi possível reiniciar o TGDesk: %w", err)
+	}
+	// Uma falha imediata indica pacote inválido (DLL ausente/incompatível).
+	// Depois desta janela o processo fica independente do atualizador.
+	exited := make(chan error, 1)
+	go func() { exited <- app.Wait() }()
+	select {
+	case startErr := <-exited:
+		if rollbackErr := restoreModuleTransaction(applied, installDir, rollback); rollbackErr != nil {
+			return fmt.Errorf("TGDesk encerrou durante validação: %v; rollback falhou: %w",
+				startErr, rollbackErr)
+		}
+		return fmt.Errorf("TGDesk encerrou durante validação: %v", startErr)
+	case <-time.After(5 * time.Second):
+		return nil
+	}
+}
+
+type appliedModule struct {
+	relative  string
+	hadBackup bool
+}
+
+func applyModuleTransaction(filesRoot, installDir, rollback string) ([]appliedModule, error) {
+	applied := make([]appliedModule, 0)
 	err := filepath.WalkDir(filesRoot, func(path string, entry os.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -319,6 +371,7 @@ func applyStagedModules(staging, installDir string, parentPID uint32) error {
 		if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
 			return err
 		}
+		item := appliedModule{relative: relative}
 		if _, err := os.Stat(target); err == nil {
 			backup := filepath.Join(rollback, relative)
 			if err := os.MkdirAll(filepath.Dir(backup), 0700); err != nil {
@@ -327,13 +380,35 @@ func applyStagedModules(staging, installDir string, parentPID uint32) error {
 			if err := copyFile(target, backup); err != nil {
 				return err
 			}
+			item.hadBackup = true
 		}
-		return copyFile(path, target)
+		// Registra antes da troca para que até uma falha no meio da cópia
+		// restaure o arquivo corrente ou remova o módulo recém-criado.
+		applied = append(applied, item)
+		if err := copyFile(path, target); err != nil {
+			return err
+		}
+		return nil
 	})
-	if err != nil {
-		return err
+	return applied, err
+}
+
+func restoreModuleTransaction(applied []appliedModule, installDir, rollback string) error {
+	var failures []string
+	for index := len(applied) - 1; index >= 0; index-- {
+		item := applied[index]
+		target := filepath.Join(installDir, item.relative)
+		if item.hadBackup {
+			if err := copyFile(filepath.Join(rollback, item.relative), target); err != nil {
+				failures = append(failures, item.relative+": "+err.Error())
+			}
+		} else if err := os.Remove(target); err != nil && !os.IsNotExist(err) {
+			failures = append(failures, item.relative+": "+err.Error())
+		}
 	}
-	_ = exec.Command(filepath.Join(installDir, "tgdesk.exe")).Start()
+	if len(failures) != 0 {
+		return fmt.Errorf("%s", strings.Join(failures, "; "))
+	}
 	return nil
 }
 

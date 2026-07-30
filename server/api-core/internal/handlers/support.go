@@ -74,6 +74,9 @@ func (s *Server) ClientOpenTicket(w http.ResponseWriter, r *http.Request) {
 	if req.Modality == "" {
 		req.Modality = "virtual"
 	}
+	if req.Location == nil {
+		req.Location = map[string]any{}
+	}
 	if req.Modality != "virtual" && req.Modality != "onsite" {
 		writeErr(w, 400, "modalidade inválida")
 		return
@@ -330,11 +333,12 @@ func (s *Server) DispatchTicket(w http.ResponseWriter, r *http.Request, id strin
 	}
 	_ = json.NewDecoder(r.Body).Decode(&req)
 	var orgID string
-	if s.Pool.QueryRow(r.Context(), `SELECT organization_id FROM support_tickets WHERE id=$1`, id).Scan(&orgID) != nil {
+	var standalone bool
+	if s.Pool.QueryRow(r.Context(), `SELECT organization_id,standalone FROM support_tickets WHERE id=$1`, id).Scan(&orgID, &standalone) != nil {
 		writeErr(w, 404, "chamado não encontrado")
 		return
 	}
-	rows, err := s.Pool.Query(r.Context(), `SELECT technician_id,quality_score,coalesce(latitude,0),coalesce(longitude,0) FROM freelancer_profiles WHERE organization_id=$1 AND availability=true ORDER BY quality_score DESC,technician_id`, orgID)
+	rows, err := s.Pool.Query(r.Context(), `SELECT technician_id,quality_score,coalesce(latitude,0),coalesce(longitude,0) FROM freelancer_profiles WHERE (organization_id=$1 OR $2) AND availability=true ORDER BY quality_score DESC,technician_id`, orgID, standalone)
 	if err != nil {
 		writeErr(w, 500, "falha")
 		return
@@ -381,7 +385,13 @@ func (s *Server) DispatchTicket(w http.ResponseWriter, r *http.Request, id strin
 		return
 	}
 	s.publishTicket(r, id, "dispatch_offered", map[string]any{"offers": len(cs)})
-	writeJSON(w, 201, map[string]any{"ticket_id": id, "offers": len(cs), "stagger_seconds": 30, "ranking_factors": []string{"location", "availability", "quality", "expiration"}})
+	writeJSON(w, 201, map[string]any{
+		"ticket_id": id, "offers": len(cs), "stagger_seconds": 30,
+		"ranking_factors": []string{"location", "availability", "quality", "expiration"},
+		"request_data": map[string]any{"location": map[string]float64{
+			"latitude": req.Latitude, "longitude": req.Longitude,
+		}, "deadline_at": req.DeadlineAt},
+	})
 }
 
 func (s *Server) FreelancerQueue(w http.ResponseWriter, r *http.Request) {

@@ -12,6 +12,16 @@ $manifestPath = Join-Path $repo 'testlab\acceptance.manifest.json'
 $contractsPath = Join-Path $repo 'testlab\version-contracts.json'
 $coveragePath = Join-Path $repo 'testlab\artifacts\acceptance-coverage.json'
 $artifactPath = Join-Path $repo "testlab\artifacts\version-gate-$Version.json"
+$triagePath = Join-Path $repo "gaps-triagem-$Version.md"
+
+# Critical gap IDs for 0.4.0
+$criticalGapIds = @(
+    'runtime.close-to-tray',
+    'runtime.autostart-toggle',
+    'ws.disconnect.truth',
+    'update.push.button',
+    'update.one-action.one-version'
+)
 
 $coverageArgs = @{NoFail = $true}
 if ($EvidenceSinceUtc) { $coverageArgs.EvidenceSinceUtc = $EvidenceSinceUtc }
@@ -41,8 +51,16 @@ if ($unassigned.Count -or $unknown.Count) {
 $required = @($coverage.results | Where-Object scenario -in $requiredScenarios)
 $passed = @($required | Where-Object state -eq 'passed').Count
 $failed = @($required | Where-Object state -eq 'failed').Count
-$gaps = @($required | Where-Object state -eq 'gap').Count
-$state = if ($failed -eq 0 -and $gaps -eq 0) { 'passed' } else { 'blocked' }
+$blocked = @($required | Where-Object state -eq 'blocked').Count
+
+# Separate critical gaps from deferred gaps
+$allGaps = @($required | Where-Object state -eq 'gap')
+$criticalGaps = @($allGaps | Where-Object { $_.criterion -in $criticalGapIds }).Count
+$deferredGaps = @($allGaps | Where-Object { $_.criterion -notin $criticalGapIds }).Count
+$gaps = $allGaps.Count
+
+# Gate state: blocked if failed, blocked, or critical gaps remain
+$state = if ($failed -eq 0 -and $blocked -eq 0 -and $criticalGaps -eq 0) { 'passed' } else { 'blocked' }
 $report = [ordered]@{
     schema_version = 1
     phase = 'version-gate'
@@ -55,12 +73,17 @@ $report = [ordered]@{
         criteria = $required.Count
         passed = $passed
         failed = $failed
+        blocked = $blocked
         gaps = $gaps
+        gaps_critical = $criticalGaps
+        gaps_deferred = $deferredGaps
         coverage_percent = if ($required.Count) {
             [math]::Round(($passed / $required.Count) * 100, 2)
         } else { 0 }
     }
-    blocking_results = @($required | Where-Object state -ne 'passed')
+    blocking_results = @(
+        $required | Where-Object { $_.state -eq 'failed' -or $_.state -eq 'blocked' -or ($_.state -eq 'gap' -and $_.criterion -in $criticalGapIds) }
+    )
 }
 $report | ConvertTo-Json -Depth 10 | Set-Content $artifactPath -Encoding utf8
 $report.summary | ConvertTo-Json

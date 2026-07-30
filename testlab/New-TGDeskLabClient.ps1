@@ -6,11 +6,14 @@ param(
     [Parameter(Mandatory)]
     [string]$Version,
     [string]$ControlKeyPath = '',
-    [string]$ConfigPath = (Join-Path $PSScriptRoot 'lab.config.json')
+    [string]$ConfigPath = ''
 )
 
 $ErrorActionPreference = 'Stop'
 Set-StrictMode -Version Latest
+if (-not $ConfigPath) {
+    $ConfigPath = Join-Path (Split-Path -Parent $MyInvocation.MyCommand.Path) 'lab.config.json'
+}
 
 function Assert-Administrator {
     $identity = [Security.Principal.WindowsIdentity]::GetCurrent()
@@ -82,7 +85,13 @@ try {
     Set-VM -VM $vm -AutomaticCheckpointsEnabled $false -AutomaticStartAction Nothing
     Set-VMKeyProtector -VM $vm -NewLocalKeyProtector
     Enable-VMTPM -VM $vm
-    Enable-VMIntegrationService -VMName $vmName -Name 'Guest Service Interface'
+    $guestService = Get-VMIntegrationService -VMName $vmName |
+        Where-Object {
+            $_.Id.ToString() -match '6C09BB55-D683-4DA0-8931-C9BF705F6480$' -or
+            $_.Name -match 'Guest Service Interface|Interface de Serviço de Convidado'
+        } | Select-Object -First 1
+    if (-not $guestService) { throw "Guest Service Interface not found for $vmName" }
+    $guestService | Enable-VMIntegrationService
     Set-VMFirmware -VM $vm -EnableSecureBoot On -SecureBootTemplate MicrosoftWindows
     Start-VM -VM $vm | Out-Null
 
@@ -122,14 +131,18 @@ try {
         if ($RequestedRole -ne 'client') {
             $arguments += ' /CONTROLKEY="C:\TGDeskLab\control.tgkey"'
         }
-        $process = Start-Process -FilePath $installer -ArgumentList $arguments -Wait -PassThru
-        [pscustomobject]@{ exit_code = $process.ExitCode }
+        $command = "`"$installer`" $arguments /LOG=`"C:\TGDeskLab\install.log`""
+        $process = Invoke-CimMethod -ClassName Win32_Process -MethodName Create `
+            -Arguments @{ CommandLine = $command }
+        [pscustomobject]@{
+            exit_code = if ($process.ReturnValue -eq 0) { 0 } else { $process.ReturnValue }
+            process_id = $process.ProcessId
+        }
     }
     if ($installResult.exit_code -notin 0,3010) {
         throw "Installer returned $($installResult.exit_code)"
     }
 
-    Restart-VM -Name $vmName -Force -Wait
     $state = Wait-Until -TimeoutSeconds 600 -Description 'TGDesk service and version ready' `
         -Probe {
             try {
