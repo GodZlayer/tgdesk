@@ -1,6 +1,6 @@
-{
+﻿{
     "version":  "0.4.0",
-    "generated_at":  "2026-07-29T07:27:20.9281265+00:00",
+    "generated_at":  "2026-07-29T23:40:24.9615351-03:00",
     "files":  [
                   {
                       "path":  "data/flutter_assets/assets/mac.svg",
@@ -316,8 +316,8 @@
                   },
                   {
                       "path":  "version.txt",
-                      "sha256":  "e05aa6698b5ad56a5ad2ab541319258df3df12267ff1fd2439accf0625e04a3f",
-                      "size":  7,
+                      "sha256":  "051f81034f8c64737b3b1a2f9431f2ca27827249e2d07108755015253ce7d293",
+                      "size":  10,
                       "scope":  "ui"
                   },
                   {
@@ -400,14 +400,14 @@
                   },
                   {
                       "path":  "tgdesk.exe",
-                      "sha256":  "82554960917c57e4f03a796b1644fd40983ae739bf0d406f1739e7561dda0e48",
-                      "size":  445952,
+                      "sha256":  "dd2816b3b9dd1ac73b402ce8bbf9e372c1ff494eab559f945356b924db1396ef",
+                      "size":  447488,
                       "scope":  "service"
                   },
                   {
                       "path":  "tgdesk_agent.dll",
-                      "sha256":  "f602ecd0d902a34f4ec9efe52667cc1c300adfb6454c28b0258b36384f2a68b3",
-                      "size":  5833216,
+                      "sha256":  "d02dc1d6f7214c15d270fe1c45b0f8c4380015e9df317f8091944c9437cb8ddf",
+                      "size":  14582798,
                       "scope":  "service"
                   },
                   {
@@ -418,8 +418,8 @@
                   },
                   {
                       "path":  "librustdesk.dll",
-                      "sha256":  "46f7f13da4e29bd575b14ab871f7e40138833f2bc742c511b89863a0e974dd21",
-                      "size":  30939648,
+                      "sha256":  "8e56edf1c6091e9df2fb2dd6eb214dfe84d287b8705d059f0c2b117560e3f15e",
+                      "size":  30941184,
                       "scope":  "service"
                   },
                   {
