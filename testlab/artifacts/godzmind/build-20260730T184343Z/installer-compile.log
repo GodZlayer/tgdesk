@@ -1,0 +1,83 @@
+﻿Inno Setup 6 Command-Line Compiler
+Copyright (C) 1997-2026 Jordan Russell. All rights reserved.
+Portions Copyright (C) 2000-2026 Martijn Laan. All rights reserved.
+Portions Copyright (C) 2001-2004 Alex Yackimoff. All rights reserved.
+https://www.innosetup.com
+
+Compiler engine version: Inno Setup 6.7.3
+Non-commercial use only
+
+Preprocessing
+   Reading file: C:\Users\santo\AppData\Local\Programs\Inno Setup 6\ISPPBuiltins.iss
+Parsing [Setup] section, line 10
+Parsing [Setup] section, line 11
+Parsing [Setup] section, line 12
+Parsing [Setup] section, line 13
+Parsing [Setup] section, line 14
+Parsing [Setup] section, line 15
+Parsing [Setup] section, line 16
+Parsing [Setup] section, line 17
+Parsing [Setup] section, line 18
+Parsing [Setup] section, line 19
+Parsing [Setup] section, line 20
+Parsing [Setup] section, line 21
+Parsing [Setup] section, line 22
+Parsing [Setup] section, line 23
+Parsing [Setup] section, line 24
+Parsing [Setup] section, line 25
+Parsing [Setup] section, line 26
+Parsing [Setup] section, line 27
+Parsing [Setup] section, line 28
+Reading file (WizardImageFile)
+Reading file (WizardSmallImageFile)
+   Reading file: C:\Users\santo\Documents\TGDESK\installers\..\branding\wizard_small.bmp
+Preparing Setup program executable
+   Verification successful
+   Updating icons (Setup.e32)
+   Updating version info (Setup.e32)
+Determining language code pages
+   Reading file: C:\Users\santo\AppData\Local\Programs\Inno Setup 6\Default.isl
+   Messages in script file
+Reading default messages from Default.isl
+Parsing [LangOptions], [Messages], and [CustomMessages] sections
+   Reading file: C:\Users\santo\AppData\Local\Programs\Inno Setup 6\Default.isl
+   Messages in script file
+Reading [Code] section
+Parsing [Dirs] section, line 31
+Parsing [Dirs] section, line 32
+Parsing [Dirs] section, line 33
+Parsing [Dirs] section, line 34
+Parsing [Dirs] section, line 35
+Parsing [Dirs] section, line 36
+Parsing [Dirs] section, line 37
+Parsing [Icons] section, line 64
+Parsing [Icons] section, line 65
+Parsing [Icons] section, line 66
+Parsing [Registry] section, line 70
+Parsing [Registry] section, line 71
+Parsing [Registry] section, line 72
+Parsing [Registry] section, line 73
+Parsing [Registry] section, line 74
+Parsing [InstallDelete] section, line 42
+Parsing [InstallDelete] section, line 43
+Parsing [InstallDelete] section, line 44
+Parsing [InstallDelete] section, line 45
+Parsing [InstallDelete] section, line 46
+Parsing [InstallDelete] section, line 47
+Parsing [InstallDelete] section, line 48
+Parsing [InstallDelete] section, line 49
+Parsing [InstallDelete] section, line 50
+Parsing [InstallDelete] section, line 51
+Parsing [InstallDelete] section, line 52
+Parsing [InstallDelete] section, line 53
+Parsing [InstallDelete] section, line 54
+Parsing [InstallDelete] section, line 55
+Parsing [InstallDelete] section, line 56
+Parsing [InstallDelete] section, line 57
+Parsing [InstallDelete] section, line 58
+Parsing [UninstallDelete] section, line 441
+Parsing [UninstallDelete] section, line 442
+Parsing [UninstallRun] section, line 438
+Parsing [Files] section, line 61
+Error on line 61 in C:\Users\santo\Documents\TGDESK\installers\tgdesk-installer.iss: Parameter "Flags" cannot have both the "ignoreversion" and "replacesameversion" flags.
+Compile aborted.

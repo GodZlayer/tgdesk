@@ -337,7 +337,7 @@ func (s *Server) TechnicianControlWS(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			if claims.Role != models.RoleSuperAdmin &&
-				!s.eventVisibleTo(r.Context(), claims.TechnicianID, evt) {
+				!s.eventVisibleTo(r.Context(), claims, evt) {
 				continue
 			}
 			if evt.Type == "suspend_technician" &&

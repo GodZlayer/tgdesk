@@ -67,7 +67,7 @@ func (s *Server) DeleteTechnician(w http.ResponseWriter, r *http.Request, id str
 		writeErr(w, http.StatusNotFound, "técnico não encontrado")
 		return
 	}
-	s.audit(r, "delete_tecnico", id)
+	s.audit(r, "delete_supervisor", id)
 	writeJSON(w, http.StatusOK, map[string]string{"status": "apagado"})
 }
 
@@ -97,7 +97,9 @@ func (s *Server) DeleteGuestDevice(w http.ResponseWriter, r *http.Request, id st
 // telemetry) but detached — network_id is set to NULL via FK (ON DELETE
 // SET NULL) instead of being deleted along with the network.
 func (s *Server) DeleteNetwork(w http.ResponseWriter, r *http.Request, id string) {
-	if !s.canManageNetwork(r, id) {
+	claims := middleware.ClaimsFrom(r.Context())
+	allowed, err := s.Authorizer.CanManageNetwork(r.Context(), claims, id)
+	if err != nil || !allowed {
 		writeErr(w, http.StatusForbidden, "somente o criador da rede pode apaga-la")
 		return
 	}

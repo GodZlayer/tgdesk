@@ -8,10 +8,10 @@ param(
 
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-$manifestPath = Join-Path $repo 'testlab\acceptance.manifest.json'
-$contractsPath = Join-Path $repo 'testlab\version-contracts.json'
-$coveragePath = Join-Path $repo 'testlab\artifacts\acceptance-coverage.json'
-$artifactPath = Join-Path $repo "testlab\artifacts\version-gate-$Version.json"
+$manifestPath = Join-Path $repo '.godzmind\acceptance.manifest.json'
+$contractsPath = Join-Path $repo '.godzmind\version-contracts.json'
+$coveragePath = Join-Path $repo '.godzmind\work\acceptance-coverage.json'
+$artifactPath = Join-Path $repo ".godzmind\work\version-gate-$Version.json"
 $triagePath = Join-Path $repo "gaps-triagem-$Version.md"
 
 # Critical gap IDs for 0.4.0
@@ -23,9 +23,6 @@ $criticalGapIds = @(
     'update.one-action.one-version'
 )
 
-$coverageArgs = @{NoFail = $true}
-if ($EvidenceSinceUtc) { $coverageArgs.EvidenceSinceUtc = $EvidenceSinceUtc }
-& (Join-Path $repo 'testlab\Get-TGDeskAcceptanceCoverage.ps1') @coverageArgs | Out-Null
 $manifest = Get-Content $manifestPath -Raw | ConvertFrom-Json
 $contracts = Get-Content $contractsPath -Raw | ConvertFrom-Json
 $coverage = Get-Content $coveragePath -Raw | ConvertFrom-Json

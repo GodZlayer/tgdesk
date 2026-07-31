@@ -9,6 +9,7 @@ import (
 
 	"tgdesk/api-core/internal/auth"
 	"tgdesk/api-core/internal/config"
+	"tgdesk/api-core/internal/models"
 )
 
 // Run seeds technician accounts (TECH_USERS), their assignments (TECH_ASSIGN)
@@ -70,7 +71,7 @@ func seedOrganizations(ctx context.Context, pool *pgxpool.Pool, spec string) err
 	return nil
 }
 
-// TECH_USERS=joao:senhaForte123:admin,maria:outraSenha456:tecnico
+// TECH_USERS=joao:senhaForte123:admin,maria:outraSenha456:supervisor
 func seedTechUsers(ctx context.Context, pool *pgxpool.Pool, spec string, force bool) error {
 	for _, userSpec := range splitNonEmpty(spec, ",") {
 		parts := strings.SplitN(userSpec, ":", 3)
@@ -112,7 +113,7 @@ func seedTechUsers(ctx context.Context, pool *pgxpool.Pool, spec string, force b
 	return nil
 }
 
-// TECH_ASSIGN=tecnico01:OrgXYZ,tecnico01:OrgXYZ:LojaCentro
+// TECH_ASSIGN=supervisor01:OrgXYZ,supervisor01:OrgXYZ:LojaCentro
 func seedAssignments(ctx context.Context, pool *pgxpool.Pool, spec string) error {
 	for _, item := range splitNonEmpty(spec, ",") {
 		parts := strings.Split(strings.TrimSpace(item), ":")
@@ -161,12 +162,23 @@ func seedAssignments(ctx context.Context, pool *pgxpool.Pool, spec string) error
 	return nil
 }
 
+// normalizeRole maps the role token from TECH_USERS to one of the 5 canonical
+// roles. Compatibilidade: o valor legado usado em .env antigos cai no default
+// e é gravado como supervisor — o papel antigo deixou de existir, foi
+// renomeado para supervisor.
 func normalizeRole(role string) string {
-	switch role {
+	switch strings.ToLower(strings.TrimSpace(role)) {
 	case "admin", "super_admin", "superadmin":
-		return "super_admin"
+		return models.RoleSuperAdmin
+	case "freelancer", "tech":
+		return models.RoleFreelancer
+	case "cliente", "client":
+		return models.RoleCliente
+	case "cliente_avulso", "avulso":
+		return models.RoleClienteAvulso
 	default:
-		return "tecnico"
+		// inclui o valor legado e supervisor
+		return models.RoleSupervisor
 	}
 }
 

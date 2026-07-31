@@ -236,7 +236,7 @@ func (s *Server) SetTechnicianBrandingEnabled(w http.ResponseWriter, r *http.Req
 	}
 	tag, err := s.Pool.Exec(r.Context(), `
 		UPDATE technicians SET branding_enabled=$1,branding_updated_at=now()
-		WHERE id=$2 AND role='tecnico'`, req.Enabled, technicianID)
+		WHERE id=$2 AND role='supervisor'`, req.Enabled, technicianID)
 	if err != nil || tag.RowsAffected() == 0 {
 		writeErr(w, http.StatusNotFound, "técnico não encontrado")
 		return

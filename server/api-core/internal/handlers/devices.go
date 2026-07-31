@@ -35,7 +35,7 @@ func genPairingCode(n int) string {
 type registerDeviceRequest struct {
 	Hostname string `json:"hostname"`
 	MAC      string `json:"mac"`
-	Role     string `json:"role"` // host | tecnico
+	Role     string `json:"role"` // host | supervisor
 }
 
 type registerDeviceResponse struct {
@@ -54,7 +54,7 @@ func (s *Server) RegisterDevice(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	role := req.Role
-	if role != "tecnico" {
+	if role != "supervisor" {
 		role = "host"
 	}
 	req.MAC = strings.ToLower(strings.TrimSpace(req.MAC))
@@ -169,16 +169,15 @@ func (s *Server) Bind(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	if claims.Role != models.RoleSuperAdmin {
-		allowed, err := s.technicianCanAccess(r.Context(), claims.TechnicianID, netOrgID, req.NetworkID)
-		if err != nil || !allowed {
-			writeErr(w, http.StatusForbidden, "sem permissão para essa rede")
-			return
-		}
+	// Check authorization using centralized authorizer
+	allowed, err := s.Authorizer.CanAccessNetwork(r.Context(), claims, req.NetworkID)
+	if err != nil || !allowed {
+		writeErr(w, http.StatusForbidden, "sem permissão para essa rede")
+		return
 	}
 
 	var deviceID string
-	err := s.Pool.QueryRow(r.Context(), `
+	err = s.Pool.QueryRow(r.Context(), `
 		UPDATE devices SET network_id=$1,
 			subnetwork_id=(SELECT id FROM subnetworks WHERE network_id=$1 ORDER BY (name='Principal') DESC,created_at LIMIT 1),
 			state='ativo', pairing_code=NULL, updated_at=now()
@@ -294,12 +293,11 @@ func (s *Server) UpdateDeviceSubnetwork(w http.ResponseWriter, r *http.Request, 
 		writeErr(w, http.StatusConflict, "a sub-rede não pertence a uma rede do dispositivo")
 		return
 	}
-	if claims.Role != models.RoleSuperAdmin {
-		allowed, err := s.technicianCanAccess(r.Context(), claims.TechnicianID, organizationID, networkID)
-		if err != nil || !allowed {
-			writeErr(w, http.StatusForbidden, "sem permissão para esta sub-rede")
-			return
-		}
+	// Check authorization using centralizer authorizer
+	allowed, err := s.Authorizer.CanAccessNetwork(r.Context(), claims, networkID)
+	if err != nil || !allowed {
+		writeErr(w, http.StatusForbidden, "sem permissão para esta sub-rede")
+		return
 	}
 	if _, err := s.Pool.Exec(r.Context(),
 		`UPDATE devices SET network_id=$1,subnetwork_id=$2,updated_at=now() WHERE id=$3`,
@@ -341,13 +339,11 @@ func (s *Server) UpdateDeviceNetworks(w http.ResponseWriter, r *http.Request, de
 			writeErr(w, http.StatusBadRequest, "rede invalida ou suspensa")
 			return
 		}
-		if claims.Role != models.RoleSuperAdmin {
-			ok, err := s.technicianCanAccess(r.Context(), claims.TechnicianID,
-				organizationID, networkID)
-			if err != nil || !ok {
-				writeErr(w, http.StatusForbidden, "sem permissao para uma das redes")
-				return
-			}
+		// Check authorization using centralized authorizer
+		ok, err := s.Authorizer.CanAccessNetwork(r.Context(), claims, networkID)
+		if err != nil || !ok {
+			writeErr(w, http.StatusForbidden, "sem permissao para uma das redes")
+			return
 		}
 	}
 	tx, err := s.Pool.Begin(r.Context())
@@ -412,19 +408,19 @@ func (s *Server) UpdateDeviceDisplayName(w http.ResponseWriter, r *http.Request,
 		writeErr(w, http.StatusNotFound, "dispositivo não encontrado")
 		return
 	}
-	if claims.Role != models.RoleSuperAdmin {
-		if controlTechnicianID != nil && controlRole == models.RoleTecnico &&
-			*controlTechnicianID != claims.TechnicianID {
-			writeErr(w, http.StatusForbidden, "somente o próprio técnico ou o Admin pode alterar este nome")
-			return
-		}
-		ok, err := s.technicianCanAccess(r.Context(), claims.TechnicianID, orgID, netID)
-		if err != nil || !ok {
-			writeErr(w, http.StatusForbidden, "sem permissão para esse dispositivo")
-			return
-		}
+	// Check authorization using centralized authorizer
+	if controlTechnicianID != nil && controlRole == models.RoleSupervisor &&
+		claims.Role != models.RoleSuperAdmin &&
+		*controlTechnicianID != claims.TechnicianID {
+		writeErr(w, http.StatusForbidden, "somente o próprio técnico ou o Admin pode alterar este nome")
+		return
 	}
-	if controlTechnicianID != nil && controlRole == models.RoleTecnico && req.DisplayName == "" {
+	ok, err := s.Authorizer.CanAccessDevice(r.Context(), claims, deviceID)
+	if err != nil || !ok {
+		writeErr(w, http.StatusForbidden, "sem permissão para esse dispositivo")
+		return
+	}
+	if controlTechnicianID != nil && controlRole == models.RoleSupervisor && req.DisplayName == "" {
 		writeErr(w, http.StatusBadRequest, "o nome do computador do técnico não pode ficar vazio")
 		return
 	}
@@ -440,7 +436,7 @@ func (s *Server) UpdateDeviceDisplayName(w http.ResponseWriter, r *http.Request,
 		writeErr(w, http.StatusInternalServerError, "falha ao alterar nome do dispositivo")
 		return
 	}
-	if controlTechnicianID != nil && controlRole == models.RoleTecnico {
+	if controlTechnicianID != nil && controlRole == models.RoleSupervisor {
 		if _, err = tx.Exec(r.Context(),
 			`UPDATE technicians SET username=$1 WHERE id=$2`,
 			req.DisplayName, *controlTechnicianID); err != nil {
@@ -460,7 +456,7 @@ func (s *Server) UpdateDeviceDisplayName(w http.ResponseWriter, r *http.Request,
 	}
 	_ = presence.Publish(r.Context(), s.RDB,
 		presence.Event{Type: "device_renamed", TargetID: deviceID})
-	if controlTechnicianID != nil && controlRole == models.RoleTecnico {
+	if controlTechnicianID != nil && controlRole == models.RoleSupervisor {
 		_ = presence.Publish(r.Context(), s.RDB,
 			presence.Event{Type: "technician_renamed", TargetID: *controlTechnicianID})
 	}
@@ -575,13 +571,11 @@ func (s *Server) DeviceRemoteCredential(w http.ResponseWriter, r *http.Request, 
 		writeErr(w, http.StatusConflict, "dispositivo não está ativo")
 		return
 	}
-	if claims.Role != models.RoleSuperAdmin {
-		allowed, accessErr := s.technicianCanAccessDevice(
-			r.Context(), claims.TechnicianID, deviceID)
-		if accessErr != nil || !allowed {
-			writeErr(w, http.StatusForbidden, "sem permissão para esse dispositivo")
-			return
-		}
+	// Check authorization using centralized authorizer
+	allowed, accessErr := s.Authorizer.CanAccessDevice(r.Context(), claims, deviceID)
+	if accessErr != nil || !allowed {
+		writeErr(w, http.StatusForbidden, "sem permissão para esse dispositivo")
+		return
 	}
 	s.audit(r, "acesso_remoto", deviceID)
 	writeJSON(w, http.StatusOK, map[string]string{

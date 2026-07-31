@@ -5,7 +5,6 @@ import (
 	"net/http"
 
 	"tgdesk/api-core/internal/middleware"
-	"tgdesk/api-core/internal/models"
 )
 
 type telemetryRequest struct {
@@ -61,12 +60,11 @@ func (s *Server) DeviceHealth(w http.ResponseWriter, r *http.Request, deviceID s
 		writeErr(w, http.StatusNotFound, "dispositivo não encontrado ou não vinculado")
 		return
 	}
-	if claims.Role != models.RoleSuperAdmin {
-		ok, err := s.technicianCanAccess(r.Context(), claims.TechnicianID, orgID, netID)
-		if err != nil || !ok {
-			writeErr(w, http.StatusForbidden, "sem permissão para esse dispositivo")
-			return
-		}
+	// Check authorization using centralized authorizer
+	ok, err := s.Authorizer.CanAccessDevice(r.Context(), claims, deviceID)
+	if err != nil || !ok {
+		writeErr(w, http.StatusForbidden, "sem permissão para esse dispositivo")
+		return
 	}
 	var raw []byte
 	var resp deviceHealthResponse

@@ -1,0 +1,132 @@
+﻿===============================================================================
+TGDESK PROJECT STRUCTURE ANALYSIS
+===============================================================================
+Generated: 2026-07-30 14:42:35
+Root: C:\Users\santo\Documents\TGDESK
+
+===============================================================================
+PRIMARY DIRECTORIES (14 main)
+===============================================================================
+
+CLIENT COMPONENTS (7 client-* dirs):
+├── client-agent/        [Go binaries] - Agent component (30 files, 21x .go)
+├── client-host/         [Go] - Host service (12 files, 8x .go)
+├── client-hub/          [Docs] - Hub documentation (1 file)
+├── client-remote/       [Docs] - Remote docs (1 file)
+├── client-rustdesk-src/ [Rust/C/Flutter] - RustDesk fork (19,972 files - build artifacts)
+├── client-tgdesk/       [Docs] - TGDesk client docs (3 files)
+├── client-tunnel/       [Go] - Tunnel service (5 files, 2x .go)
+└── client-updater/      [Go] - Update service (5 files, 1x .go)
+
+SERVER COMPONENTS (2 dirs):
+├── server/              [Rust/Go/SQL] - Server backend (213 files: 52x .rs, 34x .go, 25x .sql)
+└── rustdesk-server-src/ [Rust] - RustDesk server fork (complex multi-module)
+
+DISTRIBUTION & TESTING:
+├── installers/          [Executables/SVG] - Build artifacts (139 files: 39x .exe, 53x .svg)
+├── testlab/             [Logs/Scripts] - Test infrastructure (494 files: 328x .log, 44x .ps1)
+├── client-host;C/       [Legacy variant]
+├── .tmp-030-host/       [Temporary state] - Runtime data (logs, identity, state)
+└── tmp/                 [Temp data] - PDF storage
+
+OPERATIONS & DOCS:
+├── .godzmind/           [Scripts/Docs] - Task automation (20 files: 8x .md, 5x .ps1)
+├── .github/             [CI/CD] - GitHub workflows
+├── .claude/             [Claude config]
+└── branding/            [Brand assets]
+
+===============================================================================
+TECHNOLOGY STACK BY AREA
+===============================================================================
+
+Backend (server/):
+  - Rust:       52 files (.rs, .toml) - Core services
+  - Go:         34 files (.go, .mod, .sum) - API/utilities
+  - SQL:        25 files (.sql) - Migrations & schemas
+  - Deployment: 4x .yml (Docker/K8s), 3x .install scripts
+
+Client (client-rustdesk-src/):
+  - Rust:       Primary (via cargo build artifacts)
+  - Dart:       Flutter UI framework
+  - C/C++:      Platform layers (603x .h, 742x .c files)
+  - Build:      Extensive compile cache (2024x .d, 1010x .rlib)
+
+Services (client-agent/host/tunnel/updater/):
+  - Go:         All services written in Go
+  - Binaries:   Cross-compiled executables & DLLs
+
+Distribution:
+  - Windows:    InnoSetup (.iss), exe installers, dll deps
+  - Assets:     SVG graphics (53x), fonts (.ttf, .otf)
+  - Metadata:   JSON manifests, version tracking
+
+Testing:
+  - Logs:       328 persistent logs (all tests, runs)
+  - Scripts:    44x PowerShell test runners
+  - Artifacts:  8 UUID folders with test outputs
+
+===============================================================================
+KEY FILE PATTERNS
+===============================================================================
+
+Source Control:
+  - No .git/ folders (using host system git)
+  - Migrations: server/migrations/ (SQL versioning)
+  - Submodules: client-rustdesk-src, server/rustdesk-server-src (forked)
+
+Build Outputs (LARGE):
+  - client-rustdesk-src/target/: Rust build cache (debug + release)
+  - .dart_tool/, build/: Flutter build intermediates
+  - Compiled objects: 669x .o, 400x .pdb (Windows debug symbols)
+
+Configuration:
+  - server/.env (git-tracked)
+  - .claude/: Claude Code settings
+  - .godzmind/objetivos/: Goal/memory docs
+
+===============================================================================
+DIRECTORY INVENTORY
+===============================================================================
+
+Total Directories:   90+ (including submodules, build output)
+Total Files:      ~22,000+ (mostly build cache in rustdesk forks)
+Source Code Only:  ~350 files (excluding build artifacts)
+
+Main Source Dirs:
+  server/ (90 source files)
+    ├── api-core/      - Go API service
+    ├── migrations/    - SQL schema versions
+    └── rustdesk-*-src/ - Forked upstream
+
+  client-agent/ (21 .go)
+  client-host/ (8 .go)
+  client-tunnel/ (2 .go)
+  client-updater/ (1 .go)
+  client-rustdesk-src/src/ - Rust source (main UI/client)
+
+===============================================================================
+NOTES
+===============================================================================
+
+1. LARGE DIRECTORIES: rustdesk-src forks include full build cache
+   - Consider: .gitignore improvements (target/, build/, .dart_tool/)
+   
+2. STRUCTURE: Microservice architecture
+   - One central server (Rust/Go backend)
+   - Multiple client services (Go agents, RustDesk fork for UI)
+   - Installer/distribution layer
+   
+3. LANGUAGES: Polyglot stack
+   - Rust: Core business logic + cryptography
+   - Go: Lightweight services + APIs
+   - Dart: Cross-platform UI (Flutter)
+   - C/C++: Platform integration (audio, video, display)
+   - SQL: Data persistence
+   - PowerShell: Windows automation + testing
+   
+4. TESTING: Integrated test lab
+   - Log-based validation
+   - PowerShell orchestration
+   - UUID-tracked test artifacts
+
+===============================================================================

@@ -7,15 +7,17 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 	"github.com/redis/go-redis/v9"
 
+	"tgdesk/api-core/internal/auth"
 	"tgdesk/api-core/internal/config"
 	"tgdesk/api-core/internal/wg"
 )
 
 type Server struct {
-	Pool *pgxpool.Pool
-	RDB  *redis.Client
-	Cfg  config.Config
-	Hub  *wg.Hub
+	Pool       *pgxpool.Pool
+	RDB        *redis.Client
+	Cfg        config.Config
+	Hub        *wg.Hub
+	Authorizer *auth.Authorizer
 }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {

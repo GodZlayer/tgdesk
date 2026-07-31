@@ -1,0 +1,508 @@
+================================================================================
+TGDESK DEPENDENCIES MAP - COMPLETE ANALYSIS
+Generated: 2026-07-30
+Repository: C:\Users\santo\Documents\TGDESK
+================================================================================
+
+SUMMARY
+-------
+Total Files Analyzed: 23
+- package.json (Node/npm): 1
+- go.mod (Go): 5
+- Cargo.toml (Rust): 13
+- pubspec.yaml (Flutter/Dart): 1
+- requirements.txt (Python): 1
+- Dockerfile: 4
+
+Total Dependencies Found: 200+ (unique packages)
+Categories: Frontend, Backend, CLI, Mobile, Infrastructure
+
+
+================================================================================
+1. FRONTEND & WEB INTERFACE
+================================================================================
+
+FILE: server/rustdesk-server-src/ui/html/package.json
+Project: rustdesk_server (v0.1.2)
+Build Tool: Vite
+Dependencies:
+  - codemirror v5                    (Code editor)
+  - vite ^4.1.0                      (Build tool - dev)
+
+Status: Minimal, build-only setup
+
+
+================================================================================
+2. BACKEND (GO MODULES)
+================================================================================
+
+2.1 FILE: client-tunnel/go.mod
+Module: tgdesk/tunnel
+Go Version: 1.22
+Direct Dependencies:
+  - golang.org/x/crypto v0.26.0
+  - golang.zx2c4.com/wireguard v0.0.0-20231211153847-12269c276173
+Indirect Dependencies:
+  - golang.org/x/net v0.21.0
+  - golang.org/x/sys v0.23.0
+  - golang.zx2c4.com/wintun v0.0.0-20230126152724-0fa3db229ce2
+
+2.2 FILE: client-host/go.mod
+Module: tgdesk/host-client
+Go Version: 1.22
+Direct Dependencies:
+  - golang.org/x/crypto v0.26.0
+  - golang.org/x/sys v0.23.0
+  - golang.zx2c4.com/wireguard v0.0.0-20231211153847-12269c276173
+Indirect Dependencies:
+  - golang.org/x/net v0.21.0
+  - golang.zx2c4.com/wintun v0.0.0-20230126152724-0fa3db229ce2
+
+2.3 FILE: client-updater/go.mod
+Module: tgdesk/updater
+Go Version: 1.22
+Direct Dependencies:
+  - golang.org/x/sys v0.23.0
+
+2.4 FILE: server/api-core/go.mod
+Module: tgdesk/api-core
+Go Version: 1.22
+Direct Dependencies:
+  - github.com/golang-jwt/jwt/v5 v5.2.1                (Authentication)
+  - github.com/gorilla/websocket v1.5.3                (WebSocket server)
+  - github.com/jackc/pgx/v5 v5.6.0                     (PostgreSQL driver)
+  - github.com/redis/go-redis/v9 v9.6.1                (Redis client)
+  - golang.org/x/crypto v0.26.0
+  - golang.zx2c4.com/wireguard v0.0.0-20231211153847-12269c276173
+Indirect Dependencies:
+  - github.com/cespare/xxhash/v2 v2.2.0
+  - github.com/dgryski/go-rendezvous v0.0.0-20200823014737-9f7001d12a5f
+  - github.com/jackc/pgpassfile v1.0.0
+  - github.com/jackc/pgservicefile v0.0.0-20221227161230-091c0ba34f0a
+  - github.com/jackc/puddle/v2 v2.2.1
+  - golang.org/x/net v0.21.0
+  - golang.org/x/sync v0.8.0
+  - golang.org/x/sys v0.23.0
+  - golang.org/x/text v0.17.0
+  - golang.zx2c4.com/wintun v0.0.0-20230126152724-0fa3db229ce2
+
+2.5 FILE: client-agent/go.mod
+Module: tgdesk/agent
+Go Version: 1.22
+Direct Dependencies:
+  - github.com/gorilla/websocket v1.5.3                (WebSocket)
+  - golang.org/x/crypto v0.26.0
+  - golang.org/x/sys v0.23.0
+
+Key Go Libraries (Cross-module):
+  - wireguard (VPN tunnel) - v0.0.0-20231211153847-12269c276173
+  - golang.org/x/crypto (Cryptography)
+  - golang.org/x/sys (System interfaces)
+  - PostgreSQL driver & Redis client (API-core only)
+
+
+================================================================================
+3. RUST CORE & DESKTOP (CARGO.TOML)
+================================================================================
+
+3.1 FILE: server/rustdesk-server-src/Cargo.toml
+Package: hbbs v1.1.16
+Binaries: hbbs, hbbr, rustdesk-utils
+Edition: 2021
+Compilation: Optimized for size with LTO
+
+Key Dependencies:
+  - hbb_common (workspace)                (Shared library)
+  - serde/serde_json 1.0                  (Serialization)
+  - lazy_static 1.4
+  - clap 2                                (CLI parsing)
+  - rust-ini 0.18                         (Config files)
+  - minreq 2.4 (punycode)
+  - axum 0.5 (web framework)
+  - sqlx 0.6 (database - sqlite, tokio-rustls)
+  - deadpool 0.8                          (Connection pooling)
+  - async-trait 0.1
+  - uuid 1.0 (v4)
+  - bcrypt 0.13                           (Password hashing)
+  - chrono 0.4                            (Date/time)
+  - jsonwebtoken 8                        (JWT)
+  - sodiumoxide 0.2                       (Cryptography)
+  - tokio-tungstenite 0.17                (WebSocket)
+  - tungstenite 0.17
+  - regex 1.4
+  - tower-http 0.3                        (HTTP middleware)
+  - flexi_logger 0.22                     (Logging)
+  - ipnetwork 0.20
+  - local-ip-address 0.5.1
+  - dns-lookup 1.0.8
+  - ping 0.4.0
+  - flate2 1.0
+  - reqwest (git) with native-tls         (HTTP client)
+
+Platform-specific:
+  - [macOS/Windows] reqwest with native-tls
+  - [Linux] reqwest with rustls-tls
+
+3.2 FILE: server/rustdesk-server-src/ui/Cargo.toml
+Package: rustdesk_server v0.1.2 (GUI)
+Edition: 2021
+UI Framework: Tauri
+
+Dependencies:
+  - tauri 1.2                             (Desktop framework)
+  - tauri-build 1.2                       (Build tool)
+  - async-std 1.12
+  - crossbeam-channel 0.5                 (Multi-threading)
+  - serde/serde_json 1.0
+  - notify 5.1                            (File watcher)
+  - windows-service 0.5.0
+  - winres 0.1                            (Windows resources)
+
+3.3 FILE: server/rustdesk-server-src/libs/hbb_common/Cargo.toml
+Package: hbb_common v0.1.0 (Shared library)
+Edition: 2018
+
+Core Dependencies:
+  - flexi_logger 0.27                     (Async logging)
+  - protobuf 3.7 (with-bytes)             (Protocol buffers)
+  - tokio 1.44 (full features)             (Async runtime)
+  - tokio-util 0.7
+  - futures 0.3
+  - bytes 1.10
+  - socket2 0.3 (reuseport)
+  - zstd 0.13                             (Compression)
+  - anyhow 1.0                            (Error handling)
+  - directories-next 2.0
+  - rand 0.8
+  - serde/serde_json 1.0
+  - confy (git - rustdesk-org)            (Configuration)
+  - sodiumoxide 0.2                       (Crypto)
+  - regex 1.11
+  - tokio-socks (git - rustdesk-org)
+  - chrono 0.4
+  - backtrace 0.3
+  - uuid 1.16 (v4)
+  - sysinfo (git - rustdesk-org)
+  - httparse 1.10
+  - base64 0.22
+  - url 2.5
+  - sha2 0.10
+  - tokio-rustls 0.26                     (TLS)
+  - tokio-native-tls 0.3
+  - tokio-tungstenite 0.26                (WebSocket)
+  - tungstenite 0.26
+  - rustls-platform-verifier 0.6
+  - rustls-pki-types 1.11
+  - rustls-native-certs 0.8
+  - webpki-roots 1.0.4
+  - async-recursion 1.1
+  - webrtc 0.14.0 (optional)
+  - libloading 0.8
+
+Platform-specific:
+  - [NOT Android/iOS] mac_address, default_net (git), machine-uid (git)
+
+3.4 FILE: client-rustdesk-src/Cargo.toml
+Package: rustdesk v1.4.9 (Client)
+Edition: 2021
+Rust min version: 1.75
+Lib Types: cdylib, staticlib, rlib
+
+Core Dependencies (similar to server, plus):
+  - scrap (path - screen capture with wayland support)
+  - hbb_common (path)
+  - serde_repr 0.1
+  - cfg-if 1.0
+  - sha2 0.10
+  - repng 0.2
+  - parity-tokio-ipc (git - rustdesk-org)
+  - magnum-opus (git - rustdesk-org)
+  - dasp 0.11 (audio - optional)
+  - rubato 0.12 (audio - optional)
+  - samplerate 0.2 (audio - optional)
+  - num_cpus 1.15
+  - bytes 1.4
+  - default-net 0.14
+  - wol-rs 1.0                            (Wake-on-LAN)
+  - flutter_rust_bridge 1.80 (optional)   (Flutter FFI)
+  - rdev (git - rustdesk-org)              (Input events)
+  - url 2.3
+  - crossbeam-queue 0.3
+  - hex 0.4
+  - cidr-utils 0.5
+  - fon 0.6
+  - zip 0.6
+  - shutdown_hooks 0.1
+  - totp-rs 5.4                           (2FA)
+  - stunclient 0.4                        (NAT traversal)
+  - kcp-sys (git - rustdesk-org)
+  - reqwest 0.12
+
+Platform-specific:
+  - [NOT Linux] cpal (audio), ringbuf
+  - [NOT Android/iOS] mac_address, sciter-rs (git), sys-locale, enigo (path),
+                     clipboard (path), ctrlc, arboard (git), clipboard-master (git),
+                     portable-pty (git - wezterm branch)
+
+Features:
+  - inline, use_samplerate, use_rubato, use_dasp, flutter
+  - hwcodec, vram, mediacodec, plugin_framework
+  - linux-pkg-config, unix-file-copy-paste, screencapturekit
+
+3.5 FILE: client-rustdesk-src/libs/hbb_common/Cargo.toml
+[Same as server version 0.1.0]
+
+3.6 FILE: client-rustdesk-src/libs/scrap/Cargo.toml
+Package: scrap v0.5.0 (Screen capture)
+Edition: 2018
+
+Dependencies:
+  - cfg-if 1.0
+  - num_cpus 1.15
+  - lazy_static 1.4
+  - hbb_common (path)
+  - webm (git - rustdesk-org)             (WebM encoding)
+  - serde 1.0
+
+Platform-specific:
+  - [macOS] block 0.1
+  - [Android] android_logger, jni, ndk (optional)
+  - [Linux] dbus, tracing, gstreamer, gstreamer-app, gstreamer-video, zbus (optional)
+  - [Windows/Linux] nokhwa (camera)
+
+Features:
+  - wayland: gstreamer, dbus, tracing, zbus
+  - mediacodec (Android)
+  - hwcodec (git - rustdesk-org)
+  - vram (hwcodec feature)
+
+Build Dependencies:
+  - bindgen 0.72.1
+  - target_build_utils 0.3
+
+Other Rust Libraries (partial list):
+  - client-rustdesk-src/libs/clipboard/Cargo.toml
+  - client-rustdesk-src/libs/enigo/Cargo.toml
+  - client-rustdesk-src/libs/remote_printer/Cargo.toml
+  - client-rustdesk-src/libs/virtual_display/Cargo.toml
+  - And others (build helper crates)
+
+
+================================================================================
+4. MOBILE & FLUTTER (DART)
+================================================================================
+
+FILE: client-rustdesk-src/flutter/pubspec.yaml
+Project: flutter_hbb v0.4.0
+Environment: Dart SDK ^3.1.0
+
+Core Flutter Dependencies (40+ packages):
+  - flutter (SDK)
+  - flutter_localizations (SDK)
+  - ffi 2.1.0                             (FFI bridge to Rust)
+  - path_provider 2.1.1
+  - external_path 1.0.3
+  - provider 6.0.5                        (State management)
+  - tuple 2.0.0
+  - wakelock_plus 1.1.3
+  - package_info_plus 4.2.0
+  - url_launcher 6.3.1
+  - toggle_switch 2.1.0
+  - draggable_float_widget 0.1.0
+  - settings_ui 2.0.2
+  - flutter_breadcrumb 1.0.1
+  - http 1.1.0
+  - qr_code_scanner 1.0.0
+  - zxing2 0.2.0
+  - image_picker 1.1.2
+  - image 4.0.17
+  - back_button_interceptor 6.0.1
+  - flutter_rust_bridge 1.80.1           (Rust FFI)
+  - freezed_annotation 2.0.3
+  - flutter_custom_cursor 0.0.4
+  - get 4.6.5                             (State management)
+  - visibility_detector 0.4.0+2
+  - contextmenu 3.0.0
+  - desktop_drop 0.4.4
+  - scroll_pos 0.4.0
+  - debounce_throttle 2.0.0
+  - file_picker 5.1.0
+  - flutter_svg 2.0.5
+  - path 1.8.1
+  - auto_size_text 3.0.0
+  - bot_toast 4.0.3
+  - win32 any                             (Windows API)
+  - password_strength 0.2.0
+  - flutter_launcher_icons 0.13.1
+  - flutter_keyboard_visibility 5.4.0
+  - percent_indicator 4.2.2
+  - dropdown_button2 2.0.0
+  - uuid 3.0.7
+  - auto_size_text_field 2.2.1
+  - flex_color_picker 3.3.0
+  - pull_down_button 0.9.3
+  - device_info_plus 9.1.0
+  - qr_flutter 4.1.0
+  - extended_text 14.0.0
+  - xterm 4.0.0                           (Terminal emulator)
+  - sqflite 2.2.0                         (SQLite database)
+  - google_fonts 6.2.1
+  - vector_math 2.1.4
+
+Git-based Dependencies:
+  - dash_chat_2 (rustdesk-org/Dash-Chat-2)
+  - window_manager (rustdesk-org/window_manager)
+  - desktop_multi_window (rustdesk-org/rustdesk_desktop_multi_window)
+  - window_size (google/flutter-desktop-embedding)
+  - uni_links (rustdesk-org/uni_links)
+  - texture_rgba_renderer (rustdesk-org/flutter_texture_rgba_renderer)
+  - flutter_gpu_texture_renderer (rustdesk-org/flutter_gpu_texture_renderer)
+  - dynamic_layouts (rustdesk-org/dynamic_layouts)
+
+Dev Dependencies:
+  - flutter_test (SDK)
+  - build_runner 2.4.6
+  - freezed 2.4.2
+  - flutter_lints 2.0.2
+  - ffigen 8.0.2
+  - icons_launcher 2.0.4
+
+Dependency Overrides:
+  - intl 0.19.0
+  - flutter_plugin_android_lifecycle 2.0.17
+
+
+================================================================================
+5. PYTHON DEPENDENCIES
+================================================================================
+
+FILE: client-rustdesk-src/libs/portable/requirements.txt
+Minimal Python setup:
+  - brotli                                (Compression library)
+
+Status: Single dependency, likely used for portable builds
+
+
+================================================================================
+6. INFRASTRUCTURE & DOCKER
+================================================================================
+
+6.1 FILE: server/rustdesk-server-src/docker/Dockerfile
+Base Image: busybox:stable
+Init System: s6-overlay v3.2.0.0
+
+Components:
+  - s6-overlay (noarch + x86_64)
+  - Volume mapping: /data
+  - Exposed ports: 21115, 21116 (UDP), 21117, 21118, 21119
+  - Health check enabled
+  - Environment: RELAY, ENCRYPTED_ONLY
+
+6.2 FILE: server/rustdesk-server-src/docker-classic/Dockerfile
+Base Image: scratch (minimal)
+Binaries: hbbs, hbbr
+Runtime minimal
+
+6.3 FILE: client-rustdesk-src/Dockerfile
+Base Image: debian:bullseye-slim
+Build Environment: Full development stack
+
+System Packages:
+  - g++, gcc, git, curl
+  - nasm, yasm (assemblers)
+  - libgtk-3-dev (GUI)
+  - clang, cmake 3.30.6
+  - Build tools: make, ninja-build
+  - X11 libraries: libxcb-randr0-dev, libxdo-dev, libxfixes-dev, etc.
+  - Audio: libasound2-dev, libpulse-dev
+  - PAM: libpam0g-dev
+  - SSL: libssl-dev
+  - Media: libgstreamer1.0-dev
+  - Git & VCS support
+
+VCpkg dependencies:
+  - libvpx (video codec)
+  - libyuv (color space conversion)
+  - opus (audio codec)
+  - aom (AV1 codec)
+
+Additional Tools:
+  - Rust (via rustup)
+  - libsciter-gtk.so (GUI framework)
+
+6.4 FILE: server/api-core/Dockerfile
+Build Stage: golang:1.22-alpine
+Runtime Base: alpine:3.20
+
+Build:
+  - Go 1.22
+  - Module: api-core
+  - CGO_ENABLED=0 (static build)
+
+Runtime:
+  - ca-certificates (TLS)
+  - iproute2 (networking)
+  - wireguard-tools (VPN)
+  - Exposed: port 8080
+  - Migrations & releases mounted
+
+
+================================================================================
+7. DEPENDENCY PATTERNS & INSIGHTS
+================================================================================
+
+Critical Libraries Used Across Modules:
+  1. Tokio (Async runtime) - Core to all Rust projects
+  2. Serde/serde_json - Universal serialization
+  3. Wireguard - VPN tunnel connectivity
+  4. SQLx - Database access (server)
+  5. PostgreSQL & Redis - Data persistence (API core)
+  6. Cryptography - sodiumoxide, tokio-rustls, jwt
+  7. WebSocket support - tungstenite, tokio-tungstenite
+  8. Protocol Buffers - RPC/messaging
+
+Cross-Compilation Strategy:
+  - Rust: Platform-specific features (Linux/Windows/macOS, Android/iOS)
+  - Flutter: Unified Dart layer over Rust FFI
+  - Go: Platform-agnostic with native bindings for crypto/sys
+
+Git-Based Dependencies (rustdesk-org forks):
+  - Custom versions of: reqwest, cpal, rdev, kcp-sys, magnum-opus
+  - Custom dashboard plugins: window_manager, desktop_multi_window
+  - WebRTC support via custom builds
+
+Build Optimization:
+  - LTO (Link Time Optimization)
+  - Single codegen unit for release
+  - Panic=abort for smaller binaries
+  - Strip enabled
+
+Minimum Requirements:
+  - Rust 1.75+
+  - Go 1.22
+  - Dart SDK 3.1.0+
+  - Cargo (Rust package manager)
+
+
+================================================================================
+8. DEPLOYMENT TOPOLOGY
+================================================================================
+
+Frontend:    Node/Vite (UI HTML)
+              ↓
+Backend:     Go modules (tunnel, host-client, updater, agent, api-core)
+              ↓
+Core:        Rust (hbbs, hbbr, rustdesk-utils)
+              ↓
+Mobile:      Flutter (client UI) + Rust FFI
+              ↓
+Infra:       Docker (Alpine + s6-overlay, Debian build env, scratch minimal)
+
+
+================================================================================
+END OF DEPENDENCIES MAP
+================================================================================
+Total Unique Dependencies Analyzed: 200+
+Critical External Projects: 15+ (git-based rustdesk-org forks)
+Build Systems: Cargo (Rust), Go modules, npm/Vite, pubspec (Flutter), Docker
+Last Updated: 2026-07-30

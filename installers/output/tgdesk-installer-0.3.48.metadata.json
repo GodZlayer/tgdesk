@@ -3,8 +3,8 @@
     "version":  "0.3.48",
     "installer":  {
                       "path":  "C:\\Users\\santo\\Documents\\TGDESK\\installers\\output\\tgdesk-installer-0.3.48.exe",
-                      "size":  25545691,
-                      "sha256":  "e1b27502e5597ac846599d67a68776e865d1b6d82ce2525527c70c753352088f"
+                      "size":  27314113,
+                      "sha256":  "704be13e15a26fa5cf8e37bf89837923f692a6dc427710e7bf6ebbf33bed0185"
                   },
     "stage_files":  [
                         {
@@ -340,12 +340,12 @@
                         {
                             "path":  "tgdesk.exe",
                             "size":  447488,
-                            "sha256":  "dd2816b3b9dd1ac73b402ce8bbf9e372c1ff494eab559f945356b924db1396ef"
+                            "sha256":  "b390b0ca7117847b694fa9594b7b74067db99d9c0f7144d4f16251d6b331cff2"
                         },
                         {
                             "path":  "tgdesk_agent.dll",
-                            "size":  5833216,
-                            "sha256":  "02e517f01d932ef6360e5de9c71f299fc0606f4d9709b84c534865f375497dc6"
+                            "size":  14582798,
+                            "sha256":  "d02dc1d6f7214c15d270fe1c45b0f8c4380015e9df317f8091944c9437cb8ddf"
                         },
                         {
                             "path":  "texture_rgba_renderer_plugin.dll",
@@ -483,5 +483,5 @@
                             "sha256":  "7d05241541ea2ac9a918a5852ace86c06673d8aa54cc02a274c8bc5ff7efa715"
                         }
                     ],
-    "generated_at":  "2026-07-29T18:59:01.3767321+00:00"
+    "generated_at":  "2026-07-30T03:38:53.8165511+00:00"
 }

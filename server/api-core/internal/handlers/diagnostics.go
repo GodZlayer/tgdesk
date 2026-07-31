@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"tgdesk/api-core/internal/middleware"
-	"tgdesk/api-core/internal/models"
 	"tgdesk/api-core/internal/presence"
 )
 
@@ -23,18 +22,8 @@ var diagnosticCatalog = []map[string]any{
 
 func (s *Server) diagnosticDeviceAccess(r *http.Request, deviceID string) bool {
 	claims := middleware.ClaimsFrom(r.Context())
-	if claims.Role == models.RoleSuperAdmin {
-		return true
-	}
-	var orgID, networkID string
-	if s.Pool.QueryRow(r.Context(), `
-		SELECT n.organization_id,n.id FROM devices d
-		JOIN networks n ON n.id=d.network_id WHERE d.id=$1`, deviceID).
-		Scan(&orgID, &networkID) != nil {
-		return false
-	}
-	ok, _ := s.technicianCanAccess(r.Context(), claims.TechnicianID, orgID, networkID)
-	return ok
+	ok, err := s.Authorizer.CanAccessDevice(r.Context(), claims, deviceID)
+	return err == nil && ok
 }
 
 func (s *Server) DiagnosticCatalog(w http.ResponseWriter, r *http.Request) {

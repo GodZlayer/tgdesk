@@ -32,10 +32,6 @@
 - Status: em progresso
 
 **Código Crítico**:
-- Path: testlab/acceptance.manifest.json
-- Estado: novo, 12 cenários e 42 critérios iniciais
-- Path: testlab/Invoke-TGDeskStateLoop.ps1
-- Estado: novo, controlador de estados
 - Path: server/api-core/internal/handlers/control_ws.go
 - Estado: em evolução
 - Path: installers/stage-unified
@@ -45,6 +41,9 @@
 
 | Data | Projeto | Objetivo | Fases | Status |
 |------|---------|----------|-------|--------|
+| 2026-07-30 | TGDesk | Catalogar arquitetura completa (estrutura, componentes, dependências, build, config) | 6 workers: structure-tree, dependencies-map, build-configs, components-identify, config-catalog, code-analysis | ✅ CUMPRIDO |
+| 2026-07-30 | TGDesk | Configurar Admin Master via Enrollment Key System | 6 workers: verify-super-admin, create-super-admin, generate-enrollment-key, revoke-previous-admin, redeem-enrollment-key-retry, save-machine-credentials | ✅ CUMPRIDO |
+| 2026-07-30 | TGDesk | Instalar v0.4.0 com Docker 100% funcional, Admin Master | 5 workers CLI (verify-docker, create-volumes, env-setup, health-check, admin-master-setup) | ✅ CUMPRIDO |
 | 2026-07-29 | TGDesk | Cobrir todo o gap de verificação funcional e de estabilidade | Parse e infraestrutura inicial | em progresso |
 | 2026-07-29 | TGDesk | Atingir 100% funcional e estável até a versão 1.1.0 | Contratos versionados e workers CLI | em progresso |
 

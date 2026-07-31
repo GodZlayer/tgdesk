@@ -6,7 +6,6 @@ import (
 	"net/http"
 
 	"tgdesk/api-core/internal/middleware"
-	"tgdesk/api-core/internal/models"
 )
 
 // buildMagicPacket monta o pacote clássico de Wake-on-LAN: 6 bytes 0xFF
@@ -53,12 +52,11 @@ func (s *Server) WakeDevice(w http.ResponseWriter, r *http.Request, deviceID str
 		writeErr(w, http.StatusNotFound, "dispositivo não encontrado ou não vinculado")
 		return
 	}
-	if claims.Role != models.RoleSuperAdmin {
-		ok, err := s.technicianCanAccess(r.Context(), claims.TechnicianID, orgID, netID)
-		if err != nil || !ok {
-			writeErr(w, http.StatusForbidden, "sem permissão para esse dispositivo")
-			return
-		}
+	// Check authorization using centralized authorizer
+	ok, err := s.Authorizer.CanAccessDevice(r.Context(), claims, deviceID)
+	if err != nil || !ok {
+		writeErr(w, http.StatusForbidden, "sem permissão para esse dispositivo")
+		return
 	}
 	if macStr == "" {
 		writeErr(w, http.StatusUnprocessableEntity, "dispositivo sem MAC registrado")

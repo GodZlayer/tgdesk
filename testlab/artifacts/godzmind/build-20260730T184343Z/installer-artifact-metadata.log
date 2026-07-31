@@ -1,0 +1,9 @@
+﻿Instalador ausente: C:\Users\santo\Documents\TGDESK\installers\output\tgdesk-installer-0.4.1.exe
+No C:\Users\santo\Documents\TGDESK\.godzmind\scripts\Invoke-TGDeskBuild.ps1:147 caractere:57
++ ...  -LiteralPath $installer)) { throw "Instalador ausente: $installer" }
++                                  ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : OperationStopped: (Instalador ause...aller-0.4.1.exe:String) [], RuntimeException
+    + FullyQualifiedErrorId : Instalador ausente: C:\Users\santo\Documents\TGDESK\installers\output\tgdesk-installer-0 
+   .4.1.exe
+ 
+

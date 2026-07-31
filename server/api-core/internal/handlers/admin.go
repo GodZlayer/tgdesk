@@ -122,7 +122,7 @@ func (s *Server) SuspendTechnician(w http.ResponseWriter, r *http.Request, id st
 		s.dropHubPeer(deviceID)
 	}
 	s.dropTechnicianHubPeer(id)
-	s.audit(r, "suspender_tecnico", id)
+	s.audit(r, "suspender_supervisor", id)
 	_ = presence.Publish(r.Context(), s.RDB,
 		presence.Event{Type: "suspend_technician", TargetID: id, Payload: deviceIDs})
 	writeJSON(w, http.StatusOK, map[string]string{
@@ -146,7 +146,9 @@ func (s *Server) SuspendDevice(w http.ResponseWriter, r *http.Request, id string
 
 // SuspendNetwork suspends every active device belonging to the network.
 func (s *Server) SuspendNetwork(w http.ResponseWriter, r *http.Request, id string) {
-	if !s.canManageNetwork(r, id) {
+	claims := middleware.ClaimsFrom(r.Context())
+	allowed, err := s.Authorizer.CanManageNetwork(r.Context(), claims, id)
+	if err != nil || !allowed {
 		writeErr(w, http.StatusForbidden, "somente o criador da rede pode suspende-la")
 		return
 	}
@@ -267,14 +269,16 @@ func (s *Server) ResumeTechnician(w http.ResponseWriter, r *http.Request, id str
 		writeErr(w, http.StatusInternalServerError, "falha ao concluir reativação do técnico")
 		return
 	}
-	s.audit(r, "reativar_tecnico", id)
+	s.audit(r, "reativar_supervisor", id)
 	_ = presence.Publish(r.Context(), s.RDB,
 		presence.Event{Type: "resume_technician", TargetID: id})
 	writeJSON(w, http.StatusOK, map[string]string{"status": "ativo"})
 }
 
 func (s *Server) ResumeNetwork(w http.ResponseWriter, r *http.Request, id string) {
-	if !s.canManageNetwork(r, id) {
+	claims := middleware.ClaimsFrom(r.Context())
+	allowed, err := s.Authorizer.CanManageNetwork(r.Context(), claims, id)
+	if err != nil || !allowed {
 		writeErr(w, http.StatusForbidden, "somente o criador da rede pode reativa-la")
 		return
 	}

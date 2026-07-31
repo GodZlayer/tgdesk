@@ -112,7 +112,9 @@ func (s *Server) RenameOrganization(w http.ResponseWriter, r *http.Request, id s
 }
 
 func (s *Server) RenameNetwork(w http.ResponseWriter, r *http.Request, id string) {
-	if !s.canManageNetwork(r, id) {
+	claims := middleware.ClaimsFrom(r.Context())
+	allowed, err := s.Authorizer.CanManageNetwork(r.Context(), claims, id)
+	if err != nil || !allowed {
 		writeErr(w, http.StatusForbidden, "somente o criador da rede ou o Admin pode renomeá-la")
 		return
 	}

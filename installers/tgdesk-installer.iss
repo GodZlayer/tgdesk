@@ -3,7 +3,7 @@
 ; uso único validada pelo servidor dentro do próprio TGDesk.
 
 #define MyAppName "TGDesk"
-#define MyAppVersion "0.3.48"
+#define MyAppVersion "0.4.1"
 #define MyAppPublisher "TGDesk"
 
 [Setup]
@@ -16,7 +16,7 @@ DefaultGroupName=TGDesk
 DisableProgramGroupPage=yes
 PrivilegesRequired=admin
 OutputDir=.\output
-OutputBaseFilename=tgdesk-installer-0.3.48
+OutputBaseFilename=tgdesk-installer-0.4.1
 Compression=lzma2
 SolidCompression=yes
 ArchitecturesInstallIn64BitMode=x64compatible
@@ -76,7 +76,7 @@ Root: HKCU; Subkey: "SOFTWARE\TGDesk"; ValueType: dword; ValueName: "StartWithWi
 [Code]
 const
   ControlInstallUrl =
-    'http://168.232.199.161:8090/api/v1/auth/control-key/install';
+    'http://127.0.0.1:8090/api/v1/auth/control-key/install';
 
 var
   PreserveIdentityPage: TInputOptionWizardPage;
@@ -92,21 +92,38 @@ begin
   ExistingControlIdentity :=
     FileExists(ExpandConstant('{commonappdata}\TGDesk\identity\device.json')) or
     FileExists(ExpandConstant('{commonappdata}\TGDesk\identity\technician.dat'));
-  PreserveIdentityPage := CreateInputOptionPage(wpWelcome,
-    'Identidade deste computador', 'Deseja manter a identidade TGDesk existente?',
-    'Recomendado para atualizações e reparações. Mantém Admin/Tech, dispositivo e vínculo com a rede.',
-    True, False);
-  PreserveIdentityPage.Add('Sim — preservar identidade e vínculo (recomendado)');
-  PreserveIdentityPage.Add('Não — apagar a identidade e instalar como novo computador');
-  PreserveIdentityPage.SelectedValueIndex := 0;
+
+  { FLUXO: Se existe instalação prévia, perguntar se mantém a chave }
+  if ExistingControlIdentity then
+  begin
+    PreserveIdentityPage := CreateInputOptionPage(wpWelcome,
+      'Manter chave de registro?', 'Deseja manter a chave de registro TGDesk existente?',
+      'Recomendado para atualizações. Mantém Admin/Tech, dispositivo e vínculo com a rede.',
+      True, False);
+    PreserveIdentityPage.Add('Sim — manter chave (recomendado para update)');
+    PreserveIdentityPage.Add('Não — apagar e instalar como novo computador');
+    PreserveIdentityPage.SelectedValueIndex := 0;
+  end
+  else
+  begin
+    { FLUXO: Se NÃO existe instalação prévia, perguntar chave/client direto }
+    PreserveIdentityPage := CreateInputOptionPage(wpWelcome,
+      'Tipo de instalação', 'Este é um novo computador. Qual é seu tipo?',
+      'Admin/Tech: computador com controle. Client: computador cliente.',
+      True, False);
+    PreserveIdentityPage.Add('Client — sem controle, apenas recebe suporte');
+    PreserveIdentityPage.Add('Admin ou Tech — com chave de controle');
+    PreserveIdentityPage.SelectedValueIndex := 0;
+  end;
 
   HasControlKeyPage := CreateInputOptionPage(PreserveIdentityPage.ID,
-    'Controle do TGDesk', 'Possui chave de controle?',
+    'Chave de controle', 'Possui chave de controle?',
     'Sem uma chave válida este computador será instalado no modo Client.',
     True, False);
   HasControlKeyPage.Add('Não (instalar como Client)');
   HasControlKeyPage.Add('Sim (Admin ou Tech)');
   HasControlKeyPage.SelectedValueIndex := 0;
+
   ControlKeyFilePage := CreateInputFilePage(HasControlKeyPage.ID,
     'Chave de controle', 'Selecione o arquivo .tgdesk-key',
     'A chave será validada e consumida agora. Ela não será copiada para o computador.');
@@ -117,6 +134,7 @@ begin
     HasControlKeyPage.SelectedValueIndex := 1;
     ControlKeyFilePage.Values[0] := ControlKeyParam;
   end;
+
   CleanupProgressPage := CreateOutputProgressPage(
     'Removendo versões anteriores',
     'Limpando serviços, drivers, registros e arquivos antigos do TGDesk.');
@@ -124,12 +142,28 @@ end;
 
 function ShouldSkipPage(PageID: Integer): Boolean;
 begin
-  Result := ExistingControlIdentity and
-      (PreserveIdentityPage.SelectedValueIndex = 0) and
-      ((PageID = HasControlKeyPage.ID) or (PageID = ControlKeyFilePage.ID));
-  if not Result then
-    Result := (PageID = ControlKeyFilePage.ID) and
-      (HasControlKeyPage.SelectedValueIndex = 0);
+  { Se mantém chave existente (SIM selecionado), pular perguntas de chave/client }
+  if ExistingControlIdentity and (PreserveIdentityPage.SelectedValueIndex = 0) then
+  begin
+    Result := (PageID = HasControlKeyPage.ID) or (PageID = ControlKeyFilePage.ID);
+    exit;
+  end;
+
+  { Se em nova instalação e selecionou Client, pular páginas de chave }
+  if not ExistingControlIdentity and (PreserveIdentityPage.SelectedValueIndex = 0) then
+  begin
+    Result := (PageID = HasControlKeyPage.ID) or (PageID = ControlKeyFilePage.ID);
+    exit;
+  end;
+
+  { Se selecionou "não tem chave", pular página de seleção de arquivo }
+  if (PageID = ControlKeyFilePage.ID) and (HasControlKeyPage.SelectedValueIndex = 0) then
+  begin
+    Result := True;
+    exit;
+  end;
+
+  Result := False;
 end;
 
 function ShouldInitializeAutoStart: Boolean;

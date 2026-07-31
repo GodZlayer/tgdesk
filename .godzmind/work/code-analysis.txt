@@ -1,0 +1,687 @@
+================================================================================
+TGDesk - ANALISE DE PONTOS DE ENTRADA E ARQUITETURA
+================================================================================
+
+1. PONTOS DE ENTRADA (Entry Points)
+================================================================================
+
+1.1 SERVER - api-core (Go)
+   Arquivo: server/api-core/cmd/main.go
+   Função: main()
+
+   Sequência de boot:
+   1. Load config from env vars (DATABASE_URL, REDIS_ADDR, JWT_SECRET, etc)
+   2. Connect to PostgreSQL (pgx pool)
+   3. Run DB migrations from server/migrations/ (25 migrations, lexical order)
+   4. Connect to Redis
+   5. Run seed (demo data + technician assignments)
+   6. Start WireGuard Hub (startHub) se HUB_LISTEN_PORT configurado
+      - Load/generate keypair from HUB_KEY_FILE
+      - Restore persistent peers from DB (devices + technicians com WG keys)
+   7. Create HTTP router + middleware (CORS, JWT, VPN-only, super-admin checks)
+   8. Listen on LISTEN_ADDR (default :8080)
+
+   Dependências: PostgreSQL, Redis, WireGuard userspace, config env vars
+
+1.2 SERVER - hbbs (RustDesk Rendezvous Server)
+   Arquivo: server/rustdesk-server-src/src/main.rs
+   Função: main() -> ResultType<()>
+
+   Sequência de boot:
+   1. Initialize logger (flexi_logger, env/str config)
+   2. Parse CLI args: --config, --port(3001), --serial, --rendezvous-servers, etc
+   3. Start RendezvousServer::start() async
+
+   Responsabilidade: ID server + rendezvous (peer discovery, NAT traversal hints)
+
+1.3 CLIENT - client-host (Go - Agente mínimo Fase 1)
+   Arquivo: client-host/main.go
+   Função: main()
+
+   Sequência de boot:
+   1. Load config from disk (tgdesk-agent.json) ou register novo
+   2. Device registration (POST /api/v1/devices/register) se novo
+   3. Exibir pairing code ao usuário
+   4. Loop de heartbeat a cada 5s:
+      - POST /api/v1/devices/heartbeat (device_id, device_token)
+      - Recebe state: "guest" | "ativo" | "suspenso"
+   5. Se ativo:
+      - Check UAC elevation
+      - bringUpTunnel(): gera WG keypair, POST WG key, ativa adaptador "tgdesk0"
+      - setupRemoteAccess(): integra RustDesk
+      - reportTelemetry(): CPU, memória, discos (30s interval)
+
+   Arquivo config: tgdesk-agent.json (device_id, device_token, wg_private_key, virtual_ip)
+
+1.4 CLIENT - client-tunnel (Go - Técnico VPN)
+   Arquivo: client-tunnel/main.go
+   Função: main()
+
+   Sequência de boot:
+   1. Parse --server, --token (JWT do técnico logado)
+   2. Load config (tgdesk-tunnel-config.json) ou gerar nova chave WG
+   3. POST /api/v1/technicians/wg-key (token, public_key)
+   4. Recebe VirtualIP, HubPublicKey, HubEndpoint, RendezvousHost, etc
+   5. Criar adaptador "tgdesk-tech0", config WG via netsh interface ip set address
+   6. Seleciona {} // mantém processo vivo, o Hub o encerra junto
+
+   Responsabilidade: Túnel WireGuard individual pro técnico (independente do host na mesma máquina)
+
+1.5 CLIENT - client-updater (Go - Bootstrapper)
+   Arquivo: client-updater/main.go
+   Função: main()
+
+   Responsabilidade: Mínima - embed tgdesk-installer.exe, extract, launch elevated (UAC)
+
+1.6 CLIENT - RustDesk Core (Rust - Desktop/Mobile)
+   Arquivo: client-rustdesk-src/src/main.rs
+   Função: main() (condicional por platform)
+
+   Multi-plataforma:
+   - Android/iOS/Flutter: Minimal - common::global_init(), test_rendezvous, test_nat_type, global_clean()
+   - Desktop (Windows/Linux/macOS): DPI awareness, core_main::core_main(), ui::start()
+
+   Módulos via lib.rs:
+   - client: remote session state machine
+   - server: RDP listener (recebe conexões de técnicos)
+   - common: config, logger, rendezvous client, protobuf messages
+   - platform: Windows/Linux/macOS specific (clipboard, input, screenshot)
+   - hbbs_http: HTTP client para API (account, download, sync, record upload)
+   - plugin: native plugin framework (callbacks, UI extensions)
+   - ipc: inter-process comm (auth, filesystem)
+
+1.7 CLIENT - Flutter UI (Dart)
+   Arquivo: client-rustdesk-src/flutter/lib/main.dart
+   Função: main(List<String> args)
+
+   Sequência de boot:
+   1. earlyAssert(), WidgetsFlutterBinding.ensureInitialized()
+   2. Parse boot args (kWindowId, multi_window mode, window type)
+   3. Decidir: mobile (runMobileApp) vs desktop (multi-window)
+   4. Desktop: switch WindowType:
+      - RemoteDesktop -> runMultiWindow(argument, kAppTypeDesktopRemote)
+      - FileTransfer -> runMultiWindow(argument, kAppTypeDesktopFileTransfer)
+      - ViewCamera, PortForward, Terminal, etc
+   5. Provider + GetX para state management
+
+   Telas: install_page, server_page, remote_screen, file_transfer_screen, etc
+
+
+2. MÓDULOS PRINCIPAIS POR COMPONENTE
+================================================================================
+
+2.1 SERVER - api-core/internal/
+
+   handlers/
+   - server.go: tipo Server{Pool, RDB, Cfg, Hub} - container de dependências
+   - router.go: 80+ HTTP endpoints, middleware (JWT auth, VPN-only, RBAC)
+   - devices.go: RegisterDevice, Heartbeat, WGKey submission, TelemetryReport
+   - technician_enrollment.go: Redeem enrollment key, refresh JWT
+   - technicians.go: CRUD técnicos (super-admin only)
+   - ws.go: WebSocket - presence (real-time device events), control streams
+   - control_ws.go: Device <-> Technician command/response tunnel
+   - pairing.go: Bind device to technician
+   - support.go: Suporte/tickets (dispatch, accept, messages, evidence)
+   - diagnostics.go: Catálogo + run jobs (device diagnostics)
+   - wake.go: Wake-on-LAN
+   - telemetry_stats.go: Agregação telemetria (CPU, disks, memory over time)
+   - branding.go: Customização UI per technician
+   - orgs.go: Organizations CRUD
+   - admin.go: Audit log, suspend/resume, delete
+
+   db/
+   - db.go: pgx pool connection, RunMigrations (idempotent .sql files)
+
+   models/
+   - models.go: Organization, Network, Subnetwork, Device, Technician, Session, AdminAction
+     Constants: DeviceStateGuest/ativo/suspenso, RoleSuperAdmin/tecnico/freelancer
+
+   auth/
+   - auth.go: JWT issue/parse (HS256), bcrypt password hash/verify
+
+   middleware/
+   - middleware.go: RequireAuth (JWT), RequireSuperAdmin, ClaimsFrom context
+
+   wg/
+   - hub.go: WireGuard Hub = server-side interface (spoke model, Seção 8.A)
+   - keys.go: Key type (wirekey lib) - public(), private(), hex(), base64()
+
+   config/
+   - config.go: Load env vars (DATABASE_URL, REDIS_ADDR, JWT_SECRET, HUB_LISTEN_PORT, etc)
+
+   seed/
+   - seed.go: Demo organizations, technicians, networks, devices (se ENABLE_DEMO_SEED)
+
+   presence/
+   - presence.go: Redis pub/sub para eventos real-time (device online/offline, suspend, bind)
+
+2.2 SERVER - migrations/ (25 SQL files)
+
+   Ordem (lexical):
+   0001_init.sql: organizations, networks, devices, technicians, sessions, admin_actions
+   0002_wireguard.sql: wg_pubkey, wg_virtual_ip, wg_virtual_ip_assigned_at
+   0003_backfill_cidr.sql: CIDRs iniciais
+   0004_rustdesk_id.sql: rustdesk_id em devices (para integração RD)
+   0005_technician_wg.sql: WG keys pra técnicos também (túnel individual)
+   0006_wake_action.sql: wake_action audit log
+   0007_delete_admin.sql: admin deletion audit
+   0008_telemetry_disks.sql: device_telemetry_disk_usage (timeseries)
+   0009_hardware_telemetry.sql: device_telemetry_hardware (CPU, RAM)
+   0010_technician_enrollment_keys.sql: enrollment_keys (JWT com TTL)
+   0011_control_installation_keys.sql: Fase 2 - control key install
+   0012_device_display_name.sql: display_name override per device
+   0013_suspension_scope.sql: Suspension por organization/network/device
+   0014_management_actions.sql: Audit log detalhado
+   0015_remote_access_audit.sql: RustDesk integration audit
+   0016_unique_device_identity.sql: Constraints de identidade
+   0017_guest_rejection_audit.sql: Audit de rejeição de guest devices
+   0018_technician_owned_networks.sql: owner_technician_id em networks
+   0019_diagnostic_runs.sql: diagnostic_runs table (async job tracking)
+   0020_technician_branding.sql: branding customization per tech
+   0021_technician_suspension_cascade.sql: Cascata de suspensão
+   0022_brand_favicon.sql: favicon blob para branding
+   0023_subnetworks.sql: Subnetworks (subnet dentro de network)
+   0024_subnetwork_lifecycle.sql: Constraints subnetwork
+   0025_support_dispatch_standalone.sql: Support dispatch sem dependency
+
+2.3 CLIENT - RustDesk Core (client-rustdesk-src/src/)
+
+   Via lib.rs modules:
+   - client.rs: Client session state machine, event loop, screen rendering
+   - server.rs: RDP server listener (inbound connections from technicians)
+   - common.rs: Global config, logger, consts, RustDesk protocol structs
+   - hbbs_http/: HTTP client
+     - http_client.rs: HTTP transport
+     - account.rs: Login, SSO
+     - downloader.rs: Software download (update check)
+     - sync.rs: Sync address book, config
+     - record_upload.rs: Upload session recordings
+   - platform/: Per-OS implementations
+     - windows.rs, linux.rs, macos.rs: Screen capture, input events, clipboard
+     - delegate.rs: Platform abstraction layer
+   - plugin/: Plugin framework (native handlers for session, UI)
+   - ipc.rs, ipc/{auth.rs, fs.rs}: Inter-process communication
+   - custom_server.rs: Custom rendezvous/relay server config
+   - clipboard.rs, clipboard_file.rs: Clipboard sync (text + files)
+   - privacy_mode.rs: Privacy mode toggle
+   - lan.rs: LAN discovery
+   - kcp_stream.rs: KCP protocol support
+   - flutter_ffi.rs, flutter.rs: Dart-Rust FFI bridge
+   - core_main.rs: Desktop app bootstrap
+
+
+3. FLUXO DE INICIALIZACAO
+================================================================================
+
+3.1 SERVIDOR (api-core)
+
+   1. Config Load (env vars)
+   2. DB Connect + Migrate
+   3. Redis Connect
+   4. Seed demo data (if enabled)
+   5. StartHub (WireGuard orchestrator)
+      - Load persistent peers from DB
+   6. Create HTTP router (80+ endpoints)
+   7. ListenAndServe(:8080)
+
+3.2 DEVICE (client-host)
+
+   1. Load config ou RegisterDevice (POST /api/v1/devices/register)
+      -> recebe device_id, pairing_code, device_token
+   2. Exibir pairing code ao usuário
+   3. Loop: Heartbeat (5s interval)
+      - POST /api/v1/devices/heartbeat (device_id, device_token)
+      - Recebe state: guest | ativo | suspenso
+   4. Transição ativo:
+      a. Check UAC elevation (Windows only)
+      b. BringUpTunnel
+         - Gerar WG keypair (ou load existing)
+         - POST /api/v1/devices/wg-key (device_id, device_token, pub_key)
+         - Recebe VirtualIP, HubPublicKey, HubEndpoint
+         - Create TUN "tgdesk0"
+         - Configure WG peer (hub public key, allowed IPs 10.70.0.0/16)
+         - IPC set + device up
+         - Assign IP via netsh
+      c. SetupRemoteAccess (RustDesk integration)
+         - Start RD server listener
+      d. ReportTelemetry (30s interval)
+
+3.3 TECHNICIAN (client-tunnel)
+
+   1. Parse --token (JWT do login no Hub)
+   2. Load config (WG private key) ou gerar novo
+   3. POST /api/v1/technicians/wg-key (token, wg_public_key)
+      -> recebe VirtualIP, HubPublicKey, HubEndpoint, RendezvousHost, etc
+   4. Create TUN "tgdesk-tech0"
+   5. Configure WG peer
+   6. Assign IP via netsh
+   7. Seleciona {} // daemon mode
+
+
+4. APIS PUBLICAS - HTTP ENDPOINTS
+================================================================================
+
+4.1 PUBLIC (sem auth)
+
+   GET  /healthz - health check
+
+   POST /api/v1/devices/register - Register new device (guest state)
+   POST /api/v1/devices/heartbeat - Device heartbeat (device_id, device_token)
+   POST /api/v1/devices/wg-key - Submit WG key, recebe hub config
+
+   POST /api/v1/auth/technician/redeem - Redeem enrollment key -> JWT
+   POST /api/v1/auth/control-key/install - Alternative enroll path
+   POST /api/v1/auth/technician/refresh - Refresh JWT
+
+   GET  /api/v1/client/update - Client update manifest
+   GET  /api/v1/client/update/download - Download client binary
+   GET  /api/v1/client/modules - Module manifest (v0.4.0, etc)
+   GET  /api/v1/client/modules/{version}/{path...} - Download module file
+
+   POST /api/v1/support/client/tickets - Client open support ticket
+
+   GET  /ws/control/device - WebSocket: Device-side control channel
+   GET  /ws/control/technician - WebSocket: Technician-side control channel
+
+4.2 PRIVATE (requer VPN + JWT)
+
+   POST /api/v1/devices/rustdesk-id - Report RustDesk ID
+   POST /api/v1/devices/telemetry - Report hardware telemetry
+
+   GET  /ws/presence - WebSocket: Real-time events (device online, suspend, etc)
+
+   POST /api/v1/pairing/bind - Bind device to technician
+   GET  /api/v1/bootstrap/pairing-context - Pairing bootstrap info
+
+   GET  /api/v1/devices - List devices (RBAC: org/network scope)
+   PATCH /api/v1/devices/{id}/display-name - Rename device
+   POST /api/v1/devices/{id}/control-machine - Claim control
+   GET  /api/v1/devices/{id}/health - Device health status
+   GET  /api/v1/devices/{id}/remote-credential - RustDesk credential
+   POST /api/v1/devices/{id}/wake - Wake-on-LAN
+   GET  /api/v1/devices/{id}/diagnostics - List diagnostics
+   POST /api/v1/devices/{id}/diagnostics - Start diagnostic
+   POST /api/v1/devices/{id}/diagnostics/{run_id}/cancel - Cancel diagnostic
+
+   GET  /api/v1/organizations - List orgs (user's scope)
+   GET  /api/v1/networks - List networks
+   POST /api/v1/networks - Create network
+   PUT  /api/v1/networks/{id} - Rename network
+   POST /api/v1/networks/{id}/suspend - Suspend network
+   POST /api/v1/networks/{id}/resume - Resume network
+   DELETE /api/v1/networks/{id} - Delete network
+
+   GET  /api/v1/subnetworks - List subnetworks
+   POST /api/v1/subnetworks - Create subnetwork
+   PUT  /api/v1/subnetworks/{id} - Rename subnetwork
+   DELETE /api/v1/subnetworks/{id} - Delete subnetwork
+   POST /api/v1/subnetworks/{id}/suspend - Suspend subnetwork
+   POST /api/v1/subnetworks/{id}/resume - Resume subnetwork
+
+   POST /api/v1/technicians/wg-key - Technician WG key enrollment
+
+   GET  /api/v1/branding/me - Get my branding config
+   PUT  /api/v1/branding/me - Update my branding
+
+   GET  /api/v1/support/tickets - List support tickets (user's scope)
+   POST /api/v1/support/tickets/{id}/messages - Add ticket message
+   POST /api/v1/support/tickets/{id}/transition - Change ticket state
+   POST /api/v1/support/tickets/{id}/service-order - Convert to service order
+   GET  /api/v1/support/tickets/{id}/audit - Audit log
+   POST /api/v1/support/tickets/{id}/dispatch - Assign ticket
+   GET  /api/v1/support/freelancer/queue - Freelancer dispatch queue
+   POST /api/v1/support/tickets/{id}/accept - Accept dispatch
+   GET  /api/v1/support/tickets/{id}/permission - Check permission
+   POST /api/v1/support/tickets/{id}/evidence - Add onsite evidence
+   GET  /api/v1/support/tickets/{id}/export - Export service order
+
+4.3 ADMIN-ONLY (super_admin role required, must be via VPN)
+
+   POST /api/v1/organizations - Create org
+   PUT  /api/v1/organizations/{id} - Rename org
+   DELETE /api/v1/organizations/{id} - Delete org
+   POST /api/v1/admin/suspend/organization/{id} - Suspend org
+   POST /api/v1/admin/resume/organization/{id} - Resume org
+
+   GET  /api/v1/technicians - List all technicians
+   POST /api/v1/technicians - Create technician
+   DELETE /api/v1/technicians/{id} - Delete technician
+   POST /api/v1/admin/suspend/technician/{id} - Suspend technician
+   POST /api/v1/admin/suspend/device/{id} - Suspend device
+   POST /api/v1/admin/resume/device/{id} - Resume device
+   POST /api/v1/admin/suspend/technician/{id} - Resume technician
+   POST /api/v1/admin/freelancers - Create freelancer
+
+   GET  /api/v1/technicians/assignments - List assignments
+   POST /api/v1/technicians/assignments - Create assignment
+   DELETE /api/v1/technicians/assignments/{id} - Delete assignment
+
+   POST /api/v1/technicians/{id}/enrollment-key - Create enroll key
+   PUT  /api/v1/technicians/{id}/branding-enabled - Enable/disable branding
+   GET  /api/v1/technicians/{id}/branding - Get tech branding
+   PUT  /api/v1/technicians/{id}/branding - Update tech branding
+
+   DELETE /api/v1/admin/guest-devices/{id} - Delete guest device
+   GET  /api/v1/admin/audit - List audit log
+   GET  /api/v1/diagnostics/catalog - Diagnostic catalog
+
+4.4 WEBSOCKETS
+
+   GET /ws/presence?token=JWT - Subscribe to real-time events (online, suspend, bind)
+      - Event.Type: device_online, device_offline, device_suspend, device_resume,
+                    network_suspend, network_resume, device_bind, technician_offline, etc
+
+   GET /ws/control/device?device_id=X&device_token=Y - Device-side tunnel
+   GET /ws/control/technician?token=JWT&device_id=X - Tech-side tunnel
+
+
+5. DATABASE SCHEMA (Schemas principais)
+================================================================================
+
+organizations
+  - id (uuid)
+  - name, status (ativa/suspensa)
+  - owner_technician_id (nullable, Seção 4.1)
+  - created_at
+
+networks
+  - id (uuid)
+  - organization_id (fk)
+  - name, status (ativa/suspensa)
+  - cidr_virtual (e.g., 10.70.0.0/24)
+  - created_by_technician_id (nullable)
+  - created_at
+
+subnetworks
+  - id (uuid)
+  - network_id (fk)
+  - name, status
+  - created_at
+
+devices
+  - id (uuid)
+  - network_id, subnetwork_id (nullable)
+  - hostname, display_name, mac
+  - wg_pubkey, wg_virtual_ip (após enrollment)
+  - rustdesk_id (após RD integration)
+  - role (host | tecnico)
+  - state (guest | ativo | suspenso)
+  - pairing_code, device_token
+  - last_seen_at, created_at, updated_at
+
+technicians
+  - id (uuid)
+  - username, password_hash
+  - role (super_admin | tecnico | freelancer)
+  - status (ativo | suspenso)
+  - wg_pubkey, wg_virtual_ip (individual tunnel)
+  - created_at, updated_at
+
+technician_assignments
+  - id (uuid)
+  - technician_id, organization_id, network_id (nullable = all)
+  - Define RBAC scope
+
+sessions
+  - id (uuid)
+  - device_id, technician_id
+  - tipo (remote_desktop | file_transfer | port_forward | terminal | etc)
+  - inicio, fim (nullable se ativa)
+
+admin_actions
+  - id (uuid)
+  - actor_id, tipo, alvo_id, detalhes, timestamp
+  - Audit log
+
+device_telemetry_hardware
+  - device_id, timestamp
+  - cpu_percent, memory_mb, disk_gb_free, etc
+
+device_telemetry_disk_usage
+  - device_id, timestamp, disk_path
+  - total_mb, used_mb, free_mb
+
+enrollment_keys
+  - id (uuid)
+  - key_string, technician_id
+  - expires_at, created_at
+
+diagnostic_runs
+  - id (uuid)
+  - device_id, started_by_technician_id
+  - diagnostic_type (hardware_check, network_test, etc)
+  - status (pending | running | completed | failed)
+  - result_json, started_at, completed_at
+
+
+6. CONFIGURACAO INICIAL
+================================================================================
+
+6.1 Environment Variables (server/api-core)
+
+   DATABASE_URL=postgres://tgdesk:tgdesk@postgres:5432/tgdesk?sslmode=disable
+   REDIS_ADDR=redis:6379
+   JWT_SECRET=change-me-in-production
+   LISTEN_ADDR=:8080
+
+   HUB_LISTEN_PORT=51820
+   HUB_CIDR=10.70.0.1/16
+   HUB_KEY_FILE=/data/hub_private_key
+   HUB_PUBLIC_ADDR=127.0.0.1:51820
+
+   RENDEZVOUS_KEY_FILE=/hbbs-data/id_ed25519.pub
+   RENDEZVOUS_PUBLIC_HOST=127.0.0.1
+
+   TECH_USERS=admin:password123 (formato username:password, separado por ; para múltiplos)
+   TECH_ASSIGN=admin=org:default (assignment rules)
+   SEED_ORGANIZATIONS=default (cria org demo se não existir)
+   ENABLE_DEMO_SEED=false
+   FORCE_RESEED=false
+
+6.2 Client Configuration Files
+
+   tgdesk-agent.json (client-host)
+   {
+     "device_id": "...",
+     "device_token": "...",
+     "pairing_code": "...",
+     "private_key": "base64-encoded-wg-key",
+     "virtual_ip": "10.70.x.x/32",
+     "rustdesk_id": "...",
+     "rendezvous_host": "...",
+     "rendezvous_pubkey": "..."
+   }
+
+   tgdesk-tunnel-config.json (client-tunnel)
+   {
+     "private_key": "base64-encoded-wg-key",
+     "virtual_ip": "10.70.x.x/32"
+   }
+
+
+7. ARQUITETURA DE REDE (WireGuard Hub)
+================================================================================
+
+Hub Mode:
+- Interface: wg0 (Linux) ou tgdesk0 (Clientes)
+- CIDR: 10.70.0.1/16 (hub), 10.70.0.0/16 (range para peers)
+- Spoke topology: Cada device/technician = peer, hub = central relay
+- Keepalive: 25s (persistent_keepalive_interval)
+- Allowed IPs: 10.70.0.0/16 para todos (full mesh capability)
+
+Device WireGuard enrollment:
+1. Device gera keypair
+2. POST /api/v1/devices/wg-key (device_id, device_token, pub_key)
+3. API-Core:
+   - Valida device
+   - Gera virtual IP do range 10.70.x.x/32
+   - AddPeer(pubkey, virtual_ip) -> hub.dev.IpcSet()
+   - Retorna: VirtualIP, HubPublicKey, HubEndpoint, RendezvousHost
+4. Device:
+   - Cria TUN device
+   - Configure peer (hub pub key, endpoint, allowed IPs)
+   - Assign IP
+   - IPC up
+   -> Conectado à VPN central
+
+Technician WireGuard enrollment:
+- Similar ao device, mas
+- POST /api/v1/technicians/wg-key (JWT token, wg_public_key)
+- Cada technician = peer independente, permite múltiplas maquinas (Seção 7.A)
+
+Cascade de restauração na startup:
+- Query: SELECT wg_pubkey, wg_virtual_ip FROM devices WHERE state='ativo' AND wg_pubkey<>''
+- Query: SELECT wg_pubkey, wg_virtual_ip FROM technicians WHERE status='ativo' AND wg_pubkey<>''
+- hub.AddPeer(pubkey, virtual_ip) para cada um -> restaura malha
+
+
+8. AUTENTICACAO E AUTORIZACAO
+================================================================================
+
+8.1 JWT (Technician authentication)
+
+   Claims (auth/auth.go):
+   {
+     "tid": "technician_id",
+     "username": "...",
+     "role": "super_admin | tecnico | freelancer",
+     "exp": now+12h,
+     "iat": now
+   }
+
+   Signing: HS256 (JWT_SECRET env var)
+   Issuance: POST /api/v1/auth/technician/redeem (enrollment key) ou seed
+
+   Token lifetime: 12 hours
+   Refresh: POST /api/v1/auth/technician/refresh -> new JWT
+
+8.2 Device Token
+
+   Generado na registration (RegisterDevice)
+   Usado para: heartbeat, WG key submission, telemetry
+   Não relacionado a JWT
+
+8.3 RBAC (technician_assignments)
+
+   Role:
+   - super_admin: full access (orgs, techs, audit, suspend/resume)
+   - tecnico: limited to assigned org/network (RBAC aplicado em handlers)
+   - freelancer: support tickets only
+
+   Assignment scope (technician_assignments):
+   - (technician, org=null, network=null) = all devices in all orgs
+   - (technician, org=X, network=null) = all devices in org X
+   - (technician, org=X, network=Y) = devices in network Y of org X
+
+   Filtering: handlers checam claims.TechnicianID vs assignment rows
+
+8.4 VPN Requirement
+
+   Middleware (middleware/middleware.go):
+   - private() middleware: requestFromVPN(r) checks se origin IP está em 10.70.0.0/16
+   - Protege: device operations, presence WS, network CRUD, etc
+   - Exceção: public endpoints (register, heartbeat, client updates)
+
+8.5 Password Hashing
+
+   Algoritmo: bcrypt (cost=default)
+   Funções: HashPassword(), CheckPassword()
+   Armazenado em: technicians.password_hash
+
+
+9. ARQUIVOS ESTRUTURA COMPLETA
+================================================================================
+
+server/
+├── api-core/
+│   ├── cmd/main.go ........................ Entry point servidor
+│   ├── internal/
+│   │   ├── handlers/
+│   │   │   ├── router.go ................. 80+ endpoints
+│   │   │   ├── devices.go ............... Device register, heartbeat, WG
+│   │   │   ├── technicians.go ........... Tech CRUD
+│   │   │   ├── technician_enrollment.go  JWT issue
+│   │   │   ├── ws.go .................... Presence WS
+│   │   │   ├── control_ws.go ............ Device/tech control tunnel
+│   │   │   ├── devices.go, orgs.go, networks.go, support.go, etc
+│   │   │   └── server.go ................ Server struct{Pool, RDB, Cfg, Hub}
+│   │   ├── db/db.go ..................... pgx pool, RunMigrations
+│   │   ├── models/models.go ............ Org, Network, Device, Tech structs
+│   │   ├── auth/auth.go ................. JWT, bcrypt
+│   │   ├── middleware/middleware.go .... RequireAuth, VPN check
+│   │   ├── config/config.go ............ Load env vars
+│   │   ├── wg/hub.go .................... WireGuard orchestrator
+│   │   ├── presence/presence.go ........ Redis pub/sub events
+│   │   └── seed/seed.go ................. Demo data
+│   └── migrations/ ...................... 25 SQL migrations
+│
+├── rustdesk-server-src/
+│   ├── src/main.rs ...................... hbbs entry (rendezvous server)
+│   └── ...
+│
+├── migrations/ ........................... SQL schema files
+
+client-host/
+├── main.go ............................. Agent entry point (device)
+└── go.mod
+
+client-tunnel/
+├── main.go ............................. Technician VPN tunnel
+└── Wireguard key management
+
+client-updater/
+└── main.go ............................. Bootstrap/updater launcher
+
+client-rustdesk-src/
+├── src/
+│   ├── main.rs ........................ Desktop entry
+│   ├── lib.rs ........................ Module exports
+│   ├── client.rs, server.rs ......... RDP client/server
+│   ├── common.rs .................... Config, logger, protocol
+│   ├── hbbs_http/ ................... HTTP API client
+│   ├── platform/ .................... OS-specific (screen, input, clipboard)
+│   ├── plugin/ ...................... Plugin framework
+│   ├── ipc/ ......................... Inter-process communication
+│   ├── flutter_ffi.rs ............... Dart-Rust bridge
+│   └── ...
+│
+├── flutter/
+│   ├── lib/main.dart ............... Flutter UI entry
+│   ├── pubspec.yaml ................ Dependencies
+│   └── ...
+│
+├── libs/
+│   ├── hbb_common/ ................. Shared types
+│   ├── clipboard/ .................. Clipboard
+│   ├── enigo/ ...................... Input simulator
+│   └── ...
+│
+└── Cargo.toml
+
+
+10. RESUMO EXECUTIVO
+================================================================================
+
+COMPONENTES PRINCIPAIS:
+1. Server (api-core): API REST + WebSocket, PostgreSQL backend, Redis cache, WireGuard hub
+2. Device agent (client-host): Registro, heartbeat, WG tunnel, telemetry, RustDesk integration
+3. Technician VPN (client-tunnel): WG peer for individual tech tunnel
+4. RustDesk client (client-rustdesk-src): Remote desktop, file transfer, port forward, etc
+5. Flutter UI (client-rustdesk-src/flutter): Cross-platform UI (Windows, Linux, macOS, mobile)
+
+FLUXO PRINCIPAL (Fase 1):
+1. Device instala agent, registra em API, exibe pairing code
+2. Técnico valida código, bind device via API
+3. Device recebe state='ativo', ativa WG tunnel
+4. Técnico ativa tunnel (client-tunnel)
+5. Ambos online na VPN 10.70.0.0/16, pronto para RDP/file transfer
+
+TECNOLOGIAS:
+- Backend: Go, PostgreSQL, Redis, WireGuard, HTTP/REST, WebSocket
+- Desktop Client: Rust (RustDesk core), Flutter (UI), Dart
+- Network: WireGuard spoke topology, 10.70.0.0/16 CIDR, rendezvous + relay
+- Auth: JWT HS256, bcrypt, VPN-based access control, RBAC via assignments
+
+================================================================================
+Análise concluída. Sem modificações de código (somente leitura).
+================================================================================

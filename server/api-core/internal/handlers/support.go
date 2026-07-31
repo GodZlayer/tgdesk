@@ -116,34 +116,18 @@ func (s *Server) canManageTicket(r *http.Request, ticketID string) bool {
 	if c == nil {
 		return false
 	}
-	if c.Role == models.RoleSuperAdmin {
-		return true
-	}
-	if c.Role == models.RoleFreelancer {
-		var ok bool
-		_ = s.Pool.QueryRow(r.Context(), `SELECT assigned_freelancer_id=$2 FROM support_tickets WHERE id=$1`, ticketID, c.TechnicianID).Scan(&ok)
-		return ok
-	}
-	var orgID, netID string
-	if s.Pool.QueryRow(r.Context(), `SELECT organization_id,coalesce(network_id,'00000000-0000-0000-0000-000000000000') FROM support_tickets WHERE id=$1`, ticketID).Scan(&orgID, &netID) != nil {
-		return false
-	}
-	ok, _ := s.technicianCanAccess(r.Context(), c.TechnicianID, orgID, netID)
-	return ok
+	ok, err := s.Authorizer.CanManageTicket(r.Context(), c, ticketID)
+	return err == nil && ok
 }
 
 func (s *Server) ListTickets(w http.ResponseWriter, r *http.Request) {
 	c := middleware.ClaimsFrom(r.Context())
-	query := `SELECT t.id,t.title,t.description,t.modality,t.priority,t.status,t.standalone,t.organization_id,t.network_id,t.device_id,t.assigned_freelancer_id,t.created_at,t.updated_at FROM support_tickets t`
-	args := []any{}
-	if c.Role == models.RoleFreelancer {
-		query += ` WHERE t.assigned_freelancer_id=$1 OR EXISTS(SELECT 1 FROM dispatch_offers o WHERE o.ticket_id=t.id AND o.freelancer_id=$1 AND o.available_at<=now() AND o.expires_at>now())`
-		args = []any{c.TechnicianID}
-	} else if c.Role != models.RoleSuperAdmin {
-		query += ` WHERE t.organization_id IN (SELECT organization_id FROM technician_assignments WHERE technician_id=$1 UNION SELECT id FROM organizations WHERE owner_technician_id=$1)`
-		args = []any{c.TechnicianID}
+	// Get filtered query from authorizer
+	query, args, err := s.Authorizer.CanListTickets(r.Context(), c)
+	if err != nil {
+		writeErr(w, 500, "falha ao construir query de chamados")
+		return
 	}
-	query += ` ORDER BY priority DESC,created_at`
 	rows, err := s.Pool.Query(r.Context(), query, args...)
 	if err != nil {
 		writeErr(w, 500, "falha ao listar chamados")

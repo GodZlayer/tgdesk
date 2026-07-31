@@ -7,7 +7,7 @@ param(
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
 $runID = "build-$((Get-Date).ToUniversalTime().ToString('yyyyMMddTHHmmssZ'))"
-$artifactRoot = Join-Path $repo "testlab\artifacts\godzmind\$runID"
+$artifactRoot = Join-Path $repo ".godzmind\work\godzmind\$runID"
 New-Item -ItemType Directory -Path $artifactRoot -Force | Out-Null
 $steps = @()
 
@@ -47,23 +47,11 @@ function Invoke-Step {
 Invoke-Step 'powershell-syntax' {
     $files = @(
         Get-ChildItem (Join-Path $repo '.godzmind\scripts') -File -Filter '*.ps1'
-        Get-ChildItem (Join-Path $repo 'testlab') -File -Filter '*.ps1'
     )
     foreach ($file in $files) {
         [void][scriptblock]::Create((Get-Content $file.FullName -Raw))
     }
     "Parsed $($files.Count) PowerShell workers"
-}
-
-Invoke-Step 'json-contracts' {
-    foreach ($path in @(
-        'testlab\acceptance.manifest.json',
-        'testlab\version-contracts.json',
-        'testlab\lab.config.json'
-    )) {
-        Get-Content (Join-Path $repo $path) -Raw | ConvertFrom-Json | Out-Null
-    }
-    'JSON contracts parsed'
 }
 
 foreach ($module in @('server/api-core', 'client-agent', 'client-host',

@@ -65,7 +65,7 @@ func (s *Server) PresenceWS(w http.ResponseWriter, r *http.Request) {
 		if err := json.Unmarshal([]byte(msg.Payload), &evt); err != nil {
 			continue
 		}
-		if claims.Role != models.RoleSuperAdmin && !s.eventVisibleTo(r.Context(), claims.TechnicianID, evt) {
+		if claims.Role != models.RoleSuperAdmin && !s.eventVisibleTo(r.Context(), claims, evt) {
 			continue
 		}
 		if err := conn.WriteJSON(evt); err != nil {
@@ -76,41 +76,23 @@ func (s *Server) PresenceWS(w http.ResponseWriter, r *http.Request) {
 
 // eventVisibleTo resolves the event's device (directly, or via its network for
 // network/organization-level events) and checks it against technician_assignments.
-func (s *Server) eventVisibleTo(ctx context.Context, technicianID string, evt presence.Event) bool {
+func (s *Server) eventVisibleTo(ctx context.Context, claims *tgauth.Claims, evt presence.Event) bool {
 	switch evt.Type {
 	case "branding_permission", "technician_renamed":
-		return evt.TargetID == technicianID
+		return evt.TargetID == claims.TechnicianID
 	case "ticket_created", "ticket_message", "ticket_state", "service_order", "dispatch_offered", "dispatch_accepted":
-		var orgID, netID string
-		err := s.Pool.QueryRow(ctx, `SELECT organization_id,coalesce(network_id,'00000000-0000-0000-0000-000000000000') FROM support_tickets WHERE id=$1`, evt.TargetID).Scan(&orgID, &netID)
-		if err != nil {
-			return false
-		}
-		var assigned bool
-		_ = s.Pool.QueryRow(ctx, `SELECT assigned_freelancer_id=$2 FROM support_tickets WHERE id=$1`, evt.TargetID, technicianID).Scan(&assigned)
-		if assigned {
-			return true
-		}
-		ok, _ := s.technicianCanAccess(ctx, technicianID, orgID, netID)
-		return ok
+		ok, err := s.Authorizer.CanManageTicket(ctx, claims, evt.TargetID)
+		return err == nil && ok
 	case "presence", "telemetry", "bind", "suspend_device", "resume_device", "device_renamed",
 		"diagnostic_progress", "diagnostic_result":
-		var orgID, netID string
-		err := s.Pool.QueryRow(ctx, `
-			SELECT n.organization_id, n.id FROM devices d
-			JOIN networks n ON d.network_id = n.id
-			WHERE d.id = $1`, evt.TargetID).Scan(&orgID, &netID)
-		if err != nil {
-			return false
-		}
-		ok, _ := s.technicianCanAccess(ctx, technicianID, orgID, netID)
-		return ok
+		ok, err := s.Authorizer.CanAccessDevice(ctx, claims, evt.TargetID)
+		return err == nil && ok
 	case "suspend_network", "resume_network", "network_renamed":
-		ok, _ := s.technicianCanAccess(ctx, technicianID, "", evt.TargetID)
-		return ok
+		ok, err := s.Authorizer.CanAccessNetwork(ctx, claims, evt.TargetID)
+		return err == nil && ok
 	case "suspend_organization", "resume_organization", "organization_renamed":
-		ok, _ := s.technicianCanAccess(ctx, technicianID, evt.TargetID, "")
-		return ok
+		ok, err := s.Authorizer.CanAccessOrganization(ctx, claims, evt.TargetID)
+		return err == nil && ok
 	case "subnetwork_renamed", "suspend_subnetwork", "resume_subnetwork":
 		var orgID, netID string
 		err := s.Pool.QueryRow(ctx, `
@@ -120,8 +102,8 @@ func (s *Server) eventVisibleTo(ctx context.Context, technicianID string, evt pr
 		if err != nil {
 			return false
 		}
-		ok, _ := s.technicianCanAccess(ctx, technicianID, orgID, netID)
-		return ok
+		ok, err := s.Authorizer.CanAccessNetwork(ctx, claims, netID)
+		return err == nil && ok
 	default:
 		return false
 	}

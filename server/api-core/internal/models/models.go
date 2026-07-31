@@ -90,10 +90,43 @@ type AdminAction struct {
 	Timestamp time.Time `json:"timestamp"`
 }
 
+type SupportTicket struct {
+	ID                   string    `json:"id"`
+	OrganizationID       string    `json:"organization_id"`
+	NetworkID            *string   `json:"network_id,omitempty"`
+	DeviceID             string    `json:"device_id"`
+	OpenedByDeviceID     string    `json:"opened_by_device_id"`
+	AssignedFreelancerID *string   `json:"assigned_freelancer_id,omitempty"`
+	Title                string    `json:"title"`
+	Description          string    `json:"description"`
+	Modality             string    `json:"modality"`
+	Priority             int       `json:"priority"`
+	Status               string    `json:"status"`
+	Standalone           bool      `json:"standalone"`
+	Location             any       `json:"location,omitempty"`
+	CreatedAt            time.Time `json:"created_at"`
+	UpdatedAt            time.Time `json:"updated_at"`
+}
+
+type FreelancerProfile struct {
+	ID               string    `json:"id"`
+	TechnicianID     string    `json:"technician_id"`
+	Specialization   string    `json:"specialization"`
+	Rating           float64   `json:"rating"`
+	CompletedTickets int       `json:"completed_tickets"`
+	Status           string    `json:"status"`
+	CreatedAt        time.Time `json:"created_at"`
+	UpdatedAt        time.Time `json:"updated_at"`
+}
+
 const (
-	RoleSuperAdmin = "super_admin"
-	RoleTecnico    = "tecnico"
-	RoleFreelancer = "freelancer"
+	// Hierarquia base (cascata): super_admin > supervisor > cliente
+	// Avulsos (fora da hierarquia, respondem só ao super_admin): freelancer, cliente_avulso
+	RoleSuperAdmin    = "super_admin"
+	RoleSupervisor    = "supervisor"
+	RoleCliente       = "cliente"
+	RoleFreelancer    = "freelancer"
+	RoleClienteAvulso = "cliente_avulso"
 
 	DeviceStateGuest    = "guest"
 	DeviceStateAtivo    = "ativo"

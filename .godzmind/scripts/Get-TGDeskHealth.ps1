@@ -1,14 +1,10 @@
 $ErrorActionPreference = 'Stop'
 $repo = Split-Path -Parent (Split-Path -Parent $PSScriptRoot)
-$artifactPath = Join-Path $repo 'testlab\artifacts\godzmind-health.json'
+$artifactPath = Join-Path $repo '.godzmind\work\godzmind-health.json'
 
 $docker = @(
     docker ps --format json | ForEach-Object { $_ | ConvertFrom-Json }
 )
-$launcherPath = Join-Path $repo 'testlab\artifacts\base-image-launcher.json'
-$launcher = if (Test-Path $launcherPath) {
-    Get-Content $launcherPath -Raw | ConvertFrom-Json
-} else { $null }
 $disk = Get-PSDrive -Name C
 $tgdeskProcesses = @(
     Get-Process tgdesk -ErrorAction SilentlyContinue |
@@ -33,7 +29,6 @@ $report = [ordered]@{
         containers = @($docker | Select-Object Names,Image,State,Status,Ports)
     }
     hyperv_lab = [ordered]@{
-        launcher = $launcher
         vm_worker_process_count = @(Get-Process vmwp -ErrorAction SilentlyContinue).Count
     }
 }

@@ -147,7 +147,9 @@ func (s *Server) SuspendSubnetwork(w http.ResponseWriter, r *http.Request, id st
 		writeErr(w, http.StatusNotFound, "sub-rede não encontrada")
 		return
 	}
-	if !s.canManageNetwork(r, networkID) {
+	claims := middleware.ClaimsFrom(r.Context())
+	allowed, err := s.Authorizer.CanManageNetwork(r.Context(), claims, networkID)
+	if err != nil || !allowed {
 		writeErr(w, http.StatusForbidden, "sem permissão para suspender esta sub-rede")
 		return
 	}
@@ -212,7 +214,9 @@ func (s *Server) ResumeSubnetwork(w http.ResponseWriter, r *http.Request, id str
 		writeErr(w, http.StatusNotFound, "sub-rede não encontrada")
 		return
 	}
-	if !s.canManageNetwork(r, networkID) {
+	claims := middleware.ClaimsFrom(r.Context())
+	allowed, err := s.Authorizer.CanManageNetwork(r.Context(), claims, networkID)
+	if err != nil || !allowed {
 		writeErr(w, http.StatusForbidden, "sem permissão para reativar esta sub-rede")
 		return
 	}
@@ -268,7 +272,9 @@ func (s *Server) DeleteSubnetwork(w http.ResponseWriter, r *http.Request, id str
 		writeErr(w, http.StatusNotFound, "sub-rede não encontrada")
 		return
 	}
-	if !s.canManageNetwork(r, networkID) {
+	claims := middleware.ClaimsFrom(r.Context())
+	allowed, err := s.Authorizer.CanManageNetwork(r.Context(), claims, networkID)
+	if err != nil || !allowed {
 		writeErr(w, http.StatusForbidden, "sem permissão para excluir esta sub-rede")
 		return
 	}

@@ -1,0 +1,111 @@
+﻿╔════════════════════════════════════════════════════════════════════════════════╗
+║                   CATÁLOGO DE CONFIGURAÇÃO - TGDESK                           ║
+╚════════════════════════════════════════════════════════════════════════════════╝
+
+Gerado em: 2026-07-30 14:42:52
+Diretório Raiz: C:\Users\santo\Documents\TGDESK
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+1. ENVIRONMENT FILES (.env)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+[PROD] C:\Users\santo\Documents\TGDESK\server\.env
+Propósito: API Core e Sistema RustDesk - variáveis de ambiente
+Variáveis: 8 found
+  Principais: JWT_SECRET, SEED_ORGANIZATIONS, ENABLE_DEMO_SEED, TECH_USERS, TECH_ASSIGN, FORCE_RESEED
+
+[PROD] C:\Users\santo\Documents\TGDESK\server\rustdesk-server-src\.env
+Propósito: API Core e Sistema RustDesk - variáveis de ambiente
+Variáveis: 1 found
+  Principais: DATABASE_URL
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+2. DOCKER COMPOSE CONFIGURATIONS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+[PRODUCTION] C:\Users\santo\Documents\TGDESK\server\docker-compose.yml
+Serviços: postgres, redis, api-core, relay, rendezvous, tgdesk_pg_data, tgdesk_hub_data, tgdesk_hbbs_data, tgdesk_hbbr_data, tgdesk_branding_data
+Volumes: tgdesk_pg_data, tgdesk_hub_data, tgdesk_hbbs_data, tgdesk_hbbr_data, tgdesk_branding_data
+
+[RUSTDESK-SERVER] C:\Users\santo\Documents\TGDESK\server\rustdesk-server-src\docker-compose.yml
+Serviços: rustdesk-net, hbbs, hbbr
+
+[TESTING] C:\Users\santo\Documents\TGDESK\testlab\docker-compose.test.yml
+Serviços: postgres, redis, api-core, relay, rendezvous, pg_test, hub_test, hbbs_test, hbbr_test, branding_test
+Volumes: pg_test, hub_test, hbbs_test, hbbr_test, branding_test
+
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+3. GITHUB WORKFLOWS (.github/workflows/)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Workflows encontrados: 11
+  - bridge.yml`n  - ci.yml`n  - clear-cache.yml`n  - fdroid.yml`n  - flutter-build.yml`n  - flutter-ci.yml`n  - flutter-nightly.yml`n  - flutter-tag.yml`n  - playground.yml`n  - third-party-RustDeskTempTopMostWindow.yml`n  - winget.yml
+Propósito: Automação CI/CD para builds, testes e deploys
+
+Client RustDesk Workflows: 10 arquivos
+  Propósito: Builds Flutter, CI para cliente, tags de release
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+4. SYSTEMD SERVICE FILES
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Serviços systemd encontrados: 2
+  - rustdesk-hbbr.service
+  - rustdesk-hbbs.service
+Propósito: Configuração de serviços Linux/systemd para daemon rustdesk-server
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+5. VS CODE SETTINGS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Arquivo: .vscode/settings.json
+Propósito: Configuração do VS Code para desenvolvimento do rustdesk-server
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+6. CONFIGURAÇÕES POR AMBIENTE
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+[PRODUCTION]
+  - server/.env: Configurações API Core
+  - server/docker-compose.yml: Stack completo (postgres, redis, api-core, relay, rendezvous)
+  - .github/workflows/: CI/CD pipelines
+
+[TESTING]
+  - testlab/docker-compose.test.yml: Stack com banco de dados de teste
+  - DATABASE_URL: postgres://tgdesk_test:tgdesk_test@postgres:5432/tgdesk_test
+  - JWT_SECRET: tgdesk-testlab-only (teste)
+
+[RUSTDESK-SERVER]
+  - server/rustdesk-server-src/.env: DATABASE_URL para conexão
+  - server/rustdesk-server-src/docker-compose.yml: hbbs + hbbr services
+  - systemd/: Services para Linux deployment
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+7. RESUMO DE VARIÁVEIS CRÍTICAS
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Database:
+  - DATABASE_URL: PostgreSQL connection (production: tgdesk user, testing: tgdesk_test user)
+  - POSTGRES_USER/POSTGRES_PASSWORD: Docker credentials
+
+Security:
+  - JWT_SECRET: Token signing key (MUST change in production)
+  - HUB_KEY_FILE: Private key para WireGuard hub
+  - RENDEZVOUS_KEY_FILE: Public key for rendezvous server
+
+Network:
+  - HUB_LISTEN_PORT: WireGuard hub port (51820)
+  - HUB_PUBLIC_ADDR: Endereço público do hub
+  - LISTEN_ADDR: API Core listen address (:8080)
+  - REDIS_ADDR: Redis connection (redis:6379)
+
+Application:
+  - CLIENT_VERSION: Versão do cliente (atual: 0.3.0+)
+  - ENABLE_DEMO_SEED: Seed dados de demo (deve ser false em prod)
+  - FORCE_RESEED: Forçar reseed (deve ser false em prod)
+  - BRANDING_DIR: Diretório de branding customizado
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+FIM DO RELATÓRIO
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━

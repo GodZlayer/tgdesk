@@ -1,0 +1,464 @@
+================================================================================
+TGDESK — ANALISE DE COMPONENTES PRINCIPAIS
+================================================================================
+Data: 2026-07-30
+Escopo: Leitura SÓ — identificação de componentes, linguagens, entry points,
+        dependências entre componentes.
+================================================================================
+
+1. COMPONENTES PRINCIPAIS IDENTIFICADOS
+================================================================================
+
+A. SERVER BACKEND
+───────────────────────────────────────────────────────────────────────────────
+
+1.1 server/api-core
+    Tipo:       Backend REST API + WireGuard Hub Orchestrator
+    Linguagem:  Go 1.22
+    Entry Point: server/api-core/cmd/main.go
+    Propósito:
+      - API REST central (port 8090) com JWT RBAC
+      - Orquestração de WireGuard (Hub listening em port 51820/UDP)
+      - Gerenciamento de dispositivos, técnicos, organizações, redes
+      - Integração com RustDesk rendezvous/relay
+      - Armazenamento: PostgreSQL (migrations) + Redis (cache/presença)
+    Dependências Externas:
+      - PostgreSQL 16 (tgdesk database)
+      - Redis 7
+      - WireGuard (golang.zx2c4.com/wireguard)
+    Endpoints Principais:
+      POST   /api/v1/auth/login                          [public]
+      POST   /api/v1/devices/register                    [public→guest]
+      POST   /api/v1/devices/heartbeat                   [device_token]
+      GET    /ws/presence                                [JWT websocket]
+      POST   /api/v1/devices/wg-key                      [device_token]
+      POST   /api/v1/devices/rustdesk-id                 [device_token]
+      POST   /api/v1/pairing/bind                        [técnico RBAC]
+      GET    /api/v1/{devices,organizations,networks}    [técnico RBAC]
+      POST   /api/v1/admin/...                           [super_admin]
+
+1.2 server/rustdesk-server-src
+    Tipo:       Rendezvous (ID) + Relay (media) Servers
+    Linguagem:  Rust (fork oficial do RustDesk)
+    Entry Point: server/rustdesk-server-src/src/main.rs
+    Propósito:
+      - hbbs:  ID/Rendezvous Server (port 21114/TCP + 21115/TCP)
+      - hbbr:  Relay Server (port 21117/TCP + 21118/TCP + 21119/TCP)
+      - Compilados do zero via Dockerfile (rendezvous.Dockerfile)
+      - Rodam em network_mode:service:api-core (100% dentro da VPN)
+    Dependências:
+      - WireGuard network namespace (api-core)
+      - Sem acesso público direto (apenas dentro da VPN)
+    Funcionalidade:
+      - Descoberta de dispositivos
+      - Negociação de conexão peer-to-peer
+      - Relay de tráfego remoto (quando P2P falha)
+
+1.3 server/migrations
+    Tipo:       Database Schema
+    Linguagem:  SQL (PostgreSQL 16)
+    Localização: server/migrations/*.sql
+    Propósito:  17+ migrations incrementais:
+      001: init (users, organizations, networks, devices, technicians)
+      002: wireguard (tunnel keys, virtual IPs)
+      003: backfill_cidr (WireGuard CIDR setup)
+      004: rustdesk_id (amarra rustdesk_id ao device_id)
+      005-017: features (actions, telemetry, audit, suspension, etc)
+
+B. CLIENT DESKTOP
+───────────────────────────────────────────────────────────────────────────────
+
+2.1 client-rustdesk-src
+    Tipo:       Remote Desktop Client (Desktop + Mobile)
+    Linguagem:  Rust (src/) + Dart/Flutter (flutter/lib/)
+    Entry Points:
+      - Rust:  client-rustdesk-src/src/main.rs     [backend agent]
+      - Dart:  client-rustdesk-src/flutter/lib/main.dart [UI]
+    Propósito:
+      - Cliente RustDesk customizado para TGDesk
+      - Suporta remote desktop, file transfer, terminal, camera view
+      - UI multiplataforma (Windows, macOS, Linux, mobile)
+      - Embutido com tgdesk-agent.dll (Host + Technician)
+    Features:
+      - Hardware acceleration (VRAM, mediacodec, hwcodec)
+      - Plugin framework
+      - Clipboard sharing (Unix file copy-paste)
+      - Sample rate/audio quality options
+    Arquitetura:
+      - flutter/ = UI (main.dart, desktop/mobile pages, screens)
+      - src/ = backend (connection logic, RustDesk protocol)
+      - libs/ = dependencies (scrap, clipboard, hbb_common, portable)
+    Dependências:
+      - client-agent/tgdesk_agent.dll (embutido no runner)
+      - WireGuard DLL (wireguard.dll, wintun.dll)
+      - RustDesk rendezvous/relay (server/rustdesk-server-src)
+
+2.2 client-agent (ATIVO — consolida host + technician)
+    Tipo:       Windows Agent (Executável + DLL)
+    Linguagem:  Go 1.22
+    Entry Point: client-agent/agent_main.go
+    Propósito:
+      - Dispatcher dual-role: Host ou Technician por CLI arg
+      - Compilado em duas formas:
+        1. tgdesk-agent.exe (console)
+        2. tgdesk_agent.dll (embutido no runner Flutter, interface GUI)
+    Submodulos:
+      - host.go          [pairing, heartbeat, elevation, WireGuard tunnel, RustDesk launch]
+      - technician.go    [túnel WireGuard próprio do técnico, conecta ao Hub]
+      - health_ext.go    [hardware telemetry via PowerShell/WMI]
+      - control.go       [command dispatch]
+      - diagnostics.go   [device health checks]
+      - elevate.go       [elevação sob demanda]
+      - updater.go       [auto-update logic]
+      - remote_access.go [RDP/SSH/VPN setup]
+      - install.go       [setup driver Wintun]
+    Fluxo Host:
+      1. Registra dispositivo (POST /api/v1/devices/register → pairing_code)
+      2. Faz heartbeat a cada 5s até bind de técnico
+      3. Gera chave WireGuard → POST /api/v1/devices/wg-key
+      4. Sobe túnel WireGuard real (wireguard-go + Wintun driver)
+      5. Inicia rustdesk.exe como agente servidor
+      6. Reporta rustdesk_id → POST /api/v1/devices/rustdesk-id
+    Fluxo Technician:
+      1. Recebe --token do Hub
+      2. Gera chave WireGuard própria (identity independente)
+      3. Sobe túnel único do técnico ao Hub (51820/UDP)
+      4. Pode conectar-se a qualquer device dentro da rede VPN
+    Requisitos:
+      - Elevação (admin) exigida na 1ª vez (criar driver Wintun)
+      - Wintun.dll oficial (wintun.net, permissiva)
+      - wireguard.dll auxiliar
+    Dependências:
+      - server/api-core (REST + WebSocket para control/telemetry)
+      - WireGuard Go (golang.zx2c4.com/wireguard)
+      - crypto (golang.org/x/crypto)
+
+2.3 client-updater
+    Tipo:       Updater Utility
+    Linguagem:  Go 1.22
+    Entry Point: client-updater/main.go
+    Propósito:
+      - Baixa e instala atualizações de tgdesk.exe
+      - Verifica manifesto de releases em server/releases/
+      - Valida hash SHA256 antes de usar
+    Dependências:
+      - server/releases/ (manifesto + binários)
+
+C. LEGADO / DEPRECATED
+───────────────────────────────────────────────────────────────────────────────
+
+3.1 client-host (DEPRECATED)
+    Nota: Funcionalidade migrada para client-agent/host.go
+    Status: Manter por referência histórica
+
+3.2 client-tunnel (DEPRECATED)
+    Nota: Funcionalidade migrada para client-agent/technician.go
+    Status: Manter por referência histórica
+
+3.3 client-tgdesk
+    Tipo:       Documentação + Referência
+    Propósito:  ARCHITECTURE_FLOW.md, DESIGN_SYSTEM.md
+    Uso:        Entender fluxo Fase 0/1/2 e layout de rede
+
+D. TESTING & QA
+───────────────────────────────────────────────────────────────────────────────
+
+4.1 testlab
+    Tipo:       Integration Test Suite
+    Linguagem:  PowerShell
+    Propósito:
+      - E2E tests (Windows VMs via Hyper-V)
+      - Contract tests (UI, server, installer)
+      - Lab automation (image creation, enrollment, telemetry)
+      - Runtime contracts (critical paths)
+    Key Scripts:
+      - Test-TGDeskWindowsE2E.ps1        [E2E desktop client]
+      - Test-TGDeskServerRuntime.ps1     [backend API]
+      - Test-TGDeskRuntimeCritical.ps1   [mission-critical paths]
+      - Test-TGDeskClientUiContracts.ps1 [UI compliance]
+      - New-TGDeskLabClient.ps1          [provision test VM]
+    Config:
+      - lab.config.json          [lab parameters]
+      - version-contracts.json   [versioning expectations]
+      - acceptance.manifest.json [test artifacts manifest]
+    Docker:
+      - docker-compose.test.yml  [isolated test stack]
+    Dependências:
+      - server/api-core (HTTP API)
+      - client-agent (host role install)
+      - client-rustdesk-src (desktop client)
+
+E. INSTALLERS & BUILD
+───────────────────────────────────────────────────────────────────────────────
+
+5.1 installers/
+    Tipo:       Windows Installer
+    Linguagem:  InnoSetup (.iss) + PowerShell
+    Entry Point: installers/tgdesk-installer.iss
+    Propósito:
+      - Bundla tgdesk.exe + client-agent.exe + DLLs
+      - Instala driver Wintun
+      - Registra serviço Windows
+      - Suporte a upgrades
+    Scripts:
+      - Publish-TGDeskRelease.ps1      [stage build artifact]
+      - New-TGDeskModuleRelease.ps1    [update manifest]
+      - New-TGDeskAdminKey.ps1         [enrollment keys]
+    Output:
+      - installers/output/tgdesk-installer-0.3.48.exe [current]
+      - installers/output/*.tgdesk-key [enrollment keys]
+
+F. DEVOPS & INFRASTRUCTURE
+───────────────────────────────────────────────────────────────────────────────
+
+6.1 server/docker-compose.yml
+    Services:
+      - postgres:16    [database]
+      - redis:7        [cache + presence broker]
+      - api-core       [Dockerfile: Go app + migrations]
+      - relay          [Dockerfile: hbbr compiled]
+      - rendezvous     [Dockerfile: hbbs compiled]
+    Network:
+      - relay/rendezvous em network_mode:service:api-core
+        (100% dados dentro VPN, sem porta pública)
+    Volumes:
+      - tgdesk_pg_data:       /var/lib/postgresql/data
+      - tgdesk_hub_data:      /data (WireGuard keys)
+      - tgdesk_hbbs_data:     /hbbs-data (RustDesk ID server state)
+      - tgdesk_hbbr_data:     /hbbr-data (relay state)
+      - tgdesk_branding_data: /branding (custom assets)
+      - ./releases:           /app/releases:ro (update manifests)
+
+6.2 client-rustdesk-src/Dockerfile
+    Propósito:  Build container para compilar cliente RustDesk
+    Base:       Rust toolchain
+    Output:     Binary libs + Flutter assets
+
+G. CONFIGURATION & MEMORY
+───────────────────────────────────────────────────────────────────────────────
+
+7.1 .godzmind/
+    Propósito:  Memoria de projeto + scripts worker determinísticos
+    - objetivos/ : goals e escopo
+    - scripts/   : helpers TGDESK-specificos
+    - memoria-projetos.md : contexto histórico
+
+7.2 branding/
+    Propósito:  Assets customizados (logos, cores, strings)
+
+================================================================================
+
+2. DEPENDÊNCIAS ENTRE COMPONENTES
+================================================================================
+
+Fluxo de inicialização (Deploy to Production):
+
+  Servidor:
+    docker compose up
+    ├─ postgres (tgdesk schema via migrations)
+    ├─ redis
+    └─ api-core
+       ├─ Load config (.env)
+       ├─ Conecta postgres + redis
+       ├─ Roda migrations (001-017.sql)
+       ├─ Seed data (demo ou production)
+       ├─ Inicia WireGuard Hub (51820/UDP)
+       ├─ Expõe API (8090/TCP)
+       └─ relay + rendezvous
+          └─ Compartilham network (wg0, 10.70.0.1)
+
+  Cliente Host (Desktop):
+    tgdesk.exe (Flutter UI)
+    └─ tgdesk_agent.dll (embedded, extracted runtime)
+       └─ tgdesk-agent.exe host (Go)
+          ├─ POST /api/v1/devices/register (pairing_code)
+          ├─ Loop heartbeat (5s)
+          ├─ Aguarda técnico bind
+          ├─ Gera WireGuard keys
+          ├─ POST /api/v1/devices/wg-key (recebe config hub)
+          ├─ Sobe túnel WireGuard (wireguard-go + Wintun driver)
+          ├─ Inicia rustdesk.exe como agente
+          └─ POST /api/v1/devices/rustdesk-id (reporta ID)
+
+  Cliente Technician (Desktop):
+    tgdesk.exe (Flutter Hub UI)
+    └─ tgdesk_agent.dll (role=technician, token via Hub)
+       └─ tgdesk-agent.exe technician --token X (Go)
+          ├─ Gera WireGuard keys (identity própria)
+          └─ Sobe túnel WireGuard ao Hub (51820/UDP)
+             └─ Agora dentro da VPN: acessa hbbs/hbbr (10.70.0.1)
+                └─ Conecta-se a devices remotes (RustDesk protocol)
+
+  Dados em trânsito:
+    100% dentro da VPN (10.70.0.0/16):
+    - Controle (API): device ↔ api-core (8090/TCP) via WireGuard
+    - ID/Relay: device ↔ rendezvous/relay (10.70.0.1) via WireGuard
+    - RustDesk media: device ↔ device via relay (se no mesmo Hub)
+
+Dependências verticais (stack):
+
+  Aplicação (Client/Server):
+    client-rustdesk-src (Rust + Flutter UI)
+    client-agent (Go, embedded as DLL)
+         ↓
+    server/api-core (Go REST API + WireGuard orchestration)
+    server/rustdesk-server-src (Rust: hbbs + hbbr)
+         ↓
+    PostgreSQL 16 (schema via migrations/)
+    Redis 7 (presence, cache, session broker)
+    WireGuard (kernel interface, goroutine driver)
+
+  CI/CD (Testing):
+    testlab (PowerShell automation)
+         ↓
+    docker-compose.test.yml
+         ↓
+    server/docker-compose.yml (full stack)
+
+  Distribution:
+    installers/ (InnoSetup + PowerShell)
+         ↓
+    Bundla: tgdesk.exe + tgdesk-agent.exe + WireGuard DLLs
+         ↓
+    client-updater (verificar e baixar updates)
+
+================================================================================
+
+3. LINGUAGENS & FRAMEWORKS
+================================================================================
+
+Go 1.22:
+  - server/api-core       [HTTP REST, JWT, WebSocket, WireGuard orchestration]
+  - client-agent          [Windows service, WireGuard tunnel, elevation]
+  - client-host           [DEPRECATED]
+  - client-tunnel         [DEPRECATED]
+  - client-updater        [Auto-update logic]
+
+Rust:
+  - client-rustdesk-src (main backend) [RustDesk protocol, codec, clipboard]
+  - server/rustdesk-server-src (hbbs/hbbr) [ID/rendezvous, relay]
+  - client-rustdesk-src/libs:
+    ├─ hbb_common         [shared types]
+    ├─ scrap              [screen capture, codec]
+    ├─ clipboard          [clipboard integration]
+    ├─ enigo              [input emulation]
+    ├─ portable           [platform-specific utilities]
+    └─ remote_printer, virtual_display, etc
+
+Dart/Flutter:
+  - client-rustdesk-src/flutter [UI, desktop + mobile]
+    ├─ desktop/pages/     [install, server management]
+    ├─ desktop/screen/    [remote view, file transfer, terminal, camera, port forward]
+    ├─ mobile/pages/      [home, server, deploy]
+    └─ common/            [shared widgets, overlay, localization]
+
+SQL (PostgreSQL 16):
+  - server/migrations/*.sql [schema, 17+ versions]
+
+PowerShell:
+  - testlab/*.ps1         [E2E, contracts, lab automation]
+  - installers/*.ps1      [build, release, enrollment]
+
+InnoSetup:
+  - installers/tgdesk-installer.iss [installer script]
+
+================================================================================
+
+4. KEY FILES & ENTRY POINTS
+================================================================================
+
+BACKEND (Server startup):
+  server/api-core/cmd/main.go
+    ├─ Load config (.env)
+    ├─ Connect DB + Redis
+    ├─ Run migrations
+    ├─ Seed data
+    ├─ Start WireGuard Hub
+    └─ Listen API :8090 + WireGuard Hub :51820/UDP
+
+DATABASE (Schema):
+  server/migrations/
+    ├─ 0001_init.sql          [users, orgs, networks, devices, technicians]
+    ├─ 0002_wireguard.sql     [tunnel keys, virtual IPs]
+    ├─ 0003_backfill_cidr.sql
+    ├─ 0004_rustdesk_id.sql   [tie rustdesk_id to device_id]
+    └─ ... (17+ total)
+
+CLIENT (Desktop startup):
+  client-rustdesk-src/flutter/lib/main.dart
+    ├─ Determine role (host vs hub)
+    ├─ Extract tgdesk_agent.dll → %LOCALAPPDATA%\TGDeskAgent\
+    ├─ Launch tgdesk-agent.exe (host or technician)
+    └─ Display Flutter UI (remote desktop, file transfer, etc)
+
+AGENT (Dual role):
+  client-agent/agent_main.go
+    ├─ Parse args (role: host | technician)
+    ├─ If host:      runHost()       [register, heartbeat, pairing, tunnel, RustDesk]
+    └─ If technician: runTechnician() [WireGuard tunnel, connect to Hub]
+
+TESTS (E2E automation):
+  testlab/Test-TGDeskWindowsE2E.ps1
+    ├─ Provision lab VM
+    ├─ Deploy server (docker-compose.yml)
+    ├─ Install client (tgdesk-installer.exe)
+    ├─ Enroll device (pairing code flow)
+    ├─ Bind from technician (Hub UI)
+    ├─ Verify tunnel (ping, WireGuard status)
+    └─ Verify RustDesk session (remote control)
+
+INSTALLER:
+  installers/tgdesk-installer.iss
+    ├─ Include tgdesk.exe (Flutter binary)
+    ├─ Include tgdesk-agent.exe + DLLs
+    ├─ Include Wintun driver
+    └─ Register Windows service
+
+================================================================================
+
+5. RESUMO DA ARQUITETURA
+================================================================================
+
+Arquitetura MULTI-COMPONENTE:
+
+┌────────────────────────────────────────────────────────────────────────────┐
+│                         REDE VPN (WireGuard)                               │
+│                      10.70.0.0/16 (Hamachi-like)                            │
+├────────────────────────────────────────────────────────────────────────────┤
+│                                                                              │
+│  Cada rede virtual é isolada:                                               │
+│    - Device Host dentro network A: 10.70.A.x (único gateway: Hub)           │
+│    - Technician dentro network A: 10.70.A.y (pode rotar para qualquer peer)│
+│    - Rendezvous/Relay: 10.70.0.1 (sempre reachable from qualquer tunnel)   │
+│                                                                              │
+│  Tráfego 100% encriptado + canalizado:                                     │
+│    - Controle: HTTP/WebSocket via WireGuard (api-core:8090)                │
+│    - Media: RustDesk protocol via rendezvous/relay (não exponenciar dados) │
+│    - Nenhuma porta pública (além 8090 + 41820 no host)                     │
+│                                                                              │
+└────────────────────────────────────────────────────────────────────────────┘
+
+Fases implementadas:
+  ✓ Fase 0: User/Org/Tech RBAC, device guest state, pairing, suspension/audit
+  ✓ Fase 1: Real WireGuard tunnels (wireguard-go driver + Wintun)
+  ✓ Fase 2: RustDesk rendezvous/relay próprios + rustdesk_id integration
+
+Fases não implementadas:
+  ⋅ Fase 3: USB/IP (deve trafegar 100% na VPN)
+  ⋅ Fase 4: Real telemetry (deve trafegar 100% na VPN)
+
+Componentes críticos:
+  - server/api-core          [coração: controle + orquestração]
+  - server/rustdesk-server-src [descoberta + relay]
+  - client-agent (Go)        [conectividade: WireGuard + device binding]
+  - client-rustdesk-src      [UI + remote desktop protocol]
+  - PostgreSQL + Redis       [persistência + estado de presença]
+
+================================================================================
+
+Relatório gerado em: 2026-07-30
+Análise de escopo: COMPONENTES PRINCIPAIS ✓
+Nível de detalhe: ARQUITETURA MACRO + ENTRY POINTS
+Status: Análise completa (leitura SÓ)
+
+================================================================================
