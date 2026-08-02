@@ -50,8 +50,9 @@ services:
       HUB_PUBLIC_ADDR: ${HUB_PUBLIC_ADDR:-127.0.0.1:41820}
       RENDEZVOUS_KEY_FILE: "/hbbs-data/id_ed25519.pub"
       RENDEZVOUS_PUBLIC_HOST: ${RENDEZVOUS_PUBLIC_HOST:-10.70.0.1}
-      CLIENT_VERSION: ${CLIENT_VERSION:-0.3.0}
+      CLIENT_VERSION: "1.1.1"
       BRANDING_DIR: "/branding"
+      EVIDENCE_DIR: "/evidence"
     ports:
       # Escuta em TODAS as interfaces (0.0.0.0) para aceitar clients de outras
       # redes via o IP público. O controle (8090/TCP) e o hub WireGuard
@@ -62,6 +63,7 @@ services:
       - tgdesk_hub_data:/data
       - tgdesk_hbbs_data:/hbbs-data:ro
       - tgdesk_branding_data:/branding
+      - tgdesk_evidence_data:/evidence
       - ./releases:/app/releases:ro
     depends_on:
       postgres:
@@ -113,4 +115,7 @@ volumes:
     external: true
   tgdesk_branding_data:
     name: server_tgdesk_branding_data
+    external: true
+  tgdesk_evidence_data:
+    name: server_tgdesk_evidence_data
     external: true

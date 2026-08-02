@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory = $false)]
-    [string]$Version = '0.3.48',
+    [string]$Version = '1.1.1',
     [Parameter(Mandatory = $false)]
     [string]$Source = "$PSScriptRoot\stage-unified",
     [Parameter(Mandatory = $false)]
@@ -20,12 +20,15 @@ if (Test-Path -LiteralPath $versionRoot) {
 }
 [System.IO.Directory]::CreateDirectory($filesRoot) | Out-Null
 Copy-Item -Path (Join-Path $sourcePath '*') -Destination $filesRoot -Recurse -Force
+$updaterPayload = Join-Path $filesRoot 'tgdesk-updater.exe'
+if (Test-Path -LiteralPath $updaterPayload) {
+    Remove-Item -LiteralPath $updaterPayload -Force
+}
 
 $serviceFiles = @(
     'tgdesk.exe',
     'tgdesk_agent.dll',
-    'librustdesk.dll',
-    'wireguard.dll'
+    'librustdesk.dll'
 )
 $entries = foreach ($file in Get-ChildItem -LiteralPath $filesRoot -File -Recurse) {
     $relative = $file.FullName.Substring($filesRoot.Length).
@@ -40,8 +43,12 @@ $entries = foreach ($file in Get-ChildItem -LiteralPath $filesRoot -File -Recurs
 }
 
 $manifest = [ordered]@{
+    format_version = 1
     version = $Version
     generated_at = [DateTimeOffset]::UtcNow.ToString('o')
+    processes = @('tgdesk.exe')
+    services = @('TGDesk')
+    restart_application = ''
     files = @($entries | Sort-Object path)
 }
 $manifestJson = $manifest | ConvertTo-Json -Depth 6

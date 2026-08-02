@@ -3,7 +3,7 @@
 ; uso único validada pelo servidor dentro do próprio TGDesk.
 
 #define MyAppName "TGDesk"
-#define MyAppVersion "0.4.1"
+#define MyAppVersion "1.1.1"
 #define MyAppPublisher "TGDesk"
 
 [Setup]
@@ -16,7 +16,7 @@ DefaultGroupName=TGDesk
 DisableProgramGroupPage=yes
 PrivilegesRequired=admin
 OutputDir=.\output
-OutputBaseFilename=tgdesk-installer-0.4.1
+OutputBaseFilename=tgdesk-installer-1.1.1
 Compression=lzma2
 SolidCompression=yes
 ArchitecturesInstallIn64BitMode=x64compatible
@@ -90,7 +90,6 @@ var
 procedure InitializeWizard;
 begin
   ExistingControlIdentity :=
-    FileExists(ExpandConstant('{commonappdata}\TGDesk\identity\device.json')) or
     FileExists(ExpandConstant('{commonappdata}\TGDesk\identity\technician.dat'));
 
   { FLUXO: Se existe instalação prévia, perguntar se mantém a chave }

@@ -16,8 +16,23 @@ var diagnosticCatalog = []map[string]any{
 	{"id": "internet_quality", "name": "Qualidade da Internet", "category": "Rede", "impact": "low", "duration_seconds": 25, "description": "Mede DNS, perda de pacotes, latência e acesso externo."},
 	{"id": "disk_performance", "name": "Desempenho do armazenamento", "category": "Armazenamento", "impact": "medium", "duration_seconds": 45, "description": "Executa leitura e escrita temporária e remove o arquivo ao terminar."},
 	{"id": "smart_extended", "name": "Saúde física dos discos", "category": "Armazenamento", "impact": "low", "duration_seconds": 20, "description": "Consulta SMART, temperatura, desgaste e erros registrados."},
+	{"id": "badblocks-read", "name": "Setores defeituosos (somente leitura)", "category": "Armazenamento", "impact": "low", "duration_seconds": 30, "description": "Consulta contadores de confiabilidade do disco (erros de leitura corrigidos e não corrigidos) sem escrever nem apagar dados."},
 	{"id": "filesystem_scan", "name": "Setores e sistema de arquivos", "category": "Armazenamento", "impact": "high", "duration_seconds": 300, "description": "Executa verificação online somente leitura, sem reparar ou alterar dados."},
 	{"id": "gpu_stress", "name": "Carga gráfica", "category": "Vídeo", "impact": "high", "duration_seconds": 30, "description": "Executa carga gráfica do Windows e registra estabilidade e desempenho."},
+	{"id": "battery_health", "name": "Saúde da bateria", "category": "Energia", "impact": "low", "duration_seconds": 10, "description": "Compara capacidade projetada, carga atual e estado da bateria."},
+	{"id": "driver_errors", "name": "Falhas de drivers", "category": "Sistema", "impact": "low", "duration_seconds": 15, "description": "Lista dispositivos PnP com erro ou driver ausente."},
+	{"id": "critical_events", "name": "Eventos críticos", "category": "Sistema", "impact": "low", "duration_seconds": 20, "description": "Consolida eventos críticos e erros recentes do Windows."},
+	{"id": "service_failures", "name": "Serviços com falha", "category": "Sistema", "impact": "low", "duration_seconds": 10, "description": "Detecta serviços automáticos parados e falhas de inicialização."},
+	{"id": "startup_inventory", "name": "Inicialização do Windows", "category": "Sistema", "impact": "low", "duration_seconds": 10, "description": "Inventaria programas e tarefas iniciados com o Windows."},
+	{"id": "network_adapters", "name": "Adaptadores de rede", "category": "Rede", "impact": "low", "duration_seconds": 10, "description": "Verifica link, velocidade, erros e configuração IP."},
+	{"id": "dns_diagnostics", "name": "Diagnóstico DNS", "category": "Rede", "impact": "low", "duration_seconds": 15, "description": "Testa servidores DNS configurados e resolução externa."},
+	{"id": "route_table", "name": "Rotas e gateways", "category": "Rede", "impact": "low", "duration_seconds": 10, "description": "Analisa rotas, gateways e métricas de interface."},
+	{"id": "windows_integrity", "name": "Integridade do Windows", "category": "Sistema", "impact": "medium", "duration_seconds": 180, "description": "Executa DISM ScanHealth sem reparar ou alterar arquivos."},
+	{"id": "update_status", "name": "Atualizações do Windows", "category": "Sistema", "impact": "low", "duration_seconds": 20, "description": "Lista hotfixes e reinicializações pendentes."},
+	{"id": "security_posture", "name": "Postura de segurança", "category": "Segurança", "impact": "low", "duration_seconds": 15, "description": "Consulta Defender, firewall, Secure Boot e criptografia."},
+	{"id": "temperature_sensors", "name": "Sensores térmicos", "category": "Hardware", "impact": "low", "duration_seconds": 10, "description": "Lê sensores térmicos expostos por WMI e GPU."},
+	{"id": "storage_volumes", "name": "Volumes e espaço", "category": "Armazenamento", "impact": "low", "duration_seconds": 10, "description": "Verifica capacidade, espaço livre e estado dos volumes."},
+	{"id": "process_pressure", "name": "Pressão de processos", "category": "Desempenho", "impact": "low", "duration_seconds": 10, "description": "Lista maiores consumidores de CPU, memória e I/O."},
 }
 
 func (s *Server) diagnosticDeviceAccess(r *http.Request, deviceID string) bool {

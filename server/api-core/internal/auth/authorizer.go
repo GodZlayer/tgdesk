@@ -3,6 +3,7 @@ package auth
 import (
 	"context"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"tgdesk/api-core/internal/models"
@@ -121,15 +122,27 @@ func (a *Authorizer) CanAccessDevice(ctx context.Context, claims *Claims, device
 		return a.hasTemporaryTicketAccess(ctx, claims.TechnicianID, deviceID)
 
 	case models.RoleSupervisor:
-		var allowed bool
+		var exclusiveHeld bool
 		err := a.pool.QueryRow(ctx, `
+			SELECT EXISTS (
+				SELECT 1 FROM temporary_ticket_permissions p
+				WHERE p.device_id=$1 AND p.status='active' AND p.expires_at>now() AND p.exclusive=true
+			)`, deviceID).Scan(&exclusiveHeld)
+		if err != nil {
+			return false, err
+		}
+		if exclusiveHeld {
+			return false, nil
+		}
+		var allowed bool
+		err = a.pool.QueryRow(ctx, `
 			SELECT EXISTS (
 				SELECT 1
 				FROM device_networks dn
 				JOIN networks n ON n.id=dn.network_id
 				WHERE dn.device_id=$2
 				  AND (
-					n.organization_id IN (SELECT id FROM organizations WHERE owner_technician_id=$1)
+					n.organization_id IN (SELECT id FROM organizations WHERE owner_technician_id=$1 OR lower(name)='tgdevs')
 					OR n.id IN (SELECT network_id FROM technician_assignments
 						WHERE technician_id=$1 AND network_id IS NOT NULL)
 				  )
@@ -157,7 +170,7 @@ func (a *Authorizer) CanAccessNetwork(ctx context.Context, claims *Claims, netwo
 			SELECT 1 FROM networks n
 			WHERE n.id=$2
 			  AND (
-				n.organization_id IN (SELECT id FROM organizations WHERE owner_technician_id=$1)
+				n.organization_id IN (SELECT id FROM organizations WHERE owner_technician_id=$1 OR lower(name)='tgdevs')
 				OR n.id IN (SELECT network_id FROM technician_assignments
 					WHERE technician_id=$1 AND network_id IS NOT NULL)
 			  )
@@ -181,7 +194,7 @@ func (a *Authorizer) CanAccessOrganization(ctx context.Context, claims *Claims, 
 			SELECT 1 FROM organizations o
 			WHERE o.id=$2
 			  AND (
-				o.owner_technician_id=$1
+				o.owner_technician_id=$1 OR lower(o.name)='tgdevs'
 				OR EXISTS (SELECT 1 FROM networks n
 					JOIN technician_assignments ta ON ta.network_id=n.id
 					WHERE n.organization_id=o.id AND ta.technician_id=$1)
@@ -418,6 +431,19 @@ func (a *Authorizer) CanManageDiagnostics(ctx context.Context, claims *Claims, d
 	if IsEndUser(claims) {
 		return false, nil
 	}
+	if claims.Role == models.RoleSupervisor {
+		var status *string
+		err := a.pool.QueryRow(ctx, `
+			SELECT status FROM support_tickets
+			WHERE device_id=$1 OR opened_by_device_id=$1
+			ORDER BY created_at DESC LIMIT 1`, deviceID).Scan(&status)
+		if err != nil && err != pgx.ErrNoRows {
+			return false, err
+		}
+		if status != nil && (*status == "open" || *status == "offered_supervisor") {
+			return false, nil
+		}
+	}
 	return a.CanAccessDevice(ctx, claims, deviceID)
 }
 
@@ -426,7 +452,7 @@ func (a *Authorizer) CanManageDiagnostics(ctx context.Context, claims *Claims, d
 // supervisor sees tickets in their organizations.
 // cliente / cliente_avulso see only their own tickets.
 func (a *Authorizer) CanListTickets(ctx context.Context, claims *Claims) (string, []interface{}, error) {
-	query := `SELECT t.id,t.title,t.description,t.modality,t.priority,t.status,t.standalone,t.organization_id,t.network_id,t.device_id,t.assigned_freelancer_id,t.created_at,t.updated_at FROM support_tickets t`
+	query := `SELECT t.id,t.title,t.description,t.modality,t.priority,t.status,t.standalone,t.organization_id,t.network_id,t.device_id,t.assigned_freelancer_id,t.supervisor_id,t.created_at,t.updated_at FROM support_tickets t`
 	args := []interface{}{}
 
 	switch claims.Role {

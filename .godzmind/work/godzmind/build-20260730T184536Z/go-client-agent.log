@@ -1,5 +1,0 @@
-﻿go: downloading golang.org/x/crypto v0.26.0
-go: downloading golang.org/x/sys v0.23.0
-go: downloading github.com/gorilla/websocket v1.5.3
-ok  	tgdesk/agent	0.001s
-ok  	tgdesk/agent/internal/versioning	0.003s

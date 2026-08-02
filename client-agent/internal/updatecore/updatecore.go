@@ -1,0 +1,819 @@
+// Package updatecore contém a lógica de atualização modular do TGDesk —
+// manifesto, verificação SHA256, staging e aplicação transacional com
+// rollback. É importado tanto pela DLL do agente (client-agent/cmd/agent,
+// carregada por tgdesk.exe) quanto pelo executável standalone
+// client-agent/cmd/updater (tgdesk-updater.exe), que precisa funcionar
+// mesmo que tgdesk.exe não consiga iniciar.
+package updatecore
+
+import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
+	"fmt"
+	"io"
+	"net/http"
+	"net/url"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"syscall"
+	"time"
+
+	"golang.org/x/sys/windows"
+	"golang.org/x/sys/windows/svc"
+	"golang.org/x/sys/windows/svc/mgr"
+	"tgdesk/agent/internal/versioning"
+)
+
+const (
+	compiledClientVersion = "0.3.48"
+	privateAPIBase        = "http://10.70.0.1:8080"
+	recoveryAPIBase       = "http://168.232.199.161:8090"
+)
+
+// DataDir retorna o diretório de dados do TGDesk (ProgramData\TGDesk por
+// padrão, ou TGDESK_DATA_DIR se configurado). Duplica a lógica equivalente
+// de host.go (main package) deliberadamente: é um filepath.Join simples e
+// não vale a complexidade de compartilhar entre os dois pacotes.
+func DataDir() string {
+	if configured := os.Getenv("TGDESK_DATA_DIR"); configured != "" {
+		_ = os.MkdirAll(filepath.Join(configured, "identity"), 0700)
+		_ = os.MkdirAll(filepath.Join(configured, "state"), 0700)
+		_ = os.MkdirAll(filepath.Join(configured, "logs"), 0700)
+		return configured
+	}
+	base := os.Getenv("ProgramData")
+	if base == "" {
+		base = `C:\ProgramData`
+	}
+	dir := filepath.Join(base, "TGDesk")
+	_ = os.MkdirAll(filepath.Join(dir, "identity"), 0700)
+	_ = os.MkdirAll(filepath.Join(dir, "state"), 0700)
+	_ = os.MkdirAll(filepath.Join(dir, "logs"), 0700)
+	return dir
+}
+
+// CurrentClientVersion retorna a versão instalada do cliente TGDesk, lida de
+// version.txt ao lado do executável em execução, ou a versão compilada como
+// fallback.
+func CurrentClientVersion() string {
+	exe, err := os.Executable()
+	if err == nil {
+		if raw, readErr := os.ReadFile(filepath.Join(filepath.Dir(exe), "version.txt")); readErr == nil {
+			if version := strings.TrimSpace(string(raw)); version != "" &&
+				len(version) <= 32 && !strings.ContainsAny(version, `/\`) {
+				return version
+			}
+		}
+	}
+	return compiledClientVersion
+}
+
+type updateInfo struct {
+	Version string `json:"version"`
+	SHA256  string `json:"sha256"`
+	Size    int64  `json:"size"`
+	URL     string `json:"url"`
+}
+
+type moduleFile struct {
+	Path   string `json:"path"`
+	SHA256 string `json:"sha256"`
+	Size   int64  `json:"size"`
+	Scope  string `json:"scope"`
+}
+
+type moduleManifest struct {
+	FormatVersion      int          `json:"format_version"`
+	Version            string       `json:"version"`
+	Processes          []string     `json:"processes"`
+	Services           []string     `json:"services"`
+	RestartApplication string       `json:"restart_application"`
+	Files              []moduleFile `json:"files"`
+}
+
+func updateIsNewer(version string) bool {
+	return versioning.Compare(version, CurrentClientVersion()) > 0
+}
+
+// UpdateIsNewer reports whether version is newer than the currently
+// installed client version.
+func UpdateIsNewer(version string) bool {
+	return updateIsNewer(version)
+}
+
+// RunUpdate baixa e prepara (ou aplica, no caso de fallback via instalador)
+// a atualização disponível. Códigos de saída: 0 = já atualizado,
+// 10 = atualização baixada/iniciada, 1 = erro.
+func RunUpdate() int {
+	updating, err := checkAndInstallUpdate()
+	if err != nil {
+		fmt.Println(err.Error())
+		return 1
+	}
+	if !updating {
+		fmt.Println("O TGDesk já está atualizado.")
+		return 0
+	}
+	fmt.Println("Atualização baixada e iniciada.")
+	return 10
+}
+
+// CheckForUpdate apenas consulta se há atualização disponível, sem baixar.
+// Códigos de saída: 0 = atualizado, 10 = tem atualização, 1 = erro.
+func CheckForUpdate() int {
+	client := &http.Client{Timeout: 15 * time.Second}
+	resp, _, err := getUpdate(client, "/api/v1/client/update?version="+CurrentClientVersion())
+	if err != nil {
+		fmt.Println(err.Error())
+		return 1
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNoContent {
+		return 0
+	}
+	if resp.StatusCode != http.StatusOK {
+		fmt.Printf("consulta retornou status %d\n", resp.StatusCode)
+		return 1
+	}
+	var info updateInfo
+	if json.NewDecoder(resp.Body).Decode(&info) != nil || info.Version == "" {
+		fmt.Println("metadados inválidos")
+		return 1
+	}
+	if !updateIsNewer(info.Version) {
+		return 0
+	}
+	fmt.Println(info.Version)
+	return 10
+}
+
+func checkAndInstallUpdate() (bool, error) {
+	modular, fallback, err := stageModularUpdate()
+	if err != nil {
+		return false, err
+	}
+	if modular {
+		return true, nil
+	}
+	if !fallback {
+		return false, nil
+	}
+
+	metadataClient := &http.Client{Timeout: 15 * time.Second}
+	resp, apiBase, err := getUpdate(metadataClient,
+		"/api/v1/client/update?version="+CurrentClientVersion())
+	if err != nil {
+		return false, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNoContent {
+		return false, nil
+	}
+	if resp.StatusCode != http.StatusOK {
+		return false, fmt.Errorf("consulta retornou status %d", resp.StatusCode)
+	}
+	var info updateInfo
+	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
+		return false, err
+	}
+	if info.Version == "" || info.URL == "" || len(info.SHA256) != 64 {
+		return false, fmt.Errorf("metadados inválidos")
+	}
+	if !updateIsNewer(info.Version) {
+		return false, nil
+	}
+	target := filepath.Join(os.TempDir(), "tgdesk-client-update-"+info.Version+".exe")
+	downloadClient := &http.Client{Timeout: 15 * time.Minute}
+	if err := downloadVerified(downloadClient, apiBase+info.URL, target, info); err != nil {
+		return false, err
+	}
+	if err := launchInstallerElevated(target); err != nil {
+		_ = os.Remove(target)
+		return false, err
+	}
+	return true, nil
+}
+
+func stageModularUpdate() (updating bool, requireInstaller bool, err error) {
+	client := &http.Client{Timeout: 30 * time.Second}
+	resp, apiBase, err := getUpdate(client, "/api/v1/client/modules?version="+CurrentClientVersion())
+	if err != nil {
+		return false, true, nil
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNoContent {
+		return false, false, nil
+	}
+	if resp.StatusCode != http.StatusOK {
+		return false, true, nil
+	}
+	var manifest moduleManifest
+	if err := json.NewDecoder(resp.Body).Decode(&manifest); err != nil ||
+		manifest.Version == "" {
+		return false, false, fmt.Errorf("manifesto modular inválido")
+	}
+
+	if !updateIsNewer(manifest.Version) {
+		return false, false, nil
+	}
+	exe, err := os.Executable()
+	if err != nil {
+		return false, false, err
+	}
+	installDir := filepath.Dir(exe)
+	changed, requiresInstaller, err := selectChangedModules(manifest, installDir)
+	if err != nil {
+		return false, false, err
+	}
+	if requiresInstaller {
+		return false, true, nil
+	}
+	if len(changed) == 0 {
+		return false, false, nil
+	}
+
+	staging := filepath.Join(DataDir(), "updates", "staging", manifest.Version, "files")
+	if err := os.RemoveAll(staging); err != nil {
+		return false, false, err
+	}
+	for _, item := range changed {
+		target := filepath.Join(staging, filepath.FromSlash(item.Path))
+		if err := os.MkdirAll(filepath.Dir(target), 0700); err != nil {
+			return false, false, err
+		}
+		info := updateInfo{SHA256: item.SHA256, Size: item.Size}
+		escaped := escapeModulePath(item.Path)
+		if err := downloadVerified(client,
+			apiBase+"/api/v1/client/modules/"+url.PathEscape(manifest.Version)+"/"+escaped,
+			target, info); err != nil {
+			return false, false, err
+		}
+	}
+	manifestBytes, err := json.MarshalIndent(manifest, "", "  ")
+	if err != nil {
+		return false, false, err
+	}
+	manifestPath := filepath.Join(filepath.Dir(staging), "manifest.json")
+	manifestTemp := manifestPath + ".tmp"
+	if err := os.WriteFile(manifestTemp, manifestBytes, 0600); err != nil {
+		return false, false, err
+	}
+	_ = os.Remove(manifestPath)
+	if err := os.Rename(manifestTemp, manifestPath); err != nil {
+		return false, false, err
+	}
+
+	if err := launchStagedUpdaterElevated(
+		filepath.Dir(staging), installDir, uint32(os.Getpid())); err != nil {
+		return false, false, err
+	}
+	return true, false, nil
+}
+
+func selectChangedModules(manifest moduleManifest, installDir string) (
+	[]moduleFile, bool, error,
+) {
+	changed := make([]moduleFile, 0)
+	for _, item := range manifest.Files {
+		if !safeModulePath(item.Path) || len(item.SHA256) != 64 {
+			return nil, false, fmt.Errorf("módulo inválido no manifesto")
+		}
+		target := filepath.Join(installDir, filepath.FromSlash(item.Path))
+		hash, _ := fileSHA256(target)
+		if !strings.EqualFold(hash, item.SHA256) {
+			changed = append(changed, item)
+		}
+	}
+	return changed, false, nil
+}
+
+// launchStagedUpdaterElevated relança tgdesk-updater.exe elevado para aplicar
+// a atualização staged. Diferente do comportamento antigo (que relançava o
+// próprio tgdesk.exe via os.Executable(), já que este código rodava dentro
+// da DLL carregada por ele), agora sempre aponta para tgdesk-updater.exe no
+// diretório de instalação — a aplicação da atualização deixa de depender de
+// tgdesk.exe conseguir sequer iniciar.
+//
+// installDir já é o diretório de instalação (calculado em stageModularUpdate
+// a partir de os.Executable(), que dentro da DLL resolve para o tgdesk.exe
+// hospedeiro); usamos esse diretório, não o executável em si, para montar o
+// caminho do tgdesk-updater.exe.
+func launchStagedUpdaterElevated(staging, installDir string, parentPID uint32) error {
+	updaterExe := filepath.Join(installDir, "tgdesk-updater.exe")
+	verb, err := syscall.UTF16PtrFromString("runas")
+	if err != nil {
+		return err
+	}
+	file, err := syscall.UTF16PtrFromString(updaterExe)
+	if err != nil {
+		return err
+	}
+	quote := func(value string) string {
+		return `"` + strings.ReplaceAll(value, `"`, `\"`) + `"`
+	}
+	params, err := syscall.UTF16PtrFromString(strings.Join([]string{
+		"--apply-staged",
+		"--staging", quote(staging),
+		"--install-dir", quote(installDir),
+		"--parent", fmt.Sprint(parentPID),
+	}, " "))
+	if err != nil {
+		return err
+	}
+	dir, err := syscall.UTF16PtrFromString(installDir)
+	if err != nil {
+		return err
+	}
+	if err := windows.ShellExecute(0, verb, file, params, dir, windows.SW_HIDE); err != nil {
+		return fmt.Errorf("não foi possível elevar a atualização modular: %w", err)
+	}
+	return nil
+}
+
+func getUpdate(client *http.Client, path string) (*http.Response, string, error) {
+	resp, err := client.Get(privateAPIBase + path)
+	if err == nil {
+		return resp, privateAPIBase, nil
+	}
+	// Atualização é também o mecanismo de recuperação da VPN. Quando o
+	// gateway privado não existe, consulta o mesmo pacote somente-leitura
+	// pelo endpoint público inicial.
+	resp, recoveryErr := client.Get(recoveryAPIBase + path)
+	if recoveryErr != nil {
+		return nil, "", fmt.Errorf(
+			"atualização indisponível pela VPN (%v) e pela recuperação pública (%v)",
+			err, recoveryErr)
+	}
+	return resp, recoveryAPIBase, nil
+}
+
+func safeModulePath(path string) bool {
+	clean := filepath.Clean(filepath.FromSlash(path))
+	return path != "" && clean != "." && !strings.HasPrefix(path, "/") &&
+		!strings.HasPrefix(path, `\`) && !strings.Contains(clean, ":") &&
+		!filepath.IsAbs(clean) &&
+		clean != ".." && !strings.HasPrefix(clean, ".."+string(filepath.Separator))
+}
+
+func escapeModulePath(path string) string {
+	parts := strings.Split(strings.ReplaceAll(path, "\\", "/"), "/")
+	for i := range parts {
+		parts[i] = url.PathEscape(parts[i])
+	}
+	return strings.Join(parts, "/")
+}
+
+func fileSHA256(path string) (string, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+	hash := sha256.New()
+	if _, err := io.Copy(hash, f); err != nil {
+		return "", err
+	}
+	return hex.EncodeToString(hash.Sum(nil)), nil
+}
+
+// ApplyStaged aplica a transação de módulos já staged em `staging/files` para
+// dentro de installDir, com rollback automático em caso de falha (incluindo
+// falha do TGDesk ao reiniciar). Se parentPID != 0, aguarda até 60s pelo
+// encerramento do processo pai antes de trocar os arquivos (evita conflito
+// de arquivo em uso).
+func ApplyStaged(staging, installDir string, parentPID uint32) error {
+	if parentPID != 0 {
+		if process, err := windows.OpenProcess(windows.SYNCHRONIZE, false, parentPID); err == nil {
+			_, _ = windows.WaitForSingleObject(process, 60_000)
+			windows.CloseHandle(process)
+		}
+	}
+	filesRoot := filepath.Join(staging, "files")
+	rollback := filepath.Join(DataDir(), "updates", "rollback",
+		fmt.Sprintf("%d", time.Now().Unix()))
+	applied, err := applyModuleTransaction(filesRoot, installDir, rollback)
+	if err != nil {
+		if rollbackErr := restoreModuleTransaction(applied, installDir, rollback); rollbackErr != nil {
+			return fmt.Errorf("atualização falhou: %v; rollback falhou: %w", err, rollbackErr)
+		}
+		return err
+	}
+	app := exec.Command(filepath.Join(installDir, "tgdesk.exe"))
+	if err := app.Start(); err != nil {
+		if rollbackErr := restoreModuleTransaction(applied, installDir, rollback); rollbackErr != nil {
+			return fmt.Errorf("reinício falhou: %v; rollback falhou: %w", err, rollbackErr)
+		}
+		return fmt.Errorf("não foi possível reiniciar o TGDesk: %w", err)
+	}
+	// Uma falha imediata indica pacote inválido (DLL ausente/incompatível).
+	// Depois desta janela o processo fica independente do atualizador.
+	exited := make(chan error, 1)
+	go func() { exited <- app.Wait() }()
+	select {
+	case startErr := <-exited:
+		if rollbackErr := restoreModuleTransaction(applied, installDir, rollback); rollbackErr != nil {
+			return fmt.Errorf("TGDesk encerrou durante validação: %v; rollback falhou: %w",
+				startErr, rollbackErr)
+		}
+		return fmt.Errorf("TGDesk encerrou durante validação: %v", startErr)
+	case <-time.After(5 * time.Second):
+		return nil
+	}
+}
+
+// ApplyStagedOffline applies an already downloaded release without network
+// access. It owns process/service shutdown, destination verification, restart,
+// and operational rollback. The updater executable itself is never a payload.
+func ApplyStagedOffline(staging, installDir string, parentPID uint32) error {
+	if parentPID != 0 {
+		if process, err := windows.OpenProcess(windows.SYNCHRONIZE, false, parentPID); err == nil {
+			_, _ = windows.WaitForSingleObject(process, 60_000)
+			windows.CloseHandle(process)
+		}
+	}
+	manifest, err := readStagedManifest(filepath.Join(staging, "manifest.json"))
+	if err != nil {
+		return err
+	}
+	filesRoot := filepath.Join(staging, "files")
+	if err := verifyStagedFiles(filesRoot, manifest); err != nil {
+		return err
+	}
+	stoppedServices, err := stopServices(manifest.Services, 30*time.Second)
+	if err != nil {
+		return err
+	}
+	if err := stopProcesses(manifest.Processes); err != nil {
+		_ = startServices(stoppedServices, 30*time.Second)
+		return err
+	}
+	rollback := filepath.Join(DataDir(), "updates", "rollback", fmt.Sprintf("%d", time.Now().Unix()))
+	applied, err := applyModuleTransaction(filesRoot, installDir, rollback)
+	if err != nil {
+		return rollbackAndRecover(applied, installDir, rollback, stoppedServices, manifest, err)
+	}
+	if err := verifyInstalledFiles(installDir, filesRoot); err != nil {
+		return rollbackAndRecover(applied, installDir, rollback, stoppedServices, manifest, err)
+	}
+	if err := startServices(stoppedServices, 30*time.Second); err != nil {
+		return rollbackAndRecover(applied, installDir, rollback, stoppedServices, manifest, err)
+	}
+	application := manifest.RestartApplication
+	if application == "" {
+		// The TGDesk Windows service owns the session UI and starts --server
+		// after reaching Running. Do not launch a competing second UI instance.
+		return nil
+	}
+	if !safeModulePath(application) {
+		return rollbackAndRecover(applied, installDir, rollback, stoppedServices, manifest,
+			fmt.Errorf("invalid restart application"))
+	}
+	app := exec.Command(filepath.Join(installDir, filepath.FromSlash(application)))
+	if err := app.Start(); err != nil {
+		return rollbackAndRecover(applied, installDir, rollback, stoppedServices, manifest, err)
+	}
+	exited := make(chan error, 1)
+	go func() { exited <- app.Wait() }()
+	select {
+	case startErr := <-exited:
+		return rollbackAndRecover(applied, installDir, rollback, stoppedServices, manifest,
+			fmt.Errorf("TGDesk exited during startup validation: %v", startErr))
+	case <-time.After(5 * time.Second):
+		return nil
+	}
+}
+
+func readStagedManifest(path string) (moduleManifest, error) {
+	var manifest moduleManifest
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return manifest, fmt.Errorf("offline manifest missing: %w", err)
+	}
+	if err := json.Unmarshal(raw, &manifest); err != nil {
+		return manifest, fmt.Errorf("invalid offline manifest: %w", err)
+	}
+	if manifest.FormatVersion != 1 || manifest.Version == "" {
+		return manifest, fmt.Errorf("unsupported offline manifest format")
+	}
+	return manifest, nil
+}
+
+func verifyStagedFiles(filesRoot string, manifest moduleManifest) error {
+	allowed := make(map[string]moduleFile, len(manifest.Files))
+	for _, item := range manifest.Files {
+		if !safeModulePath(item.Path) || len(item.SHA256) != 64 ||
+			strings.EqualFold(filepath.Base(item.Path), "tgdesk-updater.exe") {
+			return fmt.Errorf("invalid module in manifest: %s", item.Path)
+		}
+		allowed[filepath.Clean(filepath.FromSlash(item.Path))] = item
+	}
+	return filepath.WalkDir(filesRoot, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil || entry.IsDir() {
+			return walkErr
+		}
+		relative, err := filepath.Rel(filesRoot, path)
+		if err != nil {
+			return err
+		}
+		item, ok := allowed[filepath.Clean(relative)]
+		if !ok {
+			return fmt.Errorf("staged file is not in manifest: %s", relative)
+		}
+		info, err := os.Stat(path)
+		if err != nil || (item.Size > 0 && info.Size() != item.Size) {
+			return fmt.Errorf("invalid staged file size: %s", relative)
+		}
+		hash, err := fileSHA256(path)
+		if err != nil || !strings.EqualFold(hash, item.SHA256) {
+			return fmt.Errorf("invalid staged file SHA-256: %s", relative)
+		}
+		return nil
+	})
+}
+
+func verifyInstalledFiles(installDir, filesRoot string) error {
+	return filepath.WalkDir(filesRoot, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil || entry.IsDir() {
+			return walkErr
+		}
+		relative, err := filepath.Rel(filesRoot, path)
+		if err != nil {
+			return err
+		}
+		sourceHash, err := fileSHA256(path)
+		if err != nil {
+			return err
+		}
+		targetHash, err := fileSHA256(filepath.Join(installDir, relative))
+		if err != nil || !strings.EqualFold(sourceHash, targetHash) {
+			return fmt.Errorf("post-install verification failed: %s", relative)
+		}
+		return nil
+	})
+}
+
+func stopProcesses(names []string) error {
+	for _, name := range names {
+		if name == "" || filepath.Base(name) != name || strings.EqualFold(name, "tgdesk-updater.exe") {
+			return fmt.Errorf("invalid process in manifest: %q", name)
+		}
+		// The TGDesk service is stopped through SCM first. Killing by image name
+		// without /T avoids taskkill failing on already-detached service children.
+		// The command's "not found" response uses the OEM code page; shutdown is
+		// intentionally idempotent and file replacement remains the hard gate.
+		_, _ = exec.Command("taskkill.exe", "/F", "/IM", name).CombinedOutput()
+		continue
+		output, err := exec.Command("taskkill.exe", "/F", "/IM", name).CombinedOutput()
+		if err != nil {
+			text := strings.ToLower(string(output))
+			if !strings.Contains(text, "not found") && !strings.Contains(text, "nÃ£o foi encontrado") &&
+				!strings.Contains(text, "nenhuma instÃ¢ncia") {
+				return fmt.Errorf("failed to stop %s: %s", name, strings.TrimSpace(string(output)))
+			}
+		}
+	}
+	return nil
+}
+
+func stopServices(names []string, timeout time.Duration) ([]string, error) {
+	manager, err := mgr.Connect()
+	if err != nil {
+		return nil, err
+	}
+	defer manager.Disconnect()
+	stopped := make([]string, 0, len(names))
+	for _, name := range names {
+		service, openErr := manager.OpenService(name)
+		if openErr != nil {
+			continue
+		}
+		stopped = append(stopped, name)
+		status, queryErr := service.Query()
+		if queryErr == nil && status.State != svc.Stopped {
+			_, _ = service.Control(svc.Stop)
+			deadline := time.Now().Add(timeout)
+			for time.Now().Before(deadline) {
+				status, queryErr = service.Query()
+				if queryErr == nil && status.State == svc.Stopped {
+					break
+				}
+				time.Sleep(250 * time.Millisecond)
+			}
+			if queryErr != nil || status.State != svc.Stopped {
+				service.Close()
+				return stopped, fmt.Errorf("service %s did not stop", name)
+			}
+		}
+		service.Close()
+	}
+	return stopped, nil
+}
+
+func startServices(names []string, timeout time.Duration) error {
+	if len(names) == 0 {
+		return nil
+	}
+	manager, err := mgr.Connect()
+	if err != nil {
+		return err
+	}
+	defer manager.Disconnect()
+	for _, name := range names {
+		service, err := manager.OpenService(name)
+		if err != nil {
+			return err
+		}
+		status, _ := service.Query()
+		if status.State != svc.Running {
+			if err := service.Start(); err != nil {
+				service.Close()
+				return err
+			}
+		}
+		deadline := time.Now().Add(timeout)
+		for time.Now().Before(deadline) {
+			status, err = service.Query()
+			if err == nil && status.State == svc.Running {
+				break
+			}
+			time.Sleep(250 * time.Millisecond)
+		}
+		service.Close()
+		if err != nil || status.State != svc.Running {
+			return fmt.Errorf("service %s did not start", name)
+		}
+	}
+	return nil
+}
+
+func rollbackAndRecover(applied []appliedModule, installDir, rollback string,
+	services []string, manifest moduleManifest, cause error) error {
+	_, _ = stopServices(manifest.Services, 30*time.Second)
+	_ = stopProcesses(manifest.Processes)
+	if rollbackErr := restoreModuleTransaction(applied, installDir, rollback); rollbackErr != nil {
+		return fmt.Errorf("%v; rollback failed: %w", cause, rollbackErr)
+	}
+	serviceErr := startServices(services, 30*time.Second)
+	application := manifest.RestartApplication
+	if application == "" {
+		if serviceErr != nil {
+			return fmt.Errorf("%v; rollback applied but service recovery failed: %v", cause, serviceErr)
+		}
+		return fmt.Errorf("%v; rollback applied and previous service restarted", cause)
+	}
+	restartErr := exec.Command(filepath.Join(installDir, filepath.FromSlash(application))).Start()
+	if serviceErr != nil || restartErr != nil {
+		return fmt.Errorf("%v; rollback applied but recovery failed: service=%v app=%v",
+			cause, serviceErr, restartErr)
+	}
+	return fmt.Errorf("%v; rollback applied and previous version restarted", cause)
+}
+
+type appliedModule struct {
+	relative  string
+	hadBackup bool
+}
+
+func applyModuleTransaction(filesRoot, installDir, rollback string) ([]appliedModule, error) {
+	applied := make([]appliedModule, 0)
+	err := filepath.WalkDir(filesRoot, func(path string, entry os.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() {
+			return nil
+		}
+		relative, err := filepath.Rel(filesRoot, path)
+		if err != nil || !safeModulePath(relative) {
+			return fmt.Errorf("caminho de staging inválido")
+		}
+		target := filepath.Join(installDir, relative)
+		if err := os.MkdirAll(filepath.Dir(target), 0755); err != nil {
+			return err
+		}
+		item := appliedModule{relative: relative}
+		if _, err := os.Stat(target); err == nil {
+			backup := filepath.Join(rollback, relative)
+			if err := os.MkdirAll(filepath.Dir(backup), 0700); err != nil {
+				return err
+			}
+			if err := copyFile(target, backup); err != nil {
+				return err
+			}
+			item.hadBackup = true
+		}
+		// Registra antes da troca para que até uma falha no meio da cópia
+		// restaure o arquivo corrente ou remova o módulo recém-criado.
+		applied = append(applied, item)
+		if err := copyFile(path, target); err != nil {
+			return err
+		}
+		return nil
+	})
+	return applied, err
+}
+
+func restoreModuleTransaction(applied []appliedModule, installDir, rollback string) error {
+	var failures []string
+	for index := len(applied) - 1; index >= 0; index-- {
+		item := applied[index]
+		target := filepath.Join(installDir, item.relative)
+		if item.hadBackup {
+			if err := copyFile(filepath.Join(rollback, item.relative), target); err != nil {
+				failures = append(failures, item.relative+": "+err.Error())
+			}
+		} else if err := os.Remove(target); err != nil && !os.IsNotExist(err) {
+			failures = append(failures, item.relative+": "+err.Error())
+		}
+	}
+	if len(failures) != 0 {
+		return fmt.Errorf("%s", strings.Join(failures, "; "))
+	}
+	return nil
+}
+
+func copyFile(source, target string) error {
+	in, err := os.Open(source)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+	temp := target + ".tgdesk-new"
+	out, err := os.Create(temp)
+	if err != nil {
+		return err
+	}
+	if _, err = io.Copy(out, in); err != nil {
+		out.Close()
+		_ = os.Remove(temp)
+		return err
+	}
+	if err = out.Close(); err != nil {
+		return err
+	}
+	_ = os.Remove(target)
+	return os.Rename(temp, target)
+}
+
+func launchInstallerElevated(installer string) error {
+	verb, err := syscall.UTF16PtrFromString("runas")
+	if err != nil {
+		return err
+	}
+	file, err := syscall.UTF16PtrFromString(installer)
+	if err != nil {
+		return err
+	}
+	params, err := syscall.UTF16PtrFromString(
+		"/VERYSILENT /SUPPRESSMSGBOXES /NORESTART /CLOSEAPPLICATIONS /RESTARTAPPLICATIONS",
+	)
+	if err != nil {
+		return err
+	}
+	dir, err := syscall.UTF16PtrFromString(filepath.Dir(installer))
+	if err != nil {
+		return err
+	}
+	if err := windows.ShellExecute(0, verb, file, params, dir, windows.SW_HIDE); err != nil {
+		return fmt.Errorf("não foi possível elevar o atualizador: %w", err)
+	}
+	return nil
+}
+
+func downloadVerified(client *http.Client, url, target string, info updateInfo) error {
+	resp, err := client.Get(url)
+	if err != nil {
+		return err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return fmt.Errorf("download retornou status %d", resp.StatusCode)
+	}
+	f, err := os.Create(target)
+	if err != nil {
+		return err
+	}
+	hash := sha256.New()
+	written, copyErr := io.Copy(io.MultiWriter(f, hash), resp.Body)
+	closeErr := f.Close()
+	if copyErr != nil {
+		_ = os.Remove(target)
+		return copyErr
+	}
+	if closeErr != nil {
+		_ = os.Remove(target)
+		return closeErr
+	}
+	if info.Size > 0 && written != info.Size {
+		_ = os.Remove(target)
+		return fmt.Errorf("tamanho inválido")
+	}
+	if !strings.EqualFold(hex.EncodeToString(hash.Sum(nil)), info.SHA256) {
+		_ = os.Remove(target)
+		return fmt.Errorf("SHA-256 inválido")
+	}
+	return nil
+}

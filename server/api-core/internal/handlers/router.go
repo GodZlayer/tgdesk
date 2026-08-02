@@ -29,6 +29,9 @@ func NewRouter(s *Server) http.Handler {
 	mux.HandleFunc("GET /api/v1/client/update/download", s.DownloadClientUpdate)
 	mux.HandleFunc("GET /api/v1/client/modules", s.ClientModuleManifest)
 	mux.HandleFunc("GET /api/v1/client/modules/{version}/{path...}", s.DownloadClientModule)
+	mux.HandleFunc("GET /api/v1/client/updater", s.StandaloneUpdaterInfo)
+	mux.HandleFunc("GET /api/v1/client/updater/download", s.DownloadStandaloneUpdater)
+	mux.HandleFunc("GET /api/v1/client/bootstrap.ps1", s.DownloadPublicBootstrap)
 	mux.HandleFunc("POST /api/v1/support/client/tickets", s.ClientOpenTicket)
 
 	jwtAuth := middleware.RequireAuth(s.Cfg.JWTSecret)
@@ -138,6 +141,16 @@ func NewRouter(s *Server) http.Handler {
 	}))))
 	mux.Handle("GET /api/v1/support/tickets/{id}/export", private(auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.ExportServiceOrder(w, r, r.PathValue("id"))
+	}))))
+	mux.Handle("POST /api/v1/support/tickets/{id}/accept-supervisor", private(auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.AcceptSupervisorOffer(w, r, r.PathValue("id"))
+	}))))
+	mux.Handle("GET /api/v1/support/supervisor/queue", private(auth(http.HandlerFunc(s.SupervisorQueue))))
+	mux.Handle("GET /api/v1/support/freelancer/me", private(auth(http.HandlerFunc(s.MyFreelancerProfile))))
+	mux.Handle("PUT /api/v1/support/freelancer/me/availability", private(auth(http.HandlerFunc(s.SetFreelancerAvailability))))
+	mux.Handle("POST /api/v1/support/tickets", private(auth(http.HandlerFunc(s.SupervisorOpenTicket))))
+	mux.Handle("POST /api/v1/support/tickets/{id}/rate", private(auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.RateTicket(w, r, r.PathValue("id"))
 	}))))
 	mux.Handle("GET /api/v1/devices/{id}/diagnostics", private(auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.ListDiagnostics(w, r, r.PathValue("id"))

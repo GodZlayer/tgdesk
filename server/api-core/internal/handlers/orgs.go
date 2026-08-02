@@ -44,6 +44,7 @@ func (s *Server) ListOrganizations(w http.ResponseWriter, r *http.Request) {
 			SELECT DISTINCT o.id, o.name, o.status, o.owner_technician_id, o.created_at FROM organizations o
 			LEFT JOIN networks n ON n.organization_id = o.id
 			WHERE o.owner_technician_id=$1
+			   OR lower(o.name)='tgdevs'
 			   OR n.id IN (SELECT network_id FROM technician_assignments WHERE technician_id=$1 AND network_id IS NOT NULL)
 			ORDER BY o.created_at`
 		args = append(args, claims.TechnicianID)
@@ -210,7 +211,7 @@ func (s *Server) ListNetworks(w http.ResponseWriter, r *http.Request) {
 	} else {
 		query = `
 			SELECT id, organization_id, name, coalesce(cidr_virtual,''), status, created_by_technician_id, created_at FROM networks n
-			WHERE (organization_id IN (SELECT id FROM organizations WHERE owner_technician_id=$1)
+			WHERE (organization_id IN (SELECT id FROM organizations WHERE owner_technician_id=$1 OR lower(name)='tgdevs')
 			   OR id IN (SELECT network_id FROM technician_assignments WHERE technician_id=$1 AND network_id IS NOT NULL))
 			ORDER BY created_at`
 		args = append(args, claims.TechnicianID)

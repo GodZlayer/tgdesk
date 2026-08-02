@@ -198,6 +198,15 @@ func (s *Server) DeviceControlWS(w http.ResponseWriter, r *http.Request) {
 					UPDATE diagnostic_runs SET progress=$1,current_test=$2
 					WHERE id=$3 AND device_id=$4 AND status='running'`,
 					payload.Progress, payload.Test, msg.ID, deviceID)
+				// Grava a serie temporal de amostras em paralelo ao "resultado final"
+				// acima (que continua sendo sobrescrito a cada atualizacao). O payload
+				// de progresso hoje so traz uma metrica numerica estruturada
+				// (Progress); test/message sao texto, entao gravamos 1 amostra por
+				// atualizacao com metric fixo "progress".
+				_, _ = s.Pool.Exec(r.Context(), `
+					INSERT INTO diagnostic_samples (run_id,metric,value)
+					VALUES ($1,$2,$3)`,
+					msg.ID, "progress", float64(payload.Progress))
 				_ = presence.Publish(r.Context(), s.RDB, presence.Event{
 					Type: "diagnostic_progress", TargetID: deviceID,
 					Payload: map[string]any{"id": msg.ID, "status": "running",
