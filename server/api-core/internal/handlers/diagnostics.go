@@ -62,31 +62,48 @@ func (s *Server) StartDiagnostic(w http.ResponseWriter, r *http.Request, deviceI
 		return
 	}
 	var req struct {
-		Test string `json:"test"`
+		Test  string   `json:"test"`
+		Tests []string `json:"tests"`
 	}
-	if json.NewDecoder(r.Body).Decode(&req) != nil || req.Test == "" {
+	if json.NewDecoder(r.Body).Decode(&req) != nil {
 		writeErr(w, http.StatusBadRequest, "selecione um teste")
+		return
+	}
+	selected := req.Tests
+	if len(selected) == 0 && req.Test != "" {
+		selected = []string{req.Test}
+	}
+	if len(selected) == 0 {
+		writeErr(w, http.StatusBadRequest, "selecione ao menos um teste")
 		return
 	}
 	allowed := map[string]bool{}
 	for _, item := range diagnosticCatalog {
 		allowed[item["id"].(string)] = true
 	}
-	if !allowed[req.Test] {
-		writeErr(w, http.StatusBadRequest, "teste desconhecido: "+req.Test)
-		return
+	seen := map[string]bool{}
+	for _, test := range selected {
+		if !allowed[test] || test == "all_tests" && len(selected) > 1 {
+			writeErr(w, http.StatusBadRequest, "teste desconhecido ou combinação inválida: "+test)
+			return
+		}
+		if seen[test] {
+			writeErr(w, http.StatusBadRequest, "teste repetido: "+test)
+			return
+		}
+		seen[test] = true
 	}
 	claims := middleware.ClaimsFrom(r.Context())
 	var id string
 	err := s.Pool.QueryRow(r.Context(), `
 		INSERT INTO diagnostic_runs(device_id,requested_by,tests)
-		VALUES($1,$2,$3) RETURNING id`, deviceID, claims.TechnicianID, []string{req.Test}).Scan(&id)
+		VALUES($1,$2,$3) RETURNING id`, deviceID, claims.TechnicianID, selected).Scan(&id)
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "falha ao criar diagnóstico")
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]any{
-		"id": id, "device_id": deviceID, "status": "queued", "test": req.Test,
+		"id": id, "device_id": deviceID, "status": "queued", "tests": selected,
 		"progress": 0, "created_at": time.Now().UTC().Format(time.RFC3339),
 	})
 }

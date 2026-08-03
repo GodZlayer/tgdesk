@@ -83,11 +83,18 @@ func runDeviceControlLoop(cfg *agentConfig, remoteReady bool) error {
 			if msg.Type == "diagnostic_run" && msg.ID != "" {
 				raw, _ := json.Marshal(msg.Payload)
 				var payload struct {
-					Test string `json:"test"`
+					Test  string   `json:"test"`
+					Tests []string `json:"tests"`
 				}
-				if json.Unmarshal(raw, &payload) == nil && payload.Test != "" {
+				if json.Unmarshal(raw, &payload) == nil {
+					if len(payload.Tests) == 0 && payload.Test != "" {
+						payload.Tests = []string{payload.Test}
+					}
+					if len(payload.Tests) == 0 {
+						continue
+					}
 					select {
-					case diagnosticCh <- diagnosticRequest{ID: msg.ID, Test: payload.Test}:
+					case diagnosticCh <- diagnosticRequest{ID: msg.ID, Tests: payload.Tests}:
 					default:
 					}
 				}

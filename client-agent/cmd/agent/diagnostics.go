@@ -20,8 +20,9 @@ import (
 )
 
 type diagnosticRequest struct {
-	ID   string
-	Test string
+	ID    string
+	Test  string
+	Tests []string
 }
 
 type diagnosticProgress struct {
@@ -103,22 +104,34 @@ func (r contextReader) Read(buffer []byte) (int, error) {
 
 func runDiagnostic(ctx context.Context, req diagnosticRequest, gate *diagnosticPauseGate, progress chan<- diagnosticProgress, result chan<- diagnosticResult) {
 	ctx = context.WithValue(ctx, diagnosticPauseKey{}, gate)
-	progress <- diagnosticProgress{ID: req.ID, Test: req.Test, Progress: 5, Message: "Preparando teste"}
+	selected := req.Tests
+	if len(selected) == 0 && req.Test != "" {
+		selected = []string{req.Test}
+	}
+	rootTest := "custom_queue"
+	if len(selected) == 1 {
+		rootTest = selected[0]
+	}
+	progress <- diagnosticProgress{ID: req.ID, Test: rootTest, Progress: 5, Message: "Preparando teste"}
 	started := time.Now()
 	var data map[string]any
 	var err error
-	if req.Test == "all_tests" {
-		data, err = allDiagnostics(ctx, func(event diagnosticProgress) {
+	if rootTest == "all_tests" || len(selected) > 1 {
+		tests := selected
+		if rootTest == "all_tests" {
+			tests = completeDiagnosticTests
+		}
+		data, err = diagnosticSuite(ctx, tests, func(event diagnosticProgress) {
 			event.ID = req.ID
 			progress <- event
 		})
 	} else {
-		data, err = executeDiagnostic(ctx, req.Test, func(percent int, message string) {
-			progress <- diagnosticProgress{ID: req.ID, Test: req.Test, Progress: percent,
+		data, err = executeDiagnostic(ctx, rootTest, func(percent int, message string) {
+			progress <- diagnosticProgress{ID: req.ID, Test: rootTest, Progress: percent,
 				TestProgress: percent, Message: message}
 		})
 	}
-	data["test"] = req.Test
+	data["test"] = rootTest
 	data["duration_seconds"] = time.Since(started).Seconds()
 	data["finished_at"] = time.Now().UTC().Format(time.RFC3339)
 	status, errorText := "completed", ""
@@ -243,15 +256,19 @@ func cloneDiagnosticResults(results map[string]any) map[string]any {
 }
 
 func allDiagnostics(ctx context.Context, report func(diagnosticProgress)) (map[string]any, error) {
-	results := make(map[string]any, len(completeDiagnosticTests))
+	return diagnosticSuite(ctx, completeDiagnosticTests, report)
+}
+
+func diagnosticSuite(ctx context.Context, selectedTests []string, report func(diagnosticProgress)) (map[string]any, error) {
+	results := make(map[string]any, len(selectedTests))
 	failures := make([]string, 0)
 	groupTotals := map[string]int{}
 	groupCompleted := map[string]int{}
-	for _, test := range completeDiagnosticTests {
+	for _, test := range selectedTests {
 		results[test] = map[string]any{"status": "queued", "group": diagnosticGroups[test], "progress": 0}
 		groupTotals[diagnosticGroups[test]]++
 	}
-	for index, test := range completeDiagnosticTests {
+	for index, test := range selectedTests {
 		if err := waitDiagnosticPause(ctx); err != nil {
 			return map[string]any{"tests": results, "failures": failures}, err
 		}
@@ -264,11 +281,11 @@ func allDiagnostics(ctx context.Context, report func(diagnosticProgress)) (map[s
 		data, err := executeDiagnostic(ctx, test, func(child int, message string) {
 			entry["progress"] = child
 			entry["message"] = message
-			overall := (index*100 + child) / len(completeDiagnosticTests)
+			overall := (index*100 + child) / len(selectedTests)
 			groupProgress := (groupCompleted[group]*100 + child) / groupTotals[group]
 			report(diagnosticProgress{Test: test, Group: group, Progress: overall,
 				TestProgress: child, GroupProgress: groupProgress, CompletedTests: index,
-				TotalTests: len(completeDiagnosticTests), Message: message,
+				TotalTests: len(selectedTests), Message: message,
 				Results: cloneDiagnosticResults(results)})
 		})
 		entry = map[string]any{"status": "completed", "group": group, "progress": 100, "results": data}
@@ -282,25 +299,25 @@ func allDiagnostics(ctx context.Context, report func(diagnosticProgress)) (map[s
 		}
 		results[test] = entry
 		groupCompleted[group]++
-		report(diagnosticProgress{Test: test, Group: group, Progress: (index + 1) * 100 / len(completeDiagnosticTests),
+		report(diagnosticProgress{Test: test, Group: group, Progress: (index + 1) * 100 / len(selectedTests),
 			TestProgress: 100, GroupProgress: groupCompleted[group] * 100 / groupTotals[group],
-			CompletedTests: index + 1, TotalTests: len(completeDiagnosticTests),
-			Message: fmt.Sprintf("%s concluído (%d/%d)", test, index+1, len(completeDiagnosticTests)),
+			CompletedTests: index + 1, TotalTests: len(selectedTests),
+			Message: fmt.Sprintf("%s concluído (%d/%d)", test, index+1, len(selectedTests)),
 			Results: cloneDiagnosticResults(results)})
 	}
 	assessment := map[string]any{
 		"level": "normal", "title": "Nenhuma falha técnica detectada",
-		"summary": fmt.Sprintf("Os %d testes foram executados e concluídos sem falhas.", len(completeDiagnosticTests)),
+		"summary": fmt.Sprintf("Os %d testes foram executados e concluídos sem falhas.", len(selectedTests)),
 	}
 	if len(failures) > 0 {
 		assessment = map[string]any{
 			"level": "attention", "title": "Existem testes que precisam de análise",
-			"summary": fmt.Sprintf("%d de %d testes concluíram; %d apresentaram falha. Abra cada resultado para ver a causa.", len(completeDiagnosticTests)-len(failures), len(completeDiagnosticTests), len(failures)),
+			"summary": fmt.Sprintf("%d de %d testes concluíram; %d apresentaram falha. Abra cada resultado para ver a causa.", len(selectedTests)-len(failures), len(selectedTests), len(failures)),
 		}
 	}
 	summary := map[string]any{
-		"tests": results, "total": len(completeDiagnosticTests),
-		"executed": len(completeDiagnosticTests), "completed": len(completeDiagnosticTests) - len(failures),
+		"tests": results, "order": selectedTests, "total": len(selectedTests),
+		"executed": len(selectedTests), "completed": len(selectedTests) - len(failures),
 		"failed": len(failures), "failures": failures, "assessment": assessment,
 	}
 	if len(failures) > 0 {

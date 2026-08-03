@@ -1,5 +1,5 @@
 param(
-    [string]$ExpectedVersion = '1.1.18',
+    [string]$ExpectedVersion = '1.1.19',
     [switch]$RequireInstalledClient
 )
 
@@ -107,7 +107,7 @@ $diagnosticUI = Get-Content (Join-Path $root 'client-rustdesk-src\flutter\lib\tg
 $devicesUI = Get-Content (Join-Path $root 'client-rustdesk-src\flutter\lib\tgdesk\devices_page.dart') -Raw
 $deviceAuth = Get-Content (Join-Path $root 'server\api-core\internal\auth\authorizer.go') -Raw
 Add-Check 'diagnostics.complete_suite' `
-    (($diagnosticSource -match 'req\.Test == "all_tests"') -and
+    (($diagnosticSource -match 'rootTest == "all_tests"') -and
      ($diagnosticSource -match 'storage_surface_read') -and
      ($diagnosticSource -notmatch 'WithTimeout\(ctx, 12\*time\.Minute\)')) `
     'all catalog tests plus cancellable read-only disk surface scan'

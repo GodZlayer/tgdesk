@@ -156,10 +156,10 @@ func (s *Server) DeviceControlWS(w http.ResponseWriter, r *http.Request) {
 				RETURNING d.id,d.tests`, deviceID).Scan(&runID, &tests) == nil {
 				var selected []string
 				_ = json.Unmarshal(tests, &selected)
-				if len(selected) == 1 {
+				if len(selected) > 0 {
 					_ = conn.WriteJSON(map[string]any{
 						"type": "diagnostic_run", "id": runID,
-						"payload": map[string]any{"test": selected[0]},
+						"payload": map[string]any{"tests": selected},
 					})
 				}
 			}
