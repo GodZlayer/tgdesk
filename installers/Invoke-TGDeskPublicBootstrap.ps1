@@ -85,6 +85,18 @@ if ((Get-Item -LiteralPath $updater).Length -ne [int64]$updaterInfo.size -or
     throw 'Integridade do updater standalone inválida.'
 }
 
+# O bootstrap roda fora do updater e e o unico fluxo autorizado a renovar
+# esse componente sem autorreferencia. A copia baixada continua sendo a
+# executada nesta atualizacao.
+$installedUpdater = Join-Path $InstallDir 'tgdesk-updater.exe'
+$installedUpdaterNew = Join-Path $InstallDir 'tgdesk-updater.exe.bootstrap-new'
+Copy-Item -LiteralPath $updater -Destination $installedUpdaterNew -Force
+if ((Get-FileHash -LiteralPath $installedUpdaterNew -Algorithm SHA256).Hash.ToLowerInvariant() -ne
+    $updaterHash) {
+    throw 'Falha de integridade ao preparar o updater instalado.'
+}
+Move-Item -LiteralPath $installedUpdaterNew -Destination $installedUpdater -Force
+
 & $updater -apply-staged -staging $stagingRoot -install-dir $InstallDir -parent 0
 if ($LASTEXITCODE -ne 0) { throw "Updater terminou com código $LASTEXITCODE." }
 

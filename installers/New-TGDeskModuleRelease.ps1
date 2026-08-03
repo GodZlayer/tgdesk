@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory = $false)]
-    [string]$Version = '1.1.11',
+    [string]$Version = '1.1.17',
     [Parameter(Mandatory = $false)]
     [string]$Source = '',
     [Parameter(Mandatory = $false)]
@@ -26,23 +26,6 @@ if (Test-Path -LiteralPath $versionRoot) {
 }
 [System.IO.Directory]::CreateDirectory($filesRoot) | Out-Null
 Copy-Item -Path (Join-Path $sourcePath '*') -Destination $filesRoot -Recurse -Force
-$previousUpdaterHash = ''
-$previousRelease = @(Get-ChildItem -LiteralPath $ReleaseRoot -Directory -ErrorAction SilentlyContinue |
-    Where-Object { $_.Name -ne $Version -and $_.Name -match '^\d+\.\d+\.\d+$' } |
-    Sort-Object { [version]$_.Name } -Descending |
-    Select-Object -First 1)
-if ($previousRelease.Count -eq 1) {
-    $previousManifestPath = Join-Path $previousRelease[0].FullName 'manifest.json'
-    if (Test-Path -LiteralPath $previousManifestPath) {
-        $previousManifest = Get-Content -LiteralPath $previousManifestPath -Raw | ConvertFrom-Json
-        $previousUpdater = @($previousManifest.files |
-            Where-Object { $_.path -eq 'tgdesk-updater.exe' } |
-            Select-Object -First 1)
-        if ($previousUpdater.Count -eq 1) {
-            $previousUpdaterHash = [string]$previousUpdater[0].sha256
-        }
-    }
-}
 $serviceFiles = @(
     'tgdesk.exe',
     'tgdesk_agent.dll',
@@ -56,16 +39,14 @@ $entries = foreach ($file in Get-ChildItem -LiteralPath $filesRoot -File -Recurs
     # Um bootstrap idêntico ao da versão anterior não é um módulo da
     # atualização. Quando o hash mudar ele volta ao manifesto com scope
     # bootstrap e obriga o fluxo de instalador completo.
-    if ($relative -eq 'tgdesk-updater.exe' -and
-        $previousUpdaterHash -eq $hash) {
+    if ($relative -eq 'tgdesk-updater.exe') {
         continue
     }
     [ordered]@{
         path = $relative
         sha256 = $hash
         size = $file.Length
-        scope = if ($relative -eq 'tgdesk-updater.exe') { 'bootstrap' }
-            elseif ($serviceFiles -contains $relative) { 'service' }
+        scope = if ($serviceFiles -contains $relative) { 'service' }
             else { 'ui' }
     }
 }

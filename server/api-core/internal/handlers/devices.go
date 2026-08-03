@@ -311,13 +311,16 @@ func (s *Server) UpdateDeviceSubnetwork(w http.ResponseWriter, r *http.Request, 
 		writeErr(w, http.StatusForbidden, "sem permissão para alterar este dispositivo")
 		return
 	}
-	var primaryNetwork string
-	for index, subnetworkID := range req.SubnetworkIDs {
-		var networkID string
+	targetOrganizations := make([]string, 0, len(req.SubnetworkIDs))
+	seenOrganizations := map[string]bool{}
+	for _, subnetworkID := range req.SubnetworkIDs {
+		var networkID, organizationID string
 		if err := s.Pool.QueryRow(r.Context(), `
-			SELECT s.network_id FROM subnetworks s
+			SELECT s.network_id,n.organization_id FROM subnetworks s
+			JOIN networks n ON n.id=s.network_id
 			JOIN device_networks dn ON dn.network_id=s.network_id
-			WHERE s.id=$1 AND dn.device_id=$2`, subnetworkID, deviceID).Scan(&networkID); err != nil {
+			WHERE s.id=$1 AND dn.device_id=$2`, subnetworkID, deviceID).
+			Scan(&networkID, &organizationID); err != nil {
 			writeErr(w, http.StatusConflict, "uma sub-rede não pertence às redes do dispositivo")
 			return
 		}
@@ -326,9 +329,12 @@ func (s *Server) UpdateDeviceSubnetwork(w http.ResponseWriter, r *http.Request, 
 			writeErr(w, http.StatusForbidden, "sem permissão para uma das sub-redes")
 			return
 		}
-		if index == 0 {
-			primaryNetwork = networkID
+		if seenOrganizations[organizationID] {
+			writeErr(w, http.StatusConflict, "selecione apenas uma sub-rede por organizacao")
+			return
 		}
+		seenOrganizations[organizationID] = true
+		targetOrganizations = append(targetOrganizations, organizationID)
 	}
 	tx, err := s.Pool.Begin(r.Context())
 	if err != nil {
@@ -336,17 +342,30 @@ func (s *Server) UpdateDeviceSubnetwork(w http.ResponseWriter, r *http.Request, 
 		return
 	}
 	defer tx.Rollback(r.Context())
-	if _, err = tx.Exec(r.Context(), `DELETE FROM device_subnetworks WHERE device_id=$1`, deviceID); err != nil {
+	if _, err = tx.Exec(r.Context(), `
+		DELETE FROM device_subnetworks ds
+		USING subnetworks s,networks n
+		WHERE ds.device_id=$1 AND s.id=ds.subnetwork_id
+		  AND n.id=s.network_id AND n.organization_id=ANY($2::uuid[])`,
+		deviceID, targetOrganizations); err != nil {
 		writeErr(w, http.StatusInternalServerError, "falha ao atualizar sub-redes")
 		return
 	}
 	for _, subnetworkID := range req.SubnetworkIDs {
-		if _, err = tx.Exec(r.Context(), `INSERT INTO device_subnetworks(device_id,subnetwork_id) VALUES($1,$2)`, deviceID, subnetworkID); err != nil {
+		if _, err = tx.Exec(r.Context(), `
+			INSERT INTO device_subnetworks(device_id,subnetwork_id) VALUES($1,$2)
+			ON CONFLICT (device_id,subnetwork_id) DO NOTHING`, deviceID, subnetworkID); err != nil {
 			writeErr(w, http.StatusInternalServerError, "falha ao vincular sub-rede")
 			return
 		}
 	}
-	if _, err = tx.Exec(r.Context(), `UPDATE devices SET network_id=$1,subnetwork_id=$2,updated_at=now() WHERE id=$3`, primaryNetwork, req.SubnetworkIDs[0], deviceID); err != nil {
+	if _, err = tx.Exec(r.Context(), `
+		UPDATE devices d SET subnetwork_id=(
+			SELECT ds.subnetwork_id FROM device_subnetworks ds
+			JOIN subnetworks s ON s.id=ds.subnetwork_id
+			WHERE ds.device_id=d.id AND s.network_id=d.network_id
+			ORDER BY ds.created_at LIMIT 1),updated_at=now()
+		WHERE d.id=$1`, deviceID); err != nil {
 		writeErr(w, http.StatusInternalServerError, "falha ao definir sub-rede principal")
 		return
 	}
@@ -383,6 +402,7 @@ func (s *Server) UpdateDeviceNetworks(w http.ResponseWriter, r *http.Request, de
 		FROM device_networks dn JOIN networks n ON n.id=dn.network_id
 		WHERE dn.device_id=$1 AND n.system_key IS NULL
 		ORDER BY dn.created_at LIMIT 1`, deviceID).Scan(&homeOrganizationID)
+	selectedSystemNetworks := map[string]string{}
 	for _, networkID := range req.NetworkIDs {
 		var organizationID string
 		var systemKey *string
@@ -397,6 +417,9 @@ func (s *Server) UpdateDeviceNetworks(w http.ResponseWriter, r *http.Request, de
 				"o dispositivo nao pode ser movido entre organizacoes")
 			return
 		}
+		if systemKey != nil {
+			selectedSystemNetworks[networkID] = *systemKey
+		}
 		// Check authorization using centralized authorizer
 		ok, err := s.Authorizer.CanManageNetwork(r.Context(), claims, networkID)
 		if err != nil || !ok {
@@ -404,25 +427,36 @@ func (s *Server) UpdateDeviceNetworks(w http.ResponseWriter, r *http.Request, de
 			return
 		}
 	}
+	if len(selectedSystemNetworks) > 1 {
+		writeErr(w, http.StatusConflict, "selecione apenas uma rede TGDevs para o dispositivo")
+		return
+	}
 	var requiredTGDevsNetworkID string
+	var controlRole string
 	if err := s.Pool.QueryRow(r.Context(), `
-		SELECT n.id FROM networks n
+		SELECT n.id,coalesce(t.role,'') FROM networks n
 		LEFT JOIN devices d ON d.id=$1
 		LEFT JOIN technicians t ON t.id=d.control_technician_id
 		WHERE n.system_key=CASE
 			WHEN t.role='super_admin' THEN 'tgdevs.principal'
 			WHEN t.role='supervisor' THEN 'tgdevs.supervisores'
 			WHEN t.role IN ('tecnico','freelancer') THEN 'tgdevs.tecnicos'
-			ELSE 'tgdevs.clientes' END`, deviceID).Scan(&requiredTGDevsNetworkID); err != nil {
+			ELSE 'tgdevs.clientes' END`, deviceID).Scan(&requiredTGDevsNetworkID, &controlRole); err != nil {
 		writeErr(w, http.StatusInternalServerError, "rede obrigatoria TGDevs indisponivel")
 		return
 	}
 	hasRequired := false
-	for _, networkID := range req.NetworkIDs {
-		if networkID == requiredTGDevsNetworkID {
-			hasRequired = true
-			break
+	for networkID, systemKey := range selectedSystemNetworks {
+		allowed := networkID == requiredTGDevsNetworkID
+		if controlRole == models.RoleSupervisor {
+			allowed = systemKey == "tgdevs.principal" || systemKey == "tgdevs.supervisores"
 		}
+		if !allowed {
+			writeErr(w, http.StatusConflict, "rede TGDevs incompativel com a funcao do dispositivo")
+			return
+		}
+		requiredTGDevsNetworkID = networkID
+		hasRequired = true
 	}
 	if !hasRequired {
 		req.NetworkIDs = append(req.NetworkIDs, requiredTGDevsNetworkID)

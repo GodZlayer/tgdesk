@@ -154,6 +154,10 @@ func (s *Server) DeleteNetwork(w http.ResponseWriter, r *http.Request, id string
 // (ON DELETE CASCADE) and technician_assignments; devices are detached, not
 // deleted, same as DeleteNetwork.
 func (s *Server) DeleteOrganization(w http.ResponseWriter, r *http.Request, id string) {
+	if s.protectedTGDevsOrganization(r.Context(), id) {
+		writeErr(w, http.StatusConflict, "organizacao TGDevs nao pode ser excluida")
+		return
+	}
 	tx, err := s.Pool.Begin(r.Context())
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, "falha ao iniciar exclusão")

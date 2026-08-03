@@ -4,6 +4,7 @@ package main
 
 import (
 	"fmt"
+	"os"
 	"runtime"
 	"sync/atomic"
 	"syscall"
@@ -185,11 +186,17 @@ func (w *updaterWindow) fail(err error) {
 	procPostMessage.Call(uintptr(w.hwnd), wmClose, 0, 0)
 }
 
-func runApplyStagedWithStatus(staging, installDir string, parentPID uint32) error {
+func runApplyStagedWithStatus(staging, installDir string, parentPID uint32, readyFile string) error {
 	windowFinished.Store(false)
 	w, windowErr := newUpdaterWindow()
 	if windowErr != nil {
 		return windowErr
+	}
+	if readyFile != "" {
+		if err := os.WriteFile(readyFile, []byte("visible\n"), 0600); err != nil {
+			w.fail(fmt.Errorf("Nao foi possivel confirmar a janela do atualizador: %w", err))
+			return err
+		}
 	}
 	err := updatecore.ApplyStagedOfflineWithProgress(staging, installDir, parentPID, w.update)
 	if err != nil {

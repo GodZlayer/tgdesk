@@ -19,6 +19,14 @@ func (s *Server) protectedSystemNetwork(ctx context.Context, id string) bool {
 	return protected
 }
 
+func (s *Server) protectedTGDevsOrganization(ctx context.Context, id string) bool {
+	var protected bool
+	_ = s.Pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM organizations WHERE id=$1 AND lower(name)='tgdevs')`, id).
+		Scan(&protected)
+	return protected
+}
+
 type createOrgRequest struct {
 	Name string `json:"name"`
 }
@@ -97,6 +105,10 @@ type renameRequest struct {
 // organization is named from its owner and can only change through that
 // technician's control-device display name.
 func (s *Server) RenameOrganization(w http.ResponseWriter, r *http.Request, id string) {
+	if s.protectedTGDevsOrganization(r.Context(), id) {
+		writeErr(w, http.StatusConflict, "organizacao TGDevs nao pode ser editada")
+		return
+	}
 	var req renameRequest
 	if json.NewDecoder(r.Body).Decode(&req) != nil {
 		writeErr(w, http.StatusBadRequest, "nome inválido")
@@ -194,6 +206,10 @@ func (s *Server) CreateNetwork(w http.ResponseWriter, r *http.Request) {
 	}
 	if req.OrganizationID == "" {
 		writeErr(w, http.StatusBadRequest, "organization_id obrigatorio")
+		return
+	}
+	if s.protectedTGDevsOrganization(r.Context(), req.OrganizationID) {
+		writeErr(w, http.StatusConflict, "TGDevs possui exatamente as cinco redes de sistema")
 		return
 	}
 	var n models.Network

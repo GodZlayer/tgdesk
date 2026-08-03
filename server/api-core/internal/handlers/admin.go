@@ -186,6 +186,10 @@ func (s *Server) SuspendNetwork(w http.ResponseWriter, r *http.Request, id strin
 
 // SuspendOrganization cascades suspension across its active networks and devices.
 func (s *Server) SuspendOrganization(w http.ResponseWriter, r *http.Request, id string) {
+	if s.protectedTGDevsOrganization(r.Context(), id) {
+		writeErr(w, http.StatusConflict, "organizacao TGDevs permanece sempre ativa")
+		return
+	}
 	if _, err := s.Pool.Exec(r.Context(), `UPDATE organizations SET status='suspensa',
 		suspension_scope='organization' WHERE id=$1 AND status='ativa'`, id); err != nil {
 		writeErr(w, http.StatusInternalServerError, "falha ao suspender organização")
@@ -314,6 +318,10 @@ func (s *Server) ResumeNetwork(w http.ResponseWriter, r *http.Request, id string
 }
 
 func (s *Server) ResumeOrganization(w http.ResponseWriter, r *http.Request, id string) {
+	if s.protectedTGDevsOrganization(r.Context(), id) {
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ativa"})
+		return
+	}
 	var ownerStatus string
 	if err := s.Pool.QueryRow(r.Context(), `
 		SELECT coalesce(t.status,'ativo') FROM organizations o

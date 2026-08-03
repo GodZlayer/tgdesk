@@ -20,6 +20,7 @@ func main() {
 	staging := flag.String("staging", "", "diretório de staging (usado com -apply-staged)")
 	installDir := flag.String("install-dir", "", "diretório de instalação (usado com -apply-staged)")
 	parent := flag.Int("parent", 0, "PID do processo pai a aguardar antes de aplicar (usado com -apply-staged)")
+	readyFile := flag.String("ready-file", "", "arquivo de confirmacao da janela visivel")
 	flag.Parse()
 
 	switch {
@@ -28,7 +29,7 @@ func main() {
 			usage()
 			os.Exit(1)
 		}
-		if err := runApplyStagedWithStatus(*staging, *installDir, uint32(*parent)); err != nil {
+		if err := runApplyStagedWithStatus(*staging, *installDir, uint32(*parent), *readyFile); err != nil {
 			fmt.Fprintln(os.Stderr, err.Error())
 			os.Exit(1)
 		}

@@ -1,5 +1,5 @@
 param(
-    [string]$ExpectedVersion = '1.1.11',
+    [string]$ExpectedVersion = '1.1.17',
     [switch]$RequireInstalledClient
 )
 
@@ -44,6 +44,10 @@ Add-Check 'updater.runs_from_external_copy' `
     (($updateCore -match 'updates", "runtime"') -and
      ($updateCore -match 'copyFile\(installedUpdater, updaterExe\)')) `
     'external GUI runtime copy permits safe updater replacement'
+Add-Check 'updater.windows_replace_checks_remove' `
+    (($updateCore -match 'removeErr = os\.Remove\(target\)') -and
+     ($updateCore -match 'if removeErr != nil')) `
+    'locked target is diagnosed before rename and rollback'
 Add-Check 'updater.launches_gui_visible' `
     ($updateCore -match 'updaterExe[\s\S]{0,1800}ShellExecute\(0, verb, file, params, dir, windows\.SW_SHOWNORMAL\)') `
     'standalone updater is launched visible'
@@ -73,7 +77,7 @@ Add-Check 'docker.health' $health ([string]$health)
 
 $migration = (& docker compose -f $compose exec -T postgres psql -U tgdesk -d tgdesk -Atqc `
     "SELECT count(*)||':'||max(name) FROM schema_migrations" | Out-String).Trim()
-Add-Check 'schema.migrations' ($migration -match '^35:0035_') $migration
+Add-Check 'schema.migrations' ($migration -match '^37:0037_') $migration
 
 $integrity = @(& docker compose -f $compose exec -T postgres psql -U tgdesk -d tgdesk -Atqc `
     "SELECT check_name||':'||status FROM validate_schema_integrity() ORDER BY check_name")

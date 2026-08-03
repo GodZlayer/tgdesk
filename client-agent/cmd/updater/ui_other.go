@@ -8,7 +8,7 @@ import (
 	"tgdesk/agent/internal/updatecore"
 )
 
-func runApplyStagedWithStatus(staging, installDir string, parentPID uint32) error {
+func runApplyStagedWithStatus(staging, installDir string, parentPID uint32, readyFile string) error {
 	return updatecore.ApplyStagedOfflineWithProgress(staging, installDir, parentPID,
 		func(event updatecore.ProgressEvent) {
 			fmt.Printf("%d%% %s\n", event.Percent, event.Message)

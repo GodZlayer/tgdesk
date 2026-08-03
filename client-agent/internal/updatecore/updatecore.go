@@ -337,6 +337,9 @@ func launchStagedUpdaterElevated(staging, installDir string, parentPID uint32) e
 	if err := copyFile(installedUpdater, updaterExe); err != nil {
 		return fmt.Errorf("nao foi possivel preparar a GUI do atualizador: %w", err)
 	}
+	readyFile := filepath.Join(filepath.Dir(staging),
+		fmt.Sprintf("updater-ui-ready-%d.signal", os.Getpid()))
+	_ = os.Remove(readyFile)
 	verb, err := syscall.UTF16PtrFromString("runas")
 	if err != nil {
 		return err
@@ -353,6 +356,7 @@ func launchStagedUpdaterElevated(staging, installDir string, parentPID uint32) e
 		"--staging", quote(staging),
 		"--install-dir", quote(installDir),
 		"--parent", fmt.Sprint(parentPID),
+		"--ready-file", quote(readyFile),
 	}, " "))
 	if err != nil {
 		return err
@@ -368,7 +372,15 @@ func launchStagedUpdaterElevated(staging, installDir string, parentPID uint32) e
 	if err := windows.ShellExecute(0, verb, file, params, dir, windows.SW_SHOWNORMAL); err != nil {
 		return fmt.Errorf("não foi possível elevar a atualização modular: %w", err)
 	}
-	return nil
+	deadline := time.Now().Add(15 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(readyFile); err == nil {
+			_ = os.Remove(readyFile)
+			return nil
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	return fmt.Errorf("a janela do atualizador nao confirmou que ficou visivel")
 }
 
 func getUpdate(client *http.Client, path string) (*http.Response, string, error) {
@@ -865,8 +877,30 @@ func copyFile(source, target string) error {
 	if err = out.Close(); err != nil {
 		return err
 	}
-	_ = os.Remove(target)
-	return os.Rename(temp, target)
+	if strings.EqualFold(filepath.Base(target), "tgdesk-updater.exe") {
+		// Uma instância legada pode ter sido iniciada diretamente do diretório
+		// instalado. O aplicador atual roda da cópia externa runtime, portanto
+		// encerrar apenas a imagem exata instalada não encerra a GUI atual.
+		_, _ = exec.Command("taskkill.exe", "/F", "/IM", "tgdesk-updater.exe").CombinedOutput()
+	}
+	var removeErr error
+	for attempt := 0; attempt < 20; attempt++ {
+		removeErr = os.Remove(target)
+		if removeErr == nil || os.IsNotExist(removeErr) {
+			removeErr = nil
+			break
+		}
+		time.Sleep(250 * time.Millisecond)
+	}
+	if removeErr != nil {
+		_ = os.Remove(temp)
+		return fmt.Errorf("nao foi possivel liberar %s para substituicao: %w", target, removeErr)
+	}
+	if err := os.Rename(temp, target); err != nil {
+		_ = os.Remove(temp)
+		return err
+	}
+	return nil
 }
 
 func launchInstallerElevated(installer string) error {
