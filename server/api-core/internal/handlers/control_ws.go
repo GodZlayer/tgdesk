@@ -199,15 +199,16 @@ func (s *Server) DeviceControlWS(w http.ResponseWriter, r *http.Request) {
 			}
 		case "diagnostic_progress":
 			var payload struct {
-				Progress       int    `json:"progress"`
-				Test           string `json:"test"`
-				Group          string `json:"group"`
-				TestProgress   int    `json:"test_progress"`
-				GroupProgress  int    `json:"group_progress"`
-				CompletedTests int    `json:"completed_tests"`
-				TotalTests     int    `json:"total_tests"`
-				Message        string `json:"message"`
-				Results        any    `json:"results"`
+				Progress       int      `json:"progress"`
+				Test           string   `json:"test"`
+				Group          string   `json:"group"`
+				TestProgress   int      `json:"test_progress"`
+				GroupProgress  int      `json:"group_progress"`
+				CompletedTests int      `json:"completed_tests"`
+				TotalTests     int      `json:"total_tests"`
+				Message        string   `json:"message"`
+				Results        any      `json:"results"`
+				Order          []string `json:"order"`
 			}
 			if json.Unmarshal(msg.Payload, &payload) == nil && msg.ID != "" {
 				_, _ = s.Pool.Exec(r.Context(), `
@@ -215,7 +216,7 @@ func (s *Server) DeviceControlWS(w http.ResponseWriter, r *http.Request) {
 					WHERE id=$3 AND device_id=$4 AND status IN ('running','paused')`,
 					payload.Progress, payload.Test, msg.ID, deviceID)
 				if payload.Results != nil {
-					partialResults := map[string]any{"test": "all_tests", "tests": payload.Results}
+					partialResults := map[string]any{"test": "all_tests", "tests": payload.Results, "order": payload.Order}
 					_, _ = s.Pool.Exec(r.Context(), `
 						UPDATE diagnostic_runs SET results=$1
 						WHERE id=$2 AND device_id=$3 AND status IN ('running','paused')`,
@@ -237,7 +238,7 @@ func (s *Server) DeviceControlWS(w http.ResponseWriter, r *http.Request) {
 					"completed_tests": payload.CompletedTests, "total_tests": payload.TotalTests,
 				}
 				if payload.Results != nil {
-					progressPayload["results"] = map[string]any{"test": "all_tests", "tests": payload.Results}
+					progressPayload["results"] = map[string]any{"test": "all_tests", "tests": payload.Results, "order": payload.Order}
 				}
 				_ = presence.Publish(r.Context(), s.RDB, presence.Event{
 					Type: "diagnostic_progress", TargetID: deviceID,

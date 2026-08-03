@@ -36,6 +36,7 @@ type diagnosticProgress struct {
 	TotalTests     int            `json:"total_tests,omitempty"`
 	Message        string         `json:"message"`
 	Results        map[string]any `json:"results,omitempty"`
+	Order          []string       `json:"order,omitempty"`
 }
 
 type diagnosticResult struct {
@@ -286,7 +287,7 @@ func diagnosticSuite(ctx context.Context, selectedTests []string, report func(di
 			report(diagnosticProgress{Test: test, Group: group, Progress: overall,
 				TestProgress: child, GroupProgress: groupProgress, CompletedTests: index,
 				TotalTests: len(selectedTests), Message: message,
-				Results: cloneDiagnosticResults(results)})
+				Results: cloneDiagnosticResults(results), Order: selectedTests})
 		})
 		entry = map[string]any{"status": "completed", "group": group, "progress": 100, "results": data}
 		if err != nil {
@@ -303,7 +304,7 @@ func diagnosticSuite(ctx context.Context, selectedTests []string, report func(di
 			TestProgress: 100, GroupProgress: groupCompleted[group] * 100 / groupTotals[group],
 			CompletedTests: index + 1, TotalTests: len(selectedTests),
 			Message: fmt.Sprintf("%s concluído (%d/%d)", test, index+1, len(selectedTests)),
-			Results: cloneDiagnosticResults(results)})
+			Results: cloneDiagnosticResults(results), Order: selectedTests})
 	}
 	assessment := map[string]any{
 		"level": "normal", "title": "Nenhuma falha técnica detectada",
@@ -319,9 +320,6 @@ func diagnosticSuite(ctx context.Context, selectedTests []string, report func(di
 		"tests": results, "order": selectedTests, "total": len(selectedTests),
 		"executed": len(selectedTests), "completed": len(selectedTests) - len(failures),
 		"failed": len(failures), "failures": failures, "assessment": assessment,
-	}
-	if len(failures) > 0 {
-		return summary, fmt.Errorf("%d teste(s) terminaram com falha", len(failures))
 	}
 	return summary, nil
 }

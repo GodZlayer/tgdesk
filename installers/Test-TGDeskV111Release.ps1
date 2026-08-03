@@ -1,5 +1,5 @@
 param(
-    [string]$ExpectedVersion = '1.1.19',
+    [string]$ExpectedVersion = '1.1.21',
     [switch]$RequireInstalledClient
 )
 
