@@ -61,7 +61,18 @@ func (s *Server) ListSubnetworks(w http.ResponseWriter, r *http.Request) {
 	query := `SELECT s.id,s.network_id,s.name,s.status,s.created_by_technician_id,s.created_at
 		FROM subnetworks s ORDER BY s.created_at`
 	args := []any{}
-	if claims.Role != models.RoleSuperAdmin {
+	if claims.Role == models.RoleSupervisor {
+		query = `SELECT s.id,s.network_id,s.name,s.status,s.created_by_technician_id,s.created_at
+			FROM subnetworks s JOIN networks n ON n.id=s.network_id
+			JOIN organizations o ON o.id=n.organization_id
+			WHERE o.owner_technician_id=$1 OR (
+				lower(o.name)='tgdevs' AND EXISTS (
+					SELECT 1 FROM technician_assignments ta
+					WHERE ta.technician_id=$1 AND ta.network_id=n.id
+				)
+			) ORDER BY s.created_at`
+		args = append(args, claims.TechnicianID)
+	} else if claims.Role != models.RoleSuperAdmin {
 		query = `SELECT s.id,s.network_id,s.name,s.status,s.created_by_technician_id,s.created_at
 			FROM subnetworks s JOIN networks n ON n.id=s.network_id
 			WHERE n.organization_id IN (

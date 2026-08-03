@@ -75,6 +75,19 @@ func TestSelectChangedModules(t *testing.T) {
 	}
 }
 
+func TestUpdaterChangeIsAppliedByExternalRuntimeCopy(t *testing.T) {
+	install := t.TempDir()
+	mustWrite(t, filepath.Join(install, "tgdesk-updater.exe"), "old")
+	manifest := moduleManifest{FormatVersion: 1, Version: "9.9.9", Files: []moduleFile{
+		{Path: "tgdesk-updater.exe", SHA256: testHash("new"), Size: 3, Scope: "bootstrap"},
+	}}
+	changed, requiresInstaller, err := selectChangedModules(manifest, install)
+	if err != nil || requiresInstaller || len(changed) != 1 || changed[0].Path != "tgdesk-updater.exe" {
+		t.Fatalf("updater change must remain modular: changed=%v installer=%v err=%v",
+			changed, requiresInstaller, err)
+	}
+}
+
 func TestOfflineManifestAndStagingVerification(t *testing.T) {
 	root := t.TempDir()
 	files := filepath.Join(root, "files")
@@ -99,6 +112,14 @@ func TestOfflineManifestAndStagingVerification(t *testing.T) {
 	mustWrite(t, filepath.Join(files, "tgdesk.exe"), "tampered")
 	if err := verifyStagedFiles(files, loaded); err == nil {
 		t.Fatal("tampered staging must be rejected")
+	}
+}
+
+func TestProgressReporterPublishesMeasuredPhase(t *testing.T) {
+	var received ProgressEvent
+	reportProgress(func(event ProgressEvent) { received = event }, 48, "Instalando")
+	if received.Percent != 48 || received.Message != "Instalando" {
+		t.Fatalf("unexpected progress event: %#v", received)
 	}
 }
 

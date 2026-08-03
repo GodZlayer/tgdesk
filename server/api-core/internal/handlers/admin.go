@@ -146,6 +146,10 @@ func (s *Server) SuspendDevice(w http.ResponseWriter, r *http.Request, id string
 
 // SuspendNetwork suspends every active device belonging to the network.
 func (s *Server) SuspendNetwork(w http.ResponseWriter, r *http.Request, id string) {
+	if s.protectedSystemNetwork(r.Context(), id) {
+		writeErr(w, http.StatusConflict, "rede obrigatoria TGDevs permanece sempre ativa")
+		return
+	}
 	claims := middleware.ClaimsFrom(r.Context())
 	allowed, err := s.Authorizer.CanManageNetwork(r.Context(), claims, id)
 	if err != nil || !allowed {
@@ -276,6 +280,10 @@ func (s *Server) ResumeTechnician(w http.ResponseWriter, r *http.Request, id str
 }
 
 func (s *Server) ResumeNetwork(w http.ResponseWriter, r *http.Request, id string) {
+	if s.protectedSystemNetwork(r.Context(), id) {
+		writeJSON(w, http.StatusOK, map[string]string{"status": "ativa"})
+		return
+	}
 	claims := middleware.ClaimsFrom(r.Context())
 	allowed, err := s.Authorizer.CanManageNetwork(r.Context(), claims, id)
 	if err != nil || !allowed {

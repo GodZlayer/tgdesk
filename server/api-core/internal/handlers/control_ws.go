@@ -129,6 +129,16 @@ func (s *Server) DeviceControlWS(w http.ResponseWriter, r *http.Request) {
 					"type": "diagnostic_cancel", "id": cancelledRunID,
 				})
 			}
+			var activeRunID, activeRunStatus string
+			if s.Pool.QueryRow(r.Context(), `
+				SELECT id,status FROM diagnostic_runs
+				WHERE device_id=$1 AND status IN ('running','paused')
+				ORDER BY created_at LIMIT 1`, deviceID).Scan(&activeRunID, &activeRunStatus) == nil {
+				_ = conn.WriteJSON(map[string]any{
+					"type": "diagnostic_pause", "id": activeRunID,
+					"payload": map[string]any{"paused": activeRunStatus == "paused"},
+				})
+			}
 			var runID string
 			var tests []byte
 			if s.Pool.QueryRow(r.Context(), `
@@ -137,7 +147,7 @@ func (s *Server) DeviceControlWS(w http.ResponseWriter, r *http.Request) {
 					WHERE device_id=$1 AND status='queued'
 					  AND NOT EXISTS (
 						SELECT 1 FROM diagnostic_runs active
-						WHERE active.device_id=$1 AND active.status='running'
+						WHERE active.device_id=$1 AND active.status IN ('running','paused')
 					  )
 					ORDER BY created_at LIMIT 1 FOR UPDATE SKIP LOCKED
 				)
@@ -189,15 +199,28 @@ func (s *Server) DeviceControlWS(w http.ResponseWriter, r *http.Request) {
 			}
 		case "diagnostic_progress":
 			var payload struct {
-				Progress int    `json:"progress"`
-				Test     string `json:"test"`
-				Message  string `json:"message"`
+				Progress       int    `json:"progress"`
+				Test           string `json:"test"`
+				Group          string `json:"group"`
+				TestProgress   int    `json:"test_progress"`
+				GroupProgress  int    `json:"group_progress"`
+				CompletedTests int    `json:"completed_tests"`
+				TotalTests     int    `json:"total_tests"`
+				Message        string `json:"message"`
+				Results        any    `json:"results"`
 			}
 			if json.Unmarshal(msg.Payload, &payload) == nil && msg.ID != "" {
 				_, _ = s.Pool.Exec(r.Context(), `
 					UPDATE diagnostic_runs SET progress=$1,current_test=$2
-					WHERE id=$3 AND device_id=$4 AND status='running'`,
+					WHERE id=$3 AND device_id=$4 AND status IN ('running','paused')`,
 					payload.Progress, payload.Test, msg.ID, deviceID)
+				if payload.Results != nil {
+					partialResults := map[string]any{"test": "all_tests", "tests": payload.Results}
+					_, _ = s.Pool.Exec(r.Context(), `
+						UPDATE diagnostic_runs SET results=$1
+						WHERE id=$2 AND device_id=$3 AND status IN ('running','paused')`,
+						partialResults, msg.ID, deviceID)
+				}
 				// Grava a serie temporal de amostras em paralelo ao "resultado final"
 				// acima (que continua sendo sobrescrito a cada atualizacao). O payload
 				// de progresso hoje so traz uma metrica numerica estruturada
@@ -207,10 +230,18 @@ func (s *Server) DeviceControlWS(w http.ResponseWriter, r *http.Request) {
 					INSERT INTO diagnostic_samples (run_id,metric,value)
 					VALUES ($1,$2,$3)`,
 					msg.ID, "progress", float64(payload.Progress))
+				progressPayload := map[string]any{
+					"id": msg.ID, "status": "running", "progress": payload.Progress,
+					"test": payload.Test, "group": payload.Group, "message": payload.Message,
+					"test_progress": payload.TestProgress, "group_progress": payload.GroupProgress,
+					"completed_tests": payload.CompletedTests, "total_tests": payload.TotalTests,
+				}
+				if payload.Results != nil {
+					progressPayload["results"] = map[string]any{"test": "all_tests", "tests": payload.Results}
+				}
 				_ = presence.Publish(r.Context(), s.RDB, presence.Event{
 					Type: "diagnostic_progress", TargetID: deviceID,
-					Payload: map[string]any{"id": msg.ID, "status": "running",
-						"progress": payload.Progress, "test": payload.Test, "message": payload.Message},
+					Payload: progressPayload,
 				})
 			}
 		case "diagnostic_result":
@@ -227,7 +258,7 @@ func (s *Server) DeviceControlWS(w http.ResponseWriter, r *http.Request) {
 				_, _ = s.Pool.Exec(r.Context(), `
 					UPDATE diagnostic_runs SET status=$1,progress=100,results=$2,
 						error=$3,finished_at=now()
-					WHERE id=$4 AND device_id=$5 AND status IN ('running','cancelled')`,
+					WHERE id=$4 AND device_id=$5 AND status IN ('running','paused','cancelled')`,
 					status, payload.Results, payload.Error, msg.ID, deviceID)
 				_ = presence.Publish(r.Context(), s.RDB, presence.Event{
 					Type: "diagnostic_result", TargetID: deviceID,
@@ -372,6 +403,7 @@ func privateRPCPath(path string) bool {
 	for _, prefix := range []string{
 		"/api/v1/pairing/", "/api/v1/devices", "/api/v1/organizations",
 		"/api/v1/networks", "/api/v1/subnetworks", "/api/v1/technicians", "/api/v1/branding/",
+		"/api/v1/diagnostics/",
 		"/api/v1/admin/",
 		"/api/v1/support/",
 	} {
@@ -404,14 +436,20 @@ func (s *Server) controlSnapshot(ctx context.Context, technicianID, role string)
 	orgQuery := `SELECT id,name,status,owner_technician_id,created_at FROM organizations ORDER BY created_at`
 	netQuery := `SELECT id,organization_id,name,coalesce(cidr_virtual,''),status,created_by_technician_id,created_at FROM networks ORDER BY created_at`
 	subnetQuery := `SELECT id,network_id,name,status,created_by_technician_id,created_at FROM subnetworks ORDER BY created_at`
-	devQuery := `SELECT d.id,d.network_id,coalesce((SELECT array_agg(dn.network_id::text ORDER BY dn.created_at) FROM device_networks dn WHERE dn.device_id=d.id),ARRAY[]::text[]),d.subnetwork_id,d.hostname,coalesce(d.display_name,''),coalesce(d.mac,''),coalesce(d.wg_pubkey,''),d.role,d.state,d.last_seen_at,d.created_at,d.updated_at,coalesce(d.rustdesk_id,'') FROM devices d ORDER BY d.created_at DESC`
+	devQuery := `SELECT d.id,d.network_id,coalesce((SELECT array_agg(dn.network_id::text ORDER BY dn.created_at) FROM device_networks dn WHERE dn.device_id=d.id),ARRAY[]::text[]),d.subnetwork_id,coalesce((SELECT array_agg(ds.subnetwork_id::text ORDER BY ds.created_at) FROM device_subnetworks ds WHERE ds.device_id=d.id),ARRAY[]::text[]),d.hostname,coalesce(d.display_name,''),coalesce(d.mac,''),coalesce(d.wg_pubkey,''),d.role,d.state,d.last_seen_at,d.created_at,d.updated_at,coalesce(d.rustdesk_id,'') FROM devices d ORDER BY d.created_at DESC`
 	args := []any{}
-	if role != models.RoleSuperAdmin {
+	if role == models.RoleSupervisor {
+		args = []any{technicianID}
+		orgQuery = `SELECT DISTINCT o.id,o.name,o.status,o.owner_technician_id,o.created_at FROM organizations o WHERE o.owner_technician_id=$1 OR (lower(o.name)='tgdevs' AND EXISTS (SELECT 1 FROM networks n JOIN technician_assignments ta ON ta.network_id=n.id WHERE n.organization_id=o.id AND ta.technician_id=$1)) ORDER BY o.created_at`
+		netQuery = `SELECT n.id,n.organization_id,n.name,coalesce(n.cidr_virtual,''),n.status,n.created_by_technician_id,n.created_at FROM networks n JOIN organizations o ON o.id=n.organization_id WHERE o.owner_technician_id=$1 OR (lower(o.name)='tgdevs' AND EXISTS (SELECT 1 FROM technician_assignments ta WHERE ta.technician_id=$1 AND ta.network_id=n.id)) ORDER BY n.created_at`
+		subnetQuery = `SELECT s.id,s.network_id,s.name,s.status,s.created_by_technician_id,s.created_at FROM subnetworks s JOIN networks n ON n.id=s.network_id JOIN organizations o ON o.id=n.organization_id WHERE o.owner_technician_id=$1 OR (lower(o.name)='tgdevs' AND EXISTS (SELECT 1 FROM technician_assignments ta WHERE ta.technician_id=$1 AND ta.network_id=n.id)) ORDER BY s.created_at`
+		devQuery = `SELECT DISTINCT d.id,d.network_id,coalesce((SELECT array_agg(dn2.network_id::text ORDER BY dn2.created_at) FROM device_networks dn2 WHERE dn2.device_id=d.id),ARRAY[]::text[]),d.subnetwork_id,coalesce((SELECT array_agg(ds.subnetwork_id::text ORDER BY ds.created_at) FROM device_subnetworks ds WHERE ds.device_id=d.id),ARRAY[]::text[]),d.hostname,coalesce(d.display_name,''),coalesce(d.mac,''),coalesce(d.wg_pubkey,''),d.role,d.state,d.last_seen_at,d.created_at,d.updated_at,coalesce(d.rustdesk_id,'') FROM devices d JOIN device_networks dn ON dn.device_id=d.id JOIN networks n ON dn.network_id=n.id JOIN organizations o ON o.id=n.organization_id WHERE o.owner_technician_id=$1 OR (lower(o.name)='tgdevs' AND EXISTS (SELECT 1 FROM technician_assignments ta WHERE ta.technician_id=$1 AND ta.network_id=n.id) AND (NOT n.peer_isolation OR d.control_technician_id=$1)) ORDER BY d.created_at DESC`
+	} else if role != models.RoleSuperAdmin {
 		args = []any{technicianID}
 		orgQuery = `SELECT DISTINCT o.id,o.name,o.status,o.owner_technician_id,o.created_at FROM organizations o LEFT JOIN networks n ON n.organization_id=o.id WHERE o.owner_technician_id=$1 OR n.id IN (SELECT network_id FROM technician_assignments WHERE technician_id=$1 AND network_id IS NOT NULL) ORDER BY o.created_at`
 		netQuery = `SELECT id,organization_id,name,coalesce(cidr_virtual,''),status,created_by_technician_id,created_at FROM networks WHERE organization_id IN (SELECT id FROM organizations WHERE owner_technician_id=$1) OR id IN (SELECT network_id FROM technician_assignments WHERE technician_id=$1 AND network_id IS NOT NULL) ORDER BY created_at`
 		subnetQuery = `SELECT s.id,s.network_id,s.name,s.status,s.created_by_technician_id,s.created_at FROM subnetworks s JOIN networks n ON n.id=s.network_id WHERE n.organization_id IN (SELECT id FROM organizations WHERE owner_technician_id=$1) OR n.id IN (SELECT network_id FROM technician_assignments WHERE technician_id=$1 AND network_id IS NOT NULL) ORDER BY s.created_at`
-		devQuery = `SELECT DISTINCT d.id,d.network_id,coalesce((SELECT array_agg(dn2.network_id::text ORDER BY dn2.created_at) FROM device_networks dn2 WHERE dn2.device_id=d.id),ARRAY[]::text[]),d.subnetwork_id,d.hostname,coalesce(d.display_name,''),coalesce(d.mac,''),coalesce(d.wg_pubkey,''),d.role,d.state,d.last_seen_at,d.created_at,d.updated_at,coalesce(d.rustdesk_id,'') FROM devices d JOIN device_networks dn ON dn.device_id=d.id JOIN networks n ON dn.network_id=n.id WHERE n.organization_id IN (SELECT id FROM organizations WHERE owner_technician_id=$1) OR n.id IN (SELECT network_id FROM technician_assignments WHERE technician_id=$1 AND network_id IS NOT NULL) ORDER BY d.created_at DESC`
+		devQuery = `SELECT DISTINCT d.id,d.network_id,coalesce((SELECT array_agg(dn2.network_id::text ORDER BY dn2.created_at) FROM device_networks dn2 WHERE dn2.device_id=d.id),ARRAY[]::text[]),d.subnetwork_id,coalesce((SELECT array_agg(ds.subnetwork_id::text ORDER BY ds.created_at) FROM device_subnetworks ds WHERE ds.device_id=d.id),ARRAY[]::text[]),d.hostname,coalesce(d.display_name,''),coalesce(d.mac,''),coalesce(d.wg_pubkey,''),d.role,d.state,d.last_seen_at,d.created_at,d.updated_at,coalesce(d.rustdesk_id,'') FROM devices d JOIN device_networks dn ON dn.device_id=d.id JOIN networks n ON dn.network_id=n.id WHERE n.organization_id IN (SELECT id FROM organizations WHERE owner_technician_id=$1) OR n.id IN (SELECT network_id FROM technician_assignments WHERE technician_id=$1 AND network_id IS NOT NULL) ORDER BY d.created_at DESC`
 	}
 	orgs := []models.Organization{}
 	rows, err := s.Pool.Query(ctx, orgQuery, args...)
@@ -441,6 +479,9 @@ func (s *Server) controlSnapshot(ctx context.Context, technicianID, role string)
 					SELECT EXISTS(SELECT 1 FROM organizations
 						WHERE id=$1 AND owner_technician_id=$2)`,
 					n.OrganizationID, technicianID).Scan(&n.CanManage)
+			}
+			if s.protectedSystemNetwork(ctx, n.ID) {
+				n.CanManage = false
 			}
 			nets = append(nets, n)
 		}
@@ -474,7 +515,7 @@ func (s *Server) controlSnapshot(ctx context.Context, technicianID, role string)
 	}
 	for rows.Next() {
 		var d models.Device
-		if rows.Scan(&d.ID, &d.NetworkID, &d.NetworkIDs, &d.SubnetworkID, &d.Hostname, &d.DisplayName, &d.MAC, &d.WGPubkey, &d.Role, &d.State, &d.LastSeenAt, &d.CreatedAt, &d.UpdatedAt, &d.RustdeskID) == nil {
+		if rows.Scan(&d.ID, &d.NetworkID, &d.NetworkIDs, &d.SubnetworkID, &d.SubnetworkIDs, &d.Hostname, &d.DisplayName, &d.MAC, &d.WGPubkey, &d.Role, &d.State, &d.LastSeenAt, &d.CreatedAt, &d.UpdatedAt, &d.RustdeskID) == nil {
 			if d.State == models.DeviceStateAtivo && presence.IsOnline(ctx, s.RDB, d.ID) {
 				d.Presence = "online"
 			} else if d.State == models.DeviceStateAtivo {
@@ -486,6 +527,10 @@ func (s *Server) controlSnapshot(ctx context.Context, technicianID, role string)
 			d.RemoteReady = capabilities.RemoteReady
 			d.FilesReady = capabilities.FilesReady
 			d.HealthLevel, _ = s.recentHardwareHealth(ctx, d.ID)["level"].(string)
+			d.CanManage, _ = s.Authorizer.CanManageDevice(ctx, &tgauth.Claims{
+				TechnicianID: technicianID,
+				Role:         role,
+			}, d.ID)
 			devices = append(devices, d)
 		}
 	}

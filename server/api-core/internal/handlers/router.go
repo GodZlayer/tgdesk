@@ -161,6 +161,12 @@ func NewRouter(s *Server) http.Handler {
 	mux.Handle("POST /api/v1/devices/{id}/diagnostics/{run_id}/cancel", private(auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.CancelDiagnostic(w, r, r.PathValue("id"), r.PathValue("run_id"))
 	}))))
+	mux.Handle("POST /api/v1/devices/{id}/diagnostics/{run_id}/pause", private(auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.PauseDiagnostic(w, r, r.PathValue("id"), r.PathValue("run_id"))
+	}))))
+	mux.Handle("POST /api/v1/devices/{id}/diagnostics/{run_id}/resume", private(auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.ResumeDiagnostic(w, r, r.PathValue("id"), r.PathValue("run_id"))
+	}))))
 	mux.Handle("POST /api/v1/networks/{id}/suspend", private(auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.SuspendNetwork(w, r, r.PathValue("id"))
 	}))))

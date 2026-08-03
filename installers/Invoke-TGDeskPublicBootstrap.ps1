@@ -152,6 +152,8 @@ if (-not $identityRecognized) {
 
 $controlRole = ''
 $controlIdentityInstalled = $false
+$controlToken = ''
+$deviceAutoBound = $false
 if (-not [string]::IsNullOrWhiteSpace($EnrollmentKeyPath)) {
     if (-not (Test-Path -LiteralPath $EnrollmentKeyPath)) {
         throw "Chave de inscrição não encontrada: $EnrollmentKeyPath"
@@ -168,6 +170,7 @@ if (-not [string]::IsNullOrWhiteSpace($EnrollmentKeyPath)) {
     if ([string]$redeemed.role -ne 'supervisor') {
         throw "A chave não retornou o papel supervisor: $($redeemed.role)"
     }
+    $controlToken = [string]$redeemed.token
     $controlCredential = @{
         credential_id = [string]$redeemed.credential_id
         secret = [string]$redeemed.secret
@@ -198,8 +201,48 @@ if (-not [string]::IsNullOrWhiteSpace($EnrollmentKeyPath)) {
     }
     Restart-Service TGDesk -Force
     $service = (Get-Service TGDesk).Status
+
+    $privateReady = $false
+    $privateDeadline = (Get-Date).AddSeconds(60)
+    do {
+        try {
+            $tcp = [Net.Sockets.TcpClient]::new()
+            $connect = $tcp.BeginConnect('10.70.0.1', 8080, $null, $null)
+            $privateReady = $connect.AsyncWaitHandle.WaitOne(1000) -and $tcp.Connected
+            $tcp.Dispose()
+        } catch { $privateReady = $false }
+        if (-not $privateReady) { Start-Sleep -Seconds 1 }
+    } while (-not $privateReady -and (Get-Date) -lt $privateDeadline)
+    if (-not $privateReady) { throw 'A VPN da supervisora não ficou disponível.' }
+
+    $privateApi = 'http://10.70.0.1:8080'
+    $controlHeaders = @{Authorization="Bearer $controlToken"}
+    if (-not [string]::IsNullOrWhiteSpace($pairingCode)) {
+        $organizations = @(Invoke-RestMethod `
+            -Uri "$privateApi/api/v1/organizations" -Headers $controlHeaders)
+        $ownOrganization = $organizations | Where-Object {
+            $_.can_manage -eq $true -and $_.name -ine 'TGDevs'
+        } | Select-Object -First 1
+        if (-not $ownOrganization) { throw 'Organização da supervisora não encontrada.' }
+        $networks = @(Invoke-RestMethod `
+            -Uri "$privateApi/api/v1/networks?organization_id=$($ownOrganization.id)" `
+            -Headers $controlHeaders)
+        $principalNetwork = $networks | Where-Object {
+            $_.organization_id -eq $ownOrganization.id -and $_.name -eq 'Principal'
+        } | Select-Object -First 1
+        if (-not $principalNetwork) { throw 'Rede Principal da supervisora não encontrada.' }
+        $bound = Invoke-RestMethod -Method Post `
+            -Uri "$privateApi/api/v1/pairing/bind" `
+            -Headers $controlHeaders -ContentType 'application/json' `
+            -Body (@{pairing_code=$pairingCode;network_id=$principalNetwork.id} |
+                ConvertTo-Json -Compress)
+        $deviceAutoBound = [string]$bound.state -eq 'ativo'
+    }
+    $currentDevice = Get-Content -LiteralPath $identityPath -Raw | ConvertFrom-Json
+    Invoke-RestMethod -Method Post `
+        -Uri "$privateApi/api/v1/devices/$($currentDevice.device_id)/control-machine" `
+        -Headers $controlHeaders | Out-Null
 }
-Start-Process -FilePath (Join-Path $InstallDir 'tgdesk.exe')
 
 [pscustomobject]@{
     updated = $true
@@ -214,4 +257,5 @@ Start-Process -FilePath (Join-Path $InstallDir 'tgdesk.exe')
     pairing_code = $pairingCode
     control_identity_installed = $controlIdentityInstalled
     control_role = $controlRole
+    device_auto_bound = $deviceAutoBound
 } | ConvertTo-Json

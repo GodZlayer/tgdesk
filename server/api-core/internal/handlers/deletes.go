@@ -97,6 +97,10 @@ func (s *Server) DeleteGuestDevice(w http.ResponseWriter, r *http.Request, id st
 // telemetry) but detached — network_id is set to NULL via FK (ON DELETE
 // SET NULL) instead of being deleted along with the network.
 func (s *Server) DeleteNetwork(w http.ResponseWriter, r *http.Request, id string) {
+	if s.protectedSystemNetwork(r.Context(), id) {
+		writeErr(w, http.StatusConflict, "rede obrigatoria TGDevs nao pode ser excluida")
+		return
+	}
 	claims := middleware.ClaimsFrom(r.Context())
 	allowed, err := s.Authorizer.CanManageNetwork(r.Context(), claims, id)
 	if err != nil || !allowed {

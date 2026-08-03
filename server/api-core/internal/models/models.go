@@ -33,26 +33,28 @@ type Subnetwork struct {
 }
 
 type Device struct {
-	ID           string     `json:"id"`
-	NetworkID    *string    `json:"network_id"`
-	NetworkIDs   []string   `json:"network_ids"`
-	SubnetworkID *string    `json:"subnetwork_id,omitempty"`
-	Hostname     string     `json:"hostname"`
-	DisplayName  string     `json:"display_name,omitempty"`
-	MAC          string     `json:"mac,omitempty"`
-	WGPubkey     string     `json:"wg_pubkey,omitempty"`
-	Role         string     `json:"role"`
-	State        string     `json:"state"`
-	PairingCode  *string    `json:"pairing_code,omitempty"`
-	DeviceToken  string     `json:"device_token,omitempty"`
-	RustdeskID   string     `json:"rustdesk_id,omitempty"`
-	LastSeenAt   *time.Time `json:"last_seen_at,omitempty"`
-	CreatedAt    time.Time  `json:"created_at"`
-	UpdatedAt    time.Time  `json:"updated_at"`
-	Presence     string     `json:"presence,omitempty"` // online | desligada | offline (calculado, não persistido)
-	RemoteReady  bool       `json:"remote_ready"`
-	FilesReady   bool       `json:"files_ready"`
-	HealthLevel  string     `json:"health_level,omitempty"`
+	ID            string     `json:"id"`
+	NetworkID     *string    `json:"network_id"`
+	NetworkIDs    []string   `json:"network_ids"`
+	SubnetworkID  *string    `json:"subnetwork_id,omitempty"`
+	SubnetworkIDs []string   `json:"subnetwork_ids"`
+	Hostname      string     `json:"hostname"`
+	DisplayName   string     `json:"display_name,omitempty"`
+	MAC           string     `json:"mac,omitempty"`
+	WGPubkey      string     `json:"wg_pubkey,omitempty"`
+	Role          string     `json:"role"`
+	State         string     `json:"state"`
+	PairingCode   *string    `json:"pairing_code,omitempty"`
+	DeviceToken   string     `json:"device_token,omitempty"`
+	RustdeskID    string     `json:"rustdesk_id,omitempty"`
+	LastSeenAt    *time.Time `json:"last_seen_at,omitempty"`
+	CreatedAt     time.Time  `json:"created_at"`
+	UpdatedAt     time.Time  `json:"updated_at"`
+	Presence      string     `json:"presence,omitempty"` // online | desligada | offline (calculado, não persistido)
+	RemoteReady   bool       `json:"remote_ready"`
+	FilesReady    bool       `json:"files_ready"`
+	HealthLevel   string     `json:"health_level,omitempty"`
+	CanManage     bool       `json:"can_manage"`
 }
 
 type Technician struct {

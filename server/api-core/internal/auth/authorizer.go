@@ -141,11 +141,15 @@ func (a *Authorizer) CanAccessDevice(ctx context.Context, claims *Claims, device
 				FROM device_networks dn
 				JOIN networks n ON n.id=dn.network_id
 				WHERE dn.device_id=$2
-				  AND (
-					n.organization_id IN (SELECT id FROM organizations WHERE owner_technician_id=$1 OR lower(name)='tgdevs')
-					OR n.id IN (SELECT network_id FROM technician_assignments
-						WHERE technician_id=$1 AND network_id IS NOT NULL)
-				  )
+				  AND EXISTS (SELECT 1 FROM organizations o
+					WHERE o.id=n.organization_id AND (
+						o.owner_technician_id=$1 OR (
+							lower(o.name)='tgdevs' AND EXISTS (
+								SELECT 1 FROM technician_assignments ta
+								WHERE ta.technician_id=$1 AND ta.network_id=n.id)
+							AND (NOT n.peer_isolation OR EXISTS (
+								SELECT 1 FROM devices own
+								WHERE own.id=$2 AND own.control_technician_id=$1)))))
 			)`, claims.TechnicianID, deviceID).Scan(&allowed)
 		return allowed, err
 
@@ -169,11 +173,12 @@ func (a *Authorizer) CanAccessNetwork(ctx context.Context, claims *Claims, netwo
 		SELECT EXISTS (
 			SELECT 1 FROM networks n
 			WHERE n.id=$2
-			  AND (
-				n.organization_id IN (SELECT id FROM organizations WHERE owner_technician_id=$1 OR lower(name)='tgdevs')
-				OR n.id IN (SELECT network_id FROM technician_assignments
-					WHERE technician_id=$1 AND network_id IS NOT NULL)
-			  )
+			  AND EXISTS (SELECT 1 FROM organizations o
+				WHERE o.id=n.organization_id AND (
+					o.owner_technician_id=$1 OR (
+						lower(o.name)='tgdevs' AND EXISTS (
+							SELECT 1 FROM technician_assignments ta
+							WHERE ta.technician_id=$1 AND ta.network_id=n.id))))
 		)`, claims.TechnicianID, networkID).Scan(&allowed)
 	return allowed, err
 }
@@ -194,10 +199,10 @@ func (a *Authorizer) CanAccessOrganization(ctx context.Context, claims *Claims, 
 			SELECT 1 FROM organizations o
 			WHERE o.id=$2
 			  AND (
-				o.owner_technician_id=$1 OR lower(o.name)='tgdevs'
-				OR EXISTS (SELECT 1 FROM networks n
+				o.owner_technician_id=$1
+				OR (lower(o.name)='tgdevs' AND EXISTS (SELECT 1 FROM networks n
 					JOIN technician_assignments ta ON ta.network_id=n.id
-					WHERE n.organization_id=o.id AND ta.technician_id=$1)
+					WHERE n.organization_id=o.id AND ta.technician_id=$1))
 			  )
 		)`, claims.TechnicianID, organizationID).Scan(&allowed)
 	return allowed, err
@@ -226,7 +231,20 @@ func (a *Authorizer) CanManageDevice(ctx context.Context, claims *Claims, device
 	if claims.Role != models.RoleSupervisor {
 		return false, nil
 	}
-	return a.CanAccessDevice(ctx, claims, deviceID)
+	var allowed bool
+	err := a.pool.QueryRow(ctx, `
+		SELECT EXISTS (
+			SELECT 1 FROM devices d
+			JOIN networks n ON n.id=d.network_id
+			JOIN organizations o ON o.id=n.organization_id
+			WHERE d.id=$2 AND o.owner_technician_id=$1
+			UNION ALL
+			SELECT 1 FROM device_networks dn
+			JOIN networks n ON n.id=dn.network_id
+			JOIN organizations o ON o.id=n.organization_id
+			WHERE dn.device_id=$2 AND o.owner_technician_id=$1
+		)`, claims.TechnicianID, deviceID).Scan(&allowed)
+	return allowed, err
 }
 
 // CanManageNetwork checks if a user can manage (modify/delete) a network.

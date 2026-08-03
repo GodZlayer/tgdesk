@@ -39,6 +39,10 @@ func runDeviceControlLoop(cfg *agentConfig, remoteReady bool) error {
 	brandingCh := make(chan BrandingState, 1)
 	diagnosticCh := make(chan diagnosticRequest, 1)
 	diagnosticCancelCh := make(chan string, 1)
+	diagnosticPauseCh := make(chan struct {
+		ID     string
+		Paused bool
+	}, 2)
 	diagnosticProgressCh := make(chan diagnosticProgress, 8)
 	diagnosticResultCh := make(chan diagnosticResult, 1)
 	go func() {
@@ -94,6 +98,21 @@ func runDeviceControlLoop(cfg *agentConfig, remoteReady bool) error {
 				default:
 				}
 			}
+			if msg.Type == "diagnostic_pause" && msg.ID != "" {
+				paused := true
+				if payload, ok := msg.Payload.(map[string]any); ok {
+					if value, exists := payload["paused"].(bool); exists {
+						paused = value
+					}
+				}
+				select {
+				case diagnosticPauseCh <- struct {
+					ID     string
+					Paused bool
+				}{msg.ID, paused}:
+				default:
+				}
+			}
 			if msg.Version != "" {
 				setServerUpdateVersion(msg.Version)
 			}
@@ -135,7 +154,11 @@ func runDeviceControlLoop(cfg *agentConfig, remoteReady bool) error {
 	var collectedAt string
 	var remoteError string
 	branding := BrandingState{Name: "TGDesk"}
-	activeDiagnostics := map[string]context.CancelFunc{}
+	type activeDiagnostic struct {
+		cancel context.CancelFunc
+		pause  *diagnosticPauseGate
+	}
+	activeDiagnostics := map[string]activeDiagnostic{}
 	writeCurrentStatus := func() {
 		writeStatus(tgdeskStatus{
 			State: "ativo", Hostname: localHostname(), DeviceID: cfg.DeviceID,
@@ -156,11 +179,16 @@ func runDeviceControlLoop(cfg *agentConfig, remoteReady bool) error {
 			writeCurrentStatus()
 		case request := <-diagnosticCh:
 			ctx, cancel := context.WithCancel(context.Background())
-			activeDiagnostics[request.ID] = cancel
-			go runDiagnostic(ctx, request, diagnosticProgressCh, diagnosticResultCh)
+			gate := newDiagnosticPauseGate()
+			activeDiagnostics[request.ID] = activeDiagnostic{cancel: cancel, pause: gate}
+			go runDiagnostic(ctx, request, gate, diagnosticProgressCh, diagnosticResultCh)
 		case id := <-diagnosticCancelCh:
-			if cancel := activeDiagnostics[id]; cancel != nil {
-				cancel()
+			if active, exists := activeDiagnostics[id]; exists {
+				active.cancel()
+			}
+		case request := <-diagnosticPauseCh:
+			if active, exists := activeDiagnostics[request.ID]; exists {
+				active.pause.set(request.Paused)
 			}
 		case progress := <-diagnosticProgressCh:
 			if err := conn.WriteJSON(deviceControlMessage{
@@ -169,8 +197,8 @@ func runDeviceControlLoop(cfg *agentConfig, remoteReady bool) error {
 				return err
 			}
 		case result := <-diagnosticResultCh:
-			if cancel := activeDiagnostics[result.ID]; cancel != nil {
-				cancel()
+			if active, exists := activeDiagnostics[result.ID]; exists {
+				active.cancel()
 				delete(activeDiagnostics, result.ID)
 			}
 			if err := conn.WriteJSON(deviceControlMessage{

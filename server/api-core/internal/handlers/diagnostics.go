@@ -10,29 +10,36 @@ import (
 )
 
 var diagnosticCatalog = []map[string]any{
-	{"id": "system_overview", "name": "Inspeção completa", "category": "Sistema", "impact": "low", "duration_seconds": 10, "description": "Inventário, serviços, eventos críticos e estado geral."},
-	{"id": "cpu_stress", "name": "Carga do processador", "category": "Processamento", "impact": "high", "duration_seconds": 30, "description": "Mantém todos os núcleos ocupados e mede estabilidade e resposta."},
-	{"id": "memory_integrity", "name": "Integridade da memória", "category": "Memória", "impact": "medium", "duration_seconds": 30, "description": "Reserva blocos de memória e verifica padrões de leitura e escrita."},
-	{"id": "internet_quality", "name": "Qualidade da Internet", "category": "Rede", "impact": "low", "duration_seconds": 25, "description": "Mede DNS, perda de pacotes, latência e acesso externo."},
-	{"id": "disk_performance", "name": "Desempenho do armazenamento", "category": "Armazenamento", "impact": "medium", "duration_seconds": 45, "description": "Executa leitura e escrita temporária e remove o arquivo ao terminar."},
-	{"id": "smart_extended", "name": "Saúde física dos discos", "category": "Armazenamento", "impact": "low", "duration_seconds": 20, "description": "Consulta SMART, temperatura, desgaste e erros registrados."},
-	{"id": "badblocks-read", "name": "Setores defeituosos (somente leitura)", "category": "Armazenamento", "impact": "low", "duration_seconds": 30, "description": "Consulta contadores de confiabilidade do disco (erros de leitura corrigidos e não corrigidos) sem escrever nem apagar dados."},
-	{"id": "filesystem_scan", "name": "Setores e sistema de arquivos", "category": "Armazenamento", "impact": "high", "duration_seconds": 300, "description": "Executa verificação online somente leitura, sem reparar ou alterar dados."},
-	{"id": "gpu_stress", "name": "Carga gráfica", "category": "Vídeo", "impact": "high", "duration_seconds": 30, "description": "Executa carga gráfica do Windows e registra estabilidade e desempenho."},
-	{"id": "battery_health", "name": "Saúde da bateria", "category": "Energia", "impact": "low", "duration_seconds": 10, "description": "Compara capacidade projetada, carga atual e estado da bateria."},
-	{"id": "driver_errors", "name": "Falhas de drivers", "category": "Sistema", "impact": "low", "duration_seconds": 15, "description": "Lista dispositivos PnP com erro ou driver ausente."},
-	{"id": "critical_events", "name": "Eventos críticos", "category": "Sistema", "impact": "low", "duration_seconds": 20, "description": "Consolida eventos críticos e erros recentes do Windows."},
-	{"id": "service_failures", "name": "Serviços com falha", "category": "Sistema", "impact": "low", "duration_seconds": 10, "description": "Detecta serviços automáticos parados e falhas de inicialização."},
-	{"id": "startup_inventory", "name": "Inicialização do Windows", "category": "Sistema", "impact": "low", "duration_seconds": 10, "description": "Inventaria programas e tarefas iniciados com o Windows."},
-	{"id": "network_adapters", "name": "Adaptadores de rede", "category": "Rede", "impact": "low", "duration_seconds": 10, "description": "Verifica link, velocidade, erros e configuração IP."},
-	{"id": "dns_diagnostics", "name": "Diagnóstico DNS", "category": "Rede", "impact": "low", "duration_seconds": 15, "description": "Testa servidores DNS configurados e resolução externa."},
-	{"id": "route_table", "name": "Rotas e gateways", "category": "Rede", "impact": "low", "duration_seconds": 10, "description": "Analisa rotas, gateways e métricas de interface."},
-	{"id": "windows_integrity", "name": "Integridade do Windows", "category": "Sistema", "impact": "medium", "duration_seconds": 180, "description": "Executa DISM ScanHealth sem reparar ou alterar arquivos."},
-	{"id": "update_status", "name": "Atualizações do Windows", "category": "Sistema", "impact": "low", "duration_seconds": 20, "description": "Lista hotfixes e reinicializações pendentes."},
-	{"id": "security_posture", "name": "Postura de segurança", "category": "Segurança", "impact": "low", "duration_seconds": 15, "description": "Consulta Defender, firewall, Secure Boot e criptografia."},
-	{"id": "temperature_sensors", "name": "Sensores térmicos", "category": "Hardware", "impact": "low", "duration_seconds": 10, "description": "Lê sensores térmicos expostos por WMI e GPU."},
-	{"id": "storage_volumes", "name": "Volumes e espaço", "category": "Armazenamento", "impact": "low", "duration_seconds": 10, "description": "Verifica capacidade, espaço livre e estado dos volumes."},
-	{"id": "process_pressure", "name": "Pressão de processos", "category": "Desempenho", "impact": "low", "duration_seconds": 10, "description": "Lista maiores consumidores de CPU, memória e I/O."},
+	{"id": "all_tests", "name": "Todos os testes", "category": "Completo", "impact": "high", "description": "Executa sequencialmente todo o catálogo seguro do TGDesk, inclusive leitura integral da superfície dos discos. Pode levar horas ou dias e pode ser cancelado."},
+	{"id": "system_overview", "name": "Visão geral do sistema", "category": "Sistema", "impact": "low", "description": "Inventário, serviços, eventos críticos e estado geral."},
+	{"id": "cpu_stress", "name": "Carga do processador", "category": "Processamento", "impact": "high", "description": "Mantém todos os núcleos ocupados e mede estabilidade e resposta."},
+	{"id": "memory_integrity", "name": "Integridade da memória", "category": "Memória", "impact": "medium", "description": "Reserva blocos de memória e verifica padrões de leitura e escrita."},
+	{"id": "memory_extended", "name": "Memória multipadrão", "category": "Memória", "impact": "high", "description": "Executa múltiplos padrões e passes em uma área ampla de RAM, registrando cada etapa e divergência."},
+	{"id": "internet_quality", "name": "Qualidade da Internet", "category": "Rede", "impact": "low", "description": "Mede DNS, latência e acesso externo."},
+	{"id": "network_latency_series", "name": "Estabilidade da conexão", "category": "Rede", "impact": "medium", "description": "Mede repetidamente latência, perda e variação para revelar falhas intermitentes em gráfico."},
+	{"id": "disk_performance", "name": "Desempenho do armazenamento", "category": "Armazenamento", "impact": "medium", "description": "Executa leitura e escrita temporária e remove o arquivo ao terminar."},
+	{"id": "disk_random_performance", "name": "Acesso aleatório do armazenamento", "category": "Armazenamento", "impact": "medium", "description": "Mede operações e latência de leitura aleatória em arquivo temporário, sem alterar arquivos do usuário."},
+	{"id": "smart_extended", "name": "Saúde física dos discos", "category": "Armazenamento", "impact": "low", "description": "Consulta SMART, temperatura, desgaste e erros registrados."},
+	{"id": "badblocks-read", "name": "Contadores de setores defeituosos", "category": "Armazenamento", "impact": "low", "description": "Consulta contadores de confiabilidade do disco sem escrever nem apagar dados."},
+	{"id": "storage_surface_read", "name": "Leitura integral da superfície", "category": "Armazenamento", "impact": "high", "description": "Lê todos os bytes acessíveis de cada disco físico, sem escrever. Pode levar horas ou dias."},
+	{"id": "filesystem_scan", "name": "Integridade do sistema de arquivos", "category": "Armazenamento", "impact": "low", "description": "Verifica saúde dos volumes e eventos de corrupção sem reparar ou alterar dados."},
+	{"id": "filesystem_deep_scan", "name": "Varredura profunda dos volumes", "category": "Armazenamento", "impact": "high", "description": "Solicita ao Windows uma varredura online real de cada volume compatível, sem executar reparos."},
+	{"id": "gpu_stress", "name": "Diagnóstico gráfico", "category": "Vídeo", "impact": "medium", "description": "Valida controladores e amostra os motores gráficos disponíveis na sessão do Windows."},
+	{"id": "battery_health", "name": "Saúde da bateria", "category": "Energia", "impact": "low", "description": "Consulta carga, tensão e estado da bateria."},
+	{"id": "driver_errors", "name": "Falhas de drivers", "category": "Sistema", "impact": "low", "description": "Lista dispositivos PnP com erro ou driver ausente."},
+	{"id": "critical_events", "name": "Eventos críticos", "category": "Sistema", "impact": "low", "description": "Consolida eventos críticos e erros recentes do Windows."},
+	{"id": "service_failures", "name": "Serviços com falha", "category": "Sistema", "impact": "low", "description": "Detecta serviços automáticos parados e falhas de inicialização."},
+	{"id": "startup_inventory", "name": "Inicialização do Windows", "category": "Sistema", "impact": "low", "description": "Inventaria programas e tarefas iniciados com o Windows."},
+	{"id": "network_adapters", "name": "Adaptadores de rede", "category": "Rede", "impact": "low", "description": "Verifica link, velocidade, erros e configuração IP."},
+	{"id": "dns_diagnostics", "name": "Diagnóstico DNS", "category": "Rede", "impact": "low", "description": "Testa servidores DNS configurados e resolução externa."},
+	{"id": "route_table", "name": "Rotas e gateways", "category": "Rede", "impact": "low", "description": "Analisa rotas, gateways e métricas de interface."},
+	{"id": "windows_integrity", "name": "Integridade do Windows", "category": "Sistema", "impact": "medium", "description": "Executa DISM ScanHealth sem reparar ou alterar arquivos."},
+	{"id": "update_status", "name": "Atualizações do Windows", "category": "Sistema", "impact": "low", "description": "Lista hotfixes e reinicializações pendentes."},
+	{"id": "security_posture", "name": "Postura de segurança", "category": "Segurança", "impact": "low", "description": "Consulta Defender, firewall, Secure Boot e criptografia."},
+	{"id": "defender_quick_scan", "name": "Varredura antimalware", "category": "Segurança", "impact": "high", "description": "Executa uma verificação rápida real do Microsoft Defender e apresenta ameaças e estado final."},
+	{"id": "temperature_sensors", "name": "Sensores térmicos", "category": "Hardware", "impact": "low", "description": "Lê sensores térmicos expostos pelo Windows e pelo hardware."},
+	{"id": "storage_volumes", "name": "Volumes e espaço", "category": "Armazenamento", "impact": "low", "description": "Verifica capacidade, espaço livre e estado dos volumes."},
+	{"id": "process_pressure", "name": "Pressão de processos", "category": "Desempenho", "impact": "low", "description": "Lista maiores consumidores de CPU, memória e I/O."},
 }
 
 func (s *Server) diagnosticDeviceAccess(r *http.Request, deviceID string) bool {
@@ -42,6 +49,10 @@ func (s *Server) diagnosticDeviceAccess(r *http.Request, deviceID string) bool {
 }
 
 func (s *Server) DiagnosticCatalog(w http.ResponseWriter, r *http.Request) {
+	for _, item := range diagnosticCatalog {
+		item["destructive"] = false
+		item["requirements"] = []string{}
+	}
 	writeJSON(w, http.StatusOK, diagnosticCatalog)
 }
 
@@ -134,7 +145,7 @@ func (s *Server) CancelDiagnostic(w http.ResponseWriter, r *http.Request, device
 		    error='cancelado pelo técnico',
 		    finished_at=CASE WHEN status='queued' THEN now() ELSE finished_at END
 		WHERE id=$1 AND device_id=$2
-		  AND status IN ('queued','running','cancelled')
+		  AND status IN ('queued','running','paused','cancelled')
 		RETURNING status,started_at IS NOT NULL AND finished_at IS NULL`,
 		runID, deviceID).Scan(&status, &running)
 	if err != nil {
@@ -149,4 +160,39 @@ func (s *Server) CancelDiagnostic(w http.ResponseWriter, r *http.Request, device
 		"id": runID, "device_id": deviceID, "status": status,
 		"cancel_pending": running, "idempotent": true,
 	})
+}
+
+func (s *Server) setDiagnosticPause(w http.ResponseWriter, r *http.Request, deviceID, runID string, paused bool) {
+	if !s.diagnosticDeviceAccess(r, deviceID) {
+		writeErr(w, http.StatusForbidden, "sem permissão para esse dispositivo")
+		return
+	}
+	from, to := "running", "paused"
+	if !paused {
+		from, to = "paused", "running"
+	}
+	result, err := s.Pool.Exec(r.Context(), `
+		UPDATE diagnostic_runs SET status=$1
+		WHERE id=$2 AND device_id=$3 AND status=$4`, to, runID, deviceID, from)
+	if err != nil || result.RowsAffected() != 1 {
+		writeErr(w, http.StatusConflict, "o diagnóstico não está em um estado que permita essa ação")
+		return
+	}
+	_ = presence.Publish(r.Context(), s.RDB, presence.Event{
+		Type: "diagnostic_progress", TargetID: deviceID,
+		Payload: map[string]any{"id": runID, "status": to, "queue_paused": paused},
+	})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"id": runID, "device_id": deviceID, "status": to, "queue_paused": paused,
+	})
+}
+
+// PauseDiagnostic conclui o teste individual atual e bloqueia o início do
+// próximo item da suíte. Nenhum processo é congelado no meio de I/O.
+func (s *Server) PauseDiagnostic(w http.ResponseWriter, r *http.Request, deviceID, runID string) {
+	s.setDiagnosticPause(w, r, deviceID, runID, true)
+}
+
+func (s *Server) ResumeDiagnostic(w http.ResponseWriter, r *http.Request, deviceID, runID string) {
+	s.setDiagnosticPause(w, r, deviceID, runID, false)
 }

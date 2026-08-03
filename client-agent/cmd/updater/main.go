@@ -8,8 +8,6 @@ import (
 	"flag"
 	"fmt"
 	"os"
-
-	"tgdesk/agent/internal/updatecore"
 )
 
 func usage() {
@@ -30,7 +28,7 @@ func main() {
 			usage()
 			os.Exit(1)
 		}
-		if err := updatecore.ApplyStagedOffline(*staging, *installDir, uint32(*parent)); err != nil {
+		if err := runApplyStagedWithStatus(*staging, *installDir, uint32(*parent)); err != nil {
 			fmt.Fprintln(os.Stderr, err.Error())
 			os.Exit(1)
 		}

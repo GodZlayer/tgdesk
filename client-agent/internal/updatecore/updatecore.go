@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -22,6 +23,7 @@ import (
 	"time"
 
 	"golang.org/x/sys/windows"
+	"golang.org/x/sys/windows/registry"
 	"golang.org/x/sys/windows/svc"
 	"golang.org/x/sys/windows/svc/mgr"
 	"tgdesk/agent/internal/versioning"
@@ -92,6 +94,21 @@ type moduleManifest struct {
 	Services           []string     `json:"services"`
 	RestartApplication string       `json:"restart_application"`
 	Files              []moduleFile `json:"files"`
+}
+
+// ProgressEvent descreve uma transicao observavel da atualizacao offline.
+// A UI do updater usa estes eventos; a transacao continua independente dela.
+type ProgressEvent struct {
+	Percent int
+	Message string
+}
+
+type ProgressReporter func(ProgressEvent)
+
+func reportProgress(report ProgressReporter, percent int, message string) {
+	if report != nil {
+		report(ProgressEvent{Percent: percent, Message: message})
+	}
 }
 
 func updateIsNewer(version string) bool {
@@ -252,6 +269,11 @@ func stageModularUpdate() (updating bool, requireInstaller bool, err error) {
 			return false, false, err
 		}
 	}
+	// O staging contem somente os arquivos efetivamente baixados. Persistir o
+	// manifesto completo faria o aplicador exigir arquivos inalterados e, em
+	// especial, rejeitar o tgdesk-updater.exe protegido mesmo sem ele estar no
+	// staging.
+	manifest.Files = changed
 	manifestBytes, err := json.MarshalIndent(manifest, "", "  ")
 	if err != nil {
 		return false, false, err
@@ -302,7 +324,19 @@ func selectChangedModules(manifest moduleManifest, installDir string) (
 // hospedeiro); usamos esse diretório, não o executável em si, para montar o
 // caminho do tgdesk-updater.exe.
 func launchStagedUpdaterElevated(staging, installDir string, parentPID uint32) error {
-	updaterExe := filepath.Join(installDir, "tgdesk-updater.exe")
+	installedUpdater := filepath.Join(installDir, "tgdesk-updater.exe")
+	if info, err := os.Stat(installedUpdater); err != nil || info.IsDir() {
+		return fmt.Errorf("atualizador standalone ausente: %w", err)
+	}
+	runtimeDir := filepath.Join(DataDir(), "updates", "runtime")
+	if err := os.MkdirAll(runtimeDir, 0700); err != nil {
+		return err
+	}
+	updaterExe := filepath.Join(runtimeDir,
+		fmt.Sprintf("tgdesk-updater-%d.exe", time.Now().UnixNano()))
+	if err := copyFile(installedUpdater, updaterExe); err != nil {
+		return fmt.Errorf("nao foi possivel preparar a GUI do atualizador: %w", err)
+	}
 	verb, err := syscall.UTF16PtrFromString("runas")
 	if err != nil {
 		return err
@@ -323,11 +357,15 @@ func launchStagedUpdaterElevated(staging, installDir string, parentPID uint32) e
 	if err != nil {
 		return err
 	}
-	dir, err := syscall.UTF16PtrFromString(installDir)
+	dir, err := syscall.UTF16PtrFromString(runtimeDir)
 	if err != nil {
 		return err
 	}
-	if err := windows.ShellExecute(0, verb, file, params, dir, windows.SW_HIDE); err != nil {
+	// O atualizador possui uma janela nativa de progresso e deve nascer
+	// explicitamente visível na sessão interativa. SW_HIDE anulava justamente
+	// a GUI que o executável cria e deixava o usuário apenas com o fluxo legado
+	// aparente do processo chamador.
+	if err := windows.ShellExecute(0, verb, file, params, dir, windows.SW_SHOWNORMAL); err != nil {
 		return fmt.Errorf("não foi possível elevar a atualização modular: %w", err)
 	}
 	return nil
@@ -428,12 +466,23 @@ func ApplyStaged(staging, installDir string, parentPID uint32) error {
 // access. It owns process/service shutdown, destination verification, restart,
 // and operational rollback. The updater executable itself is never a payload.
 func ApplyStagedOffline(staging, installDir string, parentPID uint32) error {
+	return ApplyStagedOfflineWithProgress(staging, installDir, parentPID, nil)
+}
+
+// ApplyStagedOfflineWithProgress executa a mesma transacao offline e publica
+// somente mudancas de fase. O callback nunca controla o fluxo nem substitui
+// verificacoes reais de arquivo, servico ou processo.
+func ApplyStagedOfflineWithProgress(staging, installDir string, parentPID uint32,
+	report ProgressReporter) error {
+	reportProgress(report, 5, "Preparando a atualizacao...")
 	if parentPID != 0 {
+		reportProgress(report, 10, "Aguardando o TGDesk encerrar com seguranca...")
 		if process, err := windows.OpenProcess(windows.SYNCHRONIZE, false, parentPID); err == nil {
 			_, _ = windows.WaitForSingleObject(process, 60_000)
 			windows.CloseHandle(process)
 		}
 	}
+	reportProgress(report, 18, "Validando o pacote baixado...")
 	manifest, err := readStagedManifest(filepath.Join(staging, "manifest.json"))
 	if err != nil {
 		return err
@@ -442,6 +491,7 @@ func ApplyStagedOffline(staging, installDir string, parentPID uint32) error {
 	if err := verifyStagedFiles(filesRoot, manifest); err != nil {
 		return err
 	}
+	reportProgress(report, 30, "Parando os componentes do TGDesk...")
 	stoppedServices, err := stopServices(manifest.Services, 30*time.Second)
 	if err != nil {
 		return err
@@ -450,6 +500,7 @@ func ApplyStagedOffline(staging, installDir string, parentPID uint32) error {
 		_ = startServices(stoppedServices, 30*time.Second)
 		return err
 	}
+	reportProgress(report, 48, "Instalando os novos arquivos...")
 	rollback := filepath.Join(DataDir(), "updates", "rollback", fmt.Sprintf("%d", time.Now().Unix()))
 	applied, err := applyModuleTransaction(filesRoot, installDir, rollback)
 	if err != nil {
@@ -458,19 +509,29 @@ func ApplyStagedOffline(staging, installDir string, parentPID uint32) error {
 	if err := verifyInstalledFiles(installDir, filesRoot); err != nil {
 		return rollbackAndRecover(applied, installDir, rollback, stoppedServices, manifest, err)
 	}
+	reportProgress(report, 72, "Reiniciando o servico TGDesk...")
 	if err := startServices(stoppedServices, 30*time.Second); err != nil {
+		return rollbackAndRecover(applied, installDir, rollback, stoppedServices, manifest, err)
+	}
+	reportProgress(report, 78, "Aguardando VPN e telemetria do servico...")
+	if err := waitForOperationalReadiness(report, 2*time.Minute); err != nil {
 		return rollbackAndRecover(applied, installDir, rollback, stoppedServices, manifest, err)
 	}
 	application := manifest.RestartApplication
 	if application == "" {
 		// The TGDesk Windows service owns the session UI and starts --server
 		// after reaching Running. Do not launch a competing second UI instance.
+		reportProgress(report, 100, "Atualizacao concluida.")
 		return nil
 	}
 	if !safeModulePath(application) {
 		return rollbackAndRecover(applied, installDir, rollback, stoppedServices, manifest,
 			fmt.Errorf("invalid restart application"))
 	}
+	if err := ensureInteractiveStartup(installDir); err != nil {
+		return rollbackAndRecover(applied, installDir, rollback, stoppedServices, manifest, err)
+	}
+	reportProgress(report, 84, "Abrindo o TGDesk atualizado...")
 	app := exec.Command(filepath.Join(installDir, filepath.FromSlash(application)))
 	if err := app.Start(); err != nil {
 		return rollbackAndRecover(applied, installDir, rollback, stoppedServices, manifest, err)
@@ -482,8 +543,59 @@ func ApplyStagedOffline(staging, installDir string, parentPID uint32) error {
 		return rollbackAndRecover(applied, installDir, rollback, stoppedServices, manifest,
 			fmt.Errorf("TGDesk exited during startup validation: %v", startErr))
 	case <-time.After(5 * time.Second):
+		reportProgress(report, 100, "Atualizacao concluida. TGDesk iniciado.")
 		return nil
 	}
+}
+
+// waitForOperationalReadiness impede que a UI seja reaberta sobre um servico
+// apenas marcado como Running, mas ainda incapaz de entregar a rede privada.
+// Em instalacoes Client puras nao existe identidade administrativa e o
+// servico Running e o estado suficiente. Em Admin/Tech, a transicao exige uma
+// conexao real pela VPN com a API privada.
+func waitForOperationalReadiness(report ProgressReporter, timeout time.Duration) error {
+	credential := filepath.Join(DataDir(), "identity", "technician.dat")
+	if _, err := os.Stat(credential); os.IsNotExist(err) {
+		return nil
+	} else if err != nil {
+		return fmt.Errorf("nao foi possivel validar a identidade administrativa: %w", err)
+	}
+	deadline := time.Now().Add(timeout)
+	var lastError error
+	for time.Now().Before(deadline) {
+		connection, err := net.DialTimeout("tcp", "10.70.0.1:8080", 2*time.Second)
+		if err == nil {
+			connection.Close()
+			return nil
+		}
+		lastError = err
+		reportProgress(report, 78, "Servico ativo; aguardando a rede privada administrativa...")
+		time.Sleep(750 * time.Millisecond)
+	}
+	return fmt.Errorf("servico iniciou, mas a rede privada administrativa nao ficou pronta: %v", lastError)
+}
+
+func ensureInteractiveStartup(installDir string) error {
+	runKey, _, err := registry.CreateKey(registry.CURRENT_USER,
+		`SOFTWARE\Microsoft\Windows\CurrentVersion\Run`, registry.SET_VALUE)
+	if err != nil {
+		return fmt.Errorf("nao foi possivel restaurar o inicio automatico: %w", err)
+	}
+	defer runKey.Close()
+	executable := filepath.Join(installDir, "tgdesk.exe")
+	if err := runKey.SetStringValue("TGDesk", `"`+executable+`"`); err != nil {
+		return fmt.Errorf("nao foi possivel registrar o TGDesk no inicio do Windows: %w", err)
+	}
+	settings, _, err := registry.CreateKey(registry.CURRENT_USER,
+		`SOFTWARE\TGDesk`, registry.SET_VALUE)
+	if err != nil {
+		return err
+	}
+	defer settings.Close()
+	if err := settings.SetDWordValue("StartWithWindowsConfigured", 1); err != nil {
+		return err
+	}
+	return settings.SetDWordValue("StartWithWindows", 1)
 }
 
 func readStagedManifest(path string) (moduleManifest, error) {
@@ -504,8 +616,7 @@ func readStagedManifest(path string) (moduleManifest, error) {
 func verifyStagedFiles(filesRoot string, manifest moduleManifest) error {
 	allowed := make(map[string]moduleFile, len(manifest.Files))
 	for _, item := range manifest.Files {
-		if !safeModulePath(item.Path) || len(item.SHA256) != 64 ||
-			strings.EqualFold(filepath.Base(item.Path), "tgdesk-updater.exe") {
+		if !safeModulePath(item.Path) || len(item.SHA256) != 64 {
 			return fmt.Errorf("invalid module in manifest: %s", item.Path)
 		}
 		allowed[filepath.Clean(filepath.FromSlash(item.Path))] = item

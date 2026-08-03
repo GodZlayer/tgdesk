@@ -210,6 +210,20 @@ func (s *Server) ListDevices(w http.ResponseWriter, r *http.Request) {
 	var args []any
 	if claims.Role == models.RoleSuperAdmin {
 		query = `SELECT id, network_id, subnetwork_id, hostname, coalesce(display_name,''), coalesce(mac,''), coalesce(wg_pubkey,''), role, state, last_seen_at, created_at, updated_at, coalesce(rustdesk_id,'') FROM devices ORDER BY created_at DESC`
+	} else if claims.Role == models.RoleSupervisor {
+		query = `
+			SELECT DISTINCT d.id, d.network_id, d.subnetwork_id, d.hostname, coalesce(d.display_name,''), coalesce(d.mac,''), coalesce(d.wg_pubkey,''), d.role, d.state, d.last_seen_at, d.created_at, d.updated_at, coalesce(d.rustdesk_id,'')
+			FROM devices d
+			JOIN device_networks dn ON dn.device_id=d.id
+			JOIN networks n ON dn.network_id=n.id
+			JOIN organizations o ON o.id=n.organization_id
+			WHERE o.owner_technician_id=$1
+			   OR (lower(o.name)='tgdevs' AND EXISTS (
+				SELECT 1 FROM technician_assignments ta
+				WHERE ta.technician_id=$1 AND ta.network_id=n.id)
+				AND (NOT n.peer_isolation OR d.control_technician_id=$1))
+			ORDER BY d.created_at DESC`
+		args = append(args, claims.TechnicianID)
 	} else {
 		query = `
 			SELECT d.id, d.network_id, d.subnetwork_id, d.hostname, coalesce(d.display_name,''), coalesce(d.mac,''), coalesce(d.wg_pubkey,''), d.role, d.state, d.last_seen_at, d.created_at, d.updated_at, coalesce(d.rustdesk_id,'')
@@ -246,6 +260,7 @@ func (s *Server) ListDevices(w http.ResponseWriter, r *http.Request) {
 		d.RemoteReady = capabilities.RemoteReady
 		d.FilesReady = capabilities.FilesReady
 		d.HealthLevel, _ = s.recentHardwareHealth(r.Context(), d.ID)["level"].(string)
+		d.CanManage, _ = s.Authorizer.CanManageDevice(r.Context(), claims, d.ID)
 		devices = append(devices, d)
 	}
 	writeJSON(w, http.StatusOK, devices)
@@ -273,40 +288,74 @@ type updateDeviceNetworksRequest struct {
 }
 
 type updateDeviceSubnetworkRequest struct {
-	SubnetworkID string `json:"subnetwork_id"`
+	SubnetworkID  string   `json:"subnetwork_id"`
+	SubnetworkIDs []string `json:"subnetwork_ids"`
 }
 
 func (s *Server) UpdateDeviceSubnetwork(w http.ResponseWriter, r *http.Request, deviceID string) {
 	claims := middleware.ClaimsFrom(r.Context())
 	var req updateDeviceSubnetworkRequest
-	if json.NewDecoder(r.Body).Decode(&req) != nil || req.SubnetworkID == "" {
-		writeErr(w, http.StatusBadRequest, "subnetwork_id obrigatório")
+	if json.NewDecoder(r.Body).Decode(&req) != nil {
+		writeErr(w, http.StatusBadRequest, "sub-redes inválidas")
 		return
 	}
-	var networkID, organizationID string
-	if err := s.Pool.QueryRow(r.Context(), `
-		SELECT s.network_id,n.organization_id FROM subnetworks s
-		JOIN networks n ON n.id=s.network_id
-		JOIN device_networks dn ON dn.network_id=n.id
-		WHERE s.id=$1 AND dn.device_id=$2`, req.SubnetworkID, deviceID).
-		Scan(&networkID, &organizationID); err != nil {
-		writeErr(w, http.StatusConflict, "a sub-rede não pertence a uma rede do dispositivo")
+	if len(req.SubnetworkIDs) == 0 && req.SubnetworkID != "" {
+		req.SubnetworkIDs = []string{req.SubnetworkID}
+	}
+	if len(req.SubnetworkIDs) == 0 {
+		writeErr(w, http.StatusBadRequest, "selecione ao menos uma sub-rede")
 		return
 	}
-	// Check authorization using centralizer authorizer
-	allowed, err := s.Authorizer.CanAccessNetwork(r.Context(), claims, networkID)
-	if err != nil || !allowed {
-		writeErr(w, http.StatusForbidden, "sem permissão para esta sub-rede")
+	canManageDevice, err := s.Authorizer.CanManageDevice(r.Context(), claims, deviceID)
+	if err != nil || !canManageDevice {
+		writeErr(w, http.StatusForbidden, "sem permissão para alterar este dispositivo")
 		return
 	}
-	if _, err := s.Pool.Exec(r.Context(),
-		`UPDATE devices SET network_id=$1,subnetwork_id=$2,updated_at=now() WHERE id=$3`,
-		networkID, req.SubnetworkID, deviceID); err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao mover dispositivo")
+	var primaryNetwork string
+	for index, subnetworkID := range req.SubnetworkIDs {
+		var networkID string
+		if err := s.Pool.QueryRow(r.Context(), `
+			SELECT s.network_id FROM subnetworks s
+			JOIN device_networks dn ON dn.network_id=s.network_id
+			WHERE s.id=$1 AND dn.device_id=$2`, subnetworkID, deviceID).Scan(&networkID); err != nil {
+			writeErr(w, http.StatusConflict, "uma sub-rede não pertence às redes do dispositivo")
+			return
+		}
+		allowed, err := s.Authorizer.CanManageNetwork(r.Context(), claims, networkID)
+		if err != nil || !allowed {
+			writeErr(w, http.StatusForbidden, "sem permissão para uma das sub-redes")
+			return
+		}
+		if index == 0 {
+			primaryNetwork = networkID
+		}
+	}
+	tx, err := s.Pool.Begin(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "falha ao atualizar sub-redes")
+		return
+	}
+	defer tx.Rollback(r.Context())
+	if _, err = tx.Exec(r.Context(), `DELETE FROM device_subnetworks WHERE device_id=$1`, deviceID); err != nil {
+		writeErr(w, http.StatusInternalServerError, "falha ao atualizar sub-redes")
+		return
+	}
+	for _, subnetworkID := range req.SubnetworkIDs {
+		if _, err = tx.Exec(r.Context(), `INSERT INTO device_subnetworks(device_id,subnetwork_id) VALUES($1,$2)`, deviceID, subnetworkID); err != nil {
+			writeErr(w, http.StatusInternalServerError, "falha ao vincular sub-rede")
+			return
+		}
+	}
+	if _, err = tx.Exec(r.Context(), `UPDATE devices SET network_id=$1,subnetwork_id=$2,updated_at=now() WHERE id=$3`, primaryNetwork, req.SubnetworkIDs[0], deviceID); err != nil {
+		writeErr(w, http.StatusInternalServerError, "falha ao definir sub-rede principal")
+		return
+	}
+	if err = tx.Commit(r.Context()); err != nil {
+		writeErr(w, http.StatusInternalServerError, "falha ao concluir sub-redes")
 		return
 	}
 	_ = presence.Publish(r.Context(), s.RDB, presence.Event{Type: "device_subnetwork_changed", TargetID: deviceID})
-	writeJSON(w, http.StatusOK, map[string]any{"id": deviceID, "subnetwork_id": req.SubnetworkID})
+	writeJSON(w, http.StatusOK, map[string]any{"id": deviceID, "subnetwork_id": req.SubnetworkIDs[0], "subnetwork_ids": req.SubnetworkIDs})
 }
 
 func (s *Server) UpdateDeviceNetworks(w http.ResponseWriter, r *http.Request, deviceID string) {
@@ -316,35 +365,67 @@ func (s *Server) UpdateDeviceNetworks(w http.ResponseWriter, r *http.Request, de
 		writeErr(w, http.StatusBadRequest, "selecione ao menos uma rede")
 		return
 	}
-	var ownerID *string
+	var exists bool
 	if s.Pool.QueryRow(r.Context(),
-		`SELECT control_technician_id FROM devices WHERE id=$1`, deviceID).
-		Scan(&ownerID) != nil {
+		`SELECT EXISTS(SELECT 1 FROM devices WHERE id=$1)`, deviceID).
+		Scan(&exists) != nil || !exists {
 		writeErr(w, http.StatusNotFound, "dispositivo nao encontrado")
 		return
 	}
-	if ownerID == nil {
-		writeErr(w, http.StatusForbidden, "apenas computadores Admin ou Tech podem participar de varias redes")
+	canManage, err := s.Authorizer.CanManageDevice(r.Context(), claims, deviceID)
+	if err != nil || !canManage {
+		writeErr(w, http.StatusForbidden, "sem permissao para alterar as redes deste dispositivo")
 		return
 	}
-	if claims.Role != models.RoleSuperAdmin && *ownerID != claims.TechnicianID {
-		writeErr(w, http.StatusForbidden, "sem permissao para alterar este computador de controle")
-		return
-	}
+	var homeOrganizationID string
+	_ = s.Pool.QueryRow(r.Context(), `
+		SELECT n.organization_id
+		FROM device_networks dn JOIN networks n ON n.id=dn.network_id
+		WHERE dn.device_id=$1 AND n.system_key IS NULL
+		ORDER BY dn.created_at LIMIT 1`, deviceID).Scan(&homeOrganizationID)
 	for _, networkID := range req.NetworkIDs {
 		var organizationID string
+		var systemKey *string
 		if s.Pool.QueryRow(r.Context(),
-			`SELECT organization_id FROM networks WHERE id=$1 AND status='ativa'`,
-			networkID).Scan(&organizationID) != nil {
+			`SELECT organization_id,system_key FROM networks WHERE id=$1 AND status='ativa'`,
+			networkID).Scan(&organizationID, &systemKey) != nil {
 			writeErr(w, http.StatusBadRequest, "rede invalida ou suspensa")
 			return
 		}
+		if systemKey == nil && homeOrganizationID != "" && organizationID != homeOrganizationID {
+			writeErr(w, http.StatusConflict,
+				"o dispositivo nao pode ser movido entre organizacoes")
+			return
+		}
 		// Check authorization using centralized authorizer
-		ok, err := s.Authorizer.CanAccessNetwork(r.Context(), claims, networkID)
+		ok, err := s.Authorizer.CanManageNetwork(r.Context(), claims, networkID)
 		if err != nil || !ok {
 			writeErr(w, http.StatusForbidden, "sem permissao para uma das redes")
 			return
 		}
+	}
+	var requiredTGDevsNetworkID string
+	if err := s.Pool.QueryRow(r.Context(), `
+		SELECT n.id FROM networks n
+		LEFT JOIN devices d ON d.id=$1
+		LEFT JOIN technicians t ON t.id=d.control_technician_id
+		WHERE n.system_key=CASE
+			WHEN t.role='super_admin' THEN 'tgdevs.principal'
+			WHEN t.role='supervisor' THEN 'tgdevs.supervisores'
+			WHEN t.role IN ('tecnico','freelancer') THEN 'tgdevs.tecnicos'
+			ELSE 'tgdevs.clientes' END`, deviceID).Scan(&requiredTGDevsNetworkID); err != nil {
+		writeErr(w, http.StatusInternalServerError, "rede obrigatoria TGDevs indisponivel")
+		return
+	}
+	hasRequired := false
+	for _, networkID := range req.NetworkIDs {
+		if networkID == requiredTGDevsNetworkID {
+			hasRequired = true
+			break
+		}
+	}
+	if !hasRequired {
+		req.NetworkIDs = append(req.NetworkIDs, requiredTGDevsNetworkID)
 	}
 	tx, err := s.Pool.Begin(r.Context())
 	if err != nil {
@@ -352,21 +433,37 @@ func (s *Server) UpdateDeviceNetworks(w http.ResponseWriter, r *http.Request, de
 		return
 	}
 	defer tx.Rollback(r.Context())
-	if _, err = tx.Exec(r.Context(),
-		`DELETE FROM device_networks WHERE device_id=$1`, deviceID); err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao atualizar redes")
-		return
-	}
 	for _, networkID := range req.NetworkIDs {
 		if _, err = tx.Exec(r.Context(), `
-			INSERT INTO device_networks(device_id,network_id) VALUES ($1,$2)`,
+			INSERT INTO device_networks(device_id,network_id) VALUES ($1,$2)
+			ON CONFLICT (device_id,network_id) DO NOTHING`,
 			deviceID, networkID); err != nil {
 			writeErr(w, http.StatusInternalServerError, "falha ao vincular rede")
 			return
 		}
 	}
 	if _, err = tx.Exec(r.Context(), `
-		UPDATE devices SET network_id=$1,updated_at=now() WHERE id=$2`,
+		DELETE FROM device_networks
+		WHERE device_id=$1 AND NOT (network_id = ANY($2::uuid[]))`,
+		deviceID, req.NetworkIDs); err != nil {
+		writeErr(w, http.StatusInternalServerError, "falha ao atualizar redes")
+		return
+	}
+	if _, err = tx.Exec(r.Context(), `
+		DELETE FROM device_subnetworks ds
+		WHERE ds.device_id=$1
+		  AND NOT EXISTS (
+			SELECT 1
+			FROM subnetworks s
+			JOIN device_networks dn
+			  ON dn.device_id=ds.device_id AND dn.network_id=s.network_id
+			WHERE s.id=ds.subnetwork_id
+		  )`, deviceID); err != nil {
+		writeErr(w, http.StatusInternalServerError, "falha ao conciliar sub-redes")
+		return
+	}
+	if _, err = tx.Exec(r.Context(), `
+		UPDATE devices SET network_id=$1,subnetwork_id=NULL,updated_at=now() WHERE id=$2`,
 		req.NetworkIDs[0], deviceID); err != nil {
 		writeErr(w, http.StatusInternalServerError, "falha ao definir rede principal")
 		return
@@ -641,9 +738,11 @@ func (s *Server) technicianCanAccess(ctx context.Context, technicianID, organiza
 			OR EXISTS (
 				SELECT 1 FROM networks n
 				JOIN organizations o ON o.id=n.organization_id
-				WHERE n.id=$3::uuid AND o.owner_technician_id=$1)
-			OR EXISTS (SELECT 1 FROM technician_assignments
-				WHERE technician_id=$1 AND network_id=$3::uuid)`,
+				WHERE n.id=$3::uuid AND (
+					o.owner_technician_id=$1 OR (
+						lower(o.name)='tgdevs' AND EXISTS (
+							SELECT 1 FROM technician_assignments ta
+							WHERE ta.technician_id=$1 AND ta.network_id=n.id))))`,
 		technicianID, orgArg, netArg,
 	).Scan(&count)
 	if err != nil {
@@ -662,11 +761,12 @@ func (s *Server) technicianCanAccessDevice(
 			FROM device_networks dn
 			JOIN networks n ON n.id=dn.network_id
 			WHERE dn.device_id=$2
-			  AND (
-				n.organization_id IN (SELECT id FROM organizations WHERE owner_technician_id=$1)
-				OR n.id IN (SELECT network_id FROM technician_assignments
-					WHERE technician_id=$1 AND network_id IS NOT NULL)
-			  )
+			  AND EXISTS (SELECT 1 FROM organizations o
+				WHERE o.id=n.organization_id AND (
+					o.owner_technician_id=$1 OR (
+						lower(o.name)='tgdevs' AND EXISTS (
+							SELECT 1 FROM technician_assignments ta
+							WHERE ta.technician_id=$1 AND ta.network_id=n.id))))
 		)`, technicianID, deviceID).Scan(&allowed)
 	return allowed, err
 }

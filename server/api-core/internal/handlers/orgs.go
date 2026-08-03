@@ -1,6 +1,7 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strings"
@@ -9,6 +10,14 @@ import (
 	"tgdesk/api-core/internal/models"
 	"tgdesk/api-core/internal/presence"
 )
+
+func (s *Server) protectedSystemNetwork(ctx context.Context, id string) bool {
+	var protected bool
+	_ = s.Pool.QueryRow(ctx,
+		`SELECT EXISTS(SELECT 1 FROM networks WHERE id=$1 AND system_key IS NOT NULL)`, id).
+		Scan(&protected)
+	return protected
+}
 
 type createOrgRequest struct {
 	Name string `json:"name"`
@@ -39,6 +48,15 @@ func (s *Server) ListOrganizations(w http.ResponseWriter, r *http.Request) {
 	var args []any
 	if claims.Role == models.RoleSuperAdmin {
 		query = `SELECT id, name, status, owner_technician_id, created_at FROM organizations ORDER BY created_at`
+	} else if claims.Role == models.RoleSupervisor {
+		query = `
+			SELECT o.id, o.name, o.status, o.owner_technician_id, o.created_at FROM organizations o
+			WHERE o.owner_technician_id=$1
+			   OR (lower(o.name)='tgdevs' AND EXISTS (
+				SELECT 1 FROM networks n JOIN technician_assignments ta ON ta.network_id=n.id
+				WHERE n.organization_id=o.id AND ta.technician_id=$1))
+			ORDER BY o.created_at`
+		args = append(args, claims.TechnicianID)
 	} else {
 		query = `
 			SELECT DISTINCT o.id, o.name, o.status, o.owner_technician_id, o.created_at FROM organizations o
@@ -113,6 +131,10 @@ func (s *Server) RenameOrganization(w http.ResponseWriter, r *http.Request, id s
 }
 
 func (s *Server) RenameNetwork(w http.ResponseWriter, r *http.Request, id string) {
+	if s.protectedSystemNetwork(r.Context(), id) {
+		writeErr(w, http.StatusConflict, "rede obrigatoria TGDevs nao pode ser editada")
+		return
+	}
 	claims := middleware.ClaimsFrom(r.Context())
 	allowed, err := s.Authorizer.CanManageNetwork(r.Context(), claims, id)
 	if err != nil || !allowed {
@@ -208,6 +230,16 @@ func (s *Server) ListNetworks(w http.ResponseWriter, r *http.Request) {
 		} else {
 			query = `SELECT id, organization_id, name, coalesce(cidr_virtual,''), status, created_by_technician_id, created_at FROM networks ORDER BY created_at`
 		}
+	} else if claims.Role == models.RoleSupervisor {
+		query = `
+			SELECT n.id, n.organization_id, n.name, coalesce(n.cidr_virtual,''), n.status, n.created_by_technician_id, n.created_at
+			FROM networks n JOIN organizations o ON o.id=n.organization_id
+			WHERE o.owner_technician_id=$1
+			   OR (lower(o.name)='tgdevs' AND EXISTS (
+				SELECT 1 FROM technician_assignments ta
+				WHERE ta.technician_id=$1 AND ta.network_id=n.id))
+			ORDER BY n.created_at`
+		args = append(args, claims.TechnicianID)
 	} else {
 		query = `
 			SELECT id, organization_id, name, coalesce(cidr_virtual,''), status, created_by_technician_id, created_at FROM networks n
@@ -237,6 +269,9 @@ func (s *Server) ListNetworks(w http.ResponseWriter, r *http.Request) {
 				SELECT EXISTS(SELECT 1 FROM organizations
 					WHERE id=$1 AND owner_technician_id=$2)`,
 				n.OrganizationID, claims.TechnicianID).Scan(&n.CanManage)
+		}
+		if s.protectedSystemNetwork(r.Context(), n.ID) {
+			n.CanManage = false
 		}
 		nets = append(nets, n)
 	}

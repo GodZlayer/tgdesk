@@ -1,5 +1,5 @@
 param(
-    [string]$ExpectedVersion = '1.1.1',
+    [string]$ExpectedVersion = '1.1.11',
     [switch]$RequireInstalledClient
 )
 
@@ -15,13 +15,65 @@ function Add-Check([string]$Name, [bool]$Passed, [string]$Actual) {
 $sourceVersion = (Get-Content (Join-Path $root 'client-rustdesk-src\flutter\version.txt') -Raw).Trim()
 Add-Check 'source.version' ($sourceVersion -eq $ExpectedVersion) $sourceVersion
 
+$releaseBuilder = Get-Content (Join-Path $root 'installers\New-TGDeskModuleRelease.ps1') -Raw
+Add-Check 'updater.restarts_interactive_ui' `
+    ($releaseBuilder -match "restart_application\s*=\s*'tgdesk\.exe'") 'tgdesk.exe'
+$runnerMain = Get-Content (Join-Path $root 'client-rustdesk-src\flutter\windows\runner\main.cpp') -Raw
+Add-Check 'tray.bypasses_ui_mutex' `
+    ($runnerMain -match 'parameters_white_list[\s\S]*?--tray') '--tray'
+$traySource = Get-Content (Join-Path $root 'client-rustdesk-src\src\tray.rs') -Raw
+$coreMainSource = Get-Content (Join-Path $root 'client-rustdesk-src\src\core_main.rs') -Raw
+$windowsPlatformSource = Get-Content (Join-Path $root 'client-rustdesk-src\src\platform\windows.rs') -Raw
+Add-Check 'tray.owns_blocking_event_loop' `
+    (($traySource -match 'for attempt in 0\.\.max_retries[\s\S]*?make_tray\(\)') -and
+     ($traySource -notmatch 'std::thread::spawn\(move \|\| \{[\s\S]{0,200}let max_retries')) `
+    'blocking event loop'
+Add-Check 'service.supervises_active_session_tray' `
+    (($coreMainSource -match 'ensure_tray_in_active_session') -and
+     ($windowsPlatformSource -match 'pub fn ensure_tray_in_active_session') -and
+     ($windowsPlatformSource -match 'run_exe_in_session\(exe, vec!\["--tray"\]')) `
+    'service to active session tray supervisor'
+$updaterMain = Get-Content (Join-Path $root 'client-agent\cmd\updater\main.go') -Raw
+$updaterUI = Get-Content (Join-Path $root 'client-agent\cmd\updater\ui_windows.go') -Raw
+Add-Check 'updater.realtime_status_gui' `
+    (($updaterMain -match 'runApplyStagedWithStatus') -and
+     ($updaterUI -match 'ApplyStagedOfflineWithProgress') -and
+     ($updaterUI -match 'msctls_progress32')) 'native status window'
+$updateCore = Get-Content (Join-Path $root 'client-agent\internal\updatecore\updatecore.go') -Raw
+Add-Check 'updater.runs_from_external_copy' `
+    (($updateCore -match 'updates", "runtime"') -and
+     ($updateCore -match 'copyFile\(installedUpdater, updaterExe\)')) `
+    'external GUI runtime copy permits safe updater replacement'
+Add-Check 'updater.launches_gui_visible' `
+    ($updateCore -match 'updaterExe[\s\S]{0,1800}ShellExecute\(0, verb, file, params, dir, windows\.SW_SHOWNORMAL\)') `
+    'standalone updater is launched visible'
+
+function Get-PEContract([string]$Path) {
+    $bytes = [IO.File]::ReadAllBytes($Path)
+    if ($bytes.Length -lt 256) { throw "PE invalido: $Path" }
+    $pe = [BitConverter]::ToInt32($bytes, 0x3c)
+    [pscustomobject]@{
+        IsDll = (([BitConverter]::ToUInt16($bytes, $pe + 22) -band 0x2000) -ne 0)
+        Subsystem = [BitConverter]::ToUInt16($bytes, $pe + 92)
+        Text = [Text.Encoding]::ASCII.GetString($bytes)
+    }
+}
+$agentPE = Get-PEContract (Join-Path $root 'installers\stage-unified\tgdesk_agent.dll')
+$updaterPE = Get-PEContract (Join-Path $root 'installers\stage-unified\tgdesk-updater.exe')
+Add-Check 'agent.valid_shared_dll_exports' `
+    ($agentPE.IsDll -and $agentPE.Text.Contains('TGDeskAgentHost') -and
+     $agentPE.Text.Contains('TGDeskAgentTechnicianService')) `
+    'PE DLL with required host and VPN service exports'
+Add-Check 'updater.windows_gui_subsystem' `
+    ($updaterPE.Subsystem -eq 2) ([string]$updaterPE.Subsystem)
+
 $health = $false
 try { $health = (Invoke-WebRequest -UseBasicParsing 'http://127.0.0.1:8090/healthz').StatusCode -eq 200 } catch {}
 Add-Check 'docker.health' $health ([string]$health)
 
 $migration = (& docker compose -f $compose exec -T postgres psql -U tgdesk -d tgdesk -Atqc `
     "SELECT count(*)||':'||max(name) FROM schema_migrations" | Out-String).Trim()
-Add-Check 'schema.migrations' ($migration -match '^33:0033_') $migration
+Add-Check 'schema.migrations' ($migration -match '^35:0035_') $migration
 
 $integrity = @(& docker compose -f $compose exec -T postgres psql -U tgdesk -d tgdesk -Atqc `
     "SELECT check_name||':'||status FROM validate_schema_integrity() ORDER BY check_name")
@@ -46,6 +98,29 @@ Add-Check 'api.client_ticket_route' ($routeStatus -eq 400) ([string]$routeStatus
 $catalogCount = (Select-String -Path (Join-Path $root 'server\api-core\internal\handlers\diagnostics.go') `
     -Pattern '\{"id":').Count
 Add-Check 'diagnostics.catalog' ($catalogCount -ge 20) ([string]$catalogCount)
+$diagnosticSource = Get-Content (Join-Path $root 'client-agent\cmd\agent\diagnostics.go') -Raw
+$diagnosticUI = Get-Content (Join-Path $root 'client-rustdesk-src\flutter\lib\tgdesk\diagnostics_dialog.dart') -Raw
+$devicesUI = Get-Content (Join-Path $root 'client-rustdesk-src\flutter\lib\tgdesk\devices_page.dart') -Raw
+$deviceAuth = Get-Content (Join-Path $root 'server\api-core\internal\auth\authorizer.go') -Raw
+Add-Check 'diagnostics.complete_suite' `
+    (($diagnosticSource -match 'req\.Test == "all_tests"') -and
+     ($diagnosticSource -match 'storage_surface_read') -and
+     ($diagnosticSource -notmatch 'WithTimeout\(ctx, 12\*time\.Minute\)')) `
+    'all catalog tests plus cancellable read-only disk surface scan'
+Add-Check 'diagnostics.no_duration_estimates' `
+    ($diagnosticUI -notmatch "duration_seconds") 'no estimated duration in UI'
+Add-Check 'diagnostics.grouped_live_results' `
+    (($diagnosticSource -match 'GroupProgress') -and
+     ($diagnosticSource -match 'CompletedTests') -and
+     ($diagnosticUI -match 'Problemas indicados pela telemetria') -and
+     ($diagnosticUI -match '_suiteResultVisual')) `
+    'component groups, telemetry recommendations and per-test live details'
+Add-Check 'devices.binding_action_is_inline' `
+    (($devicesUI -match "child: Text\('Vincular dispositivo'\)") -and
+     ($devicesUI -notmatch 'floatingActionButton:')) 'full-width top action'
+Add-Check 'devices.management_umbrella' `
+    (($devicesUI -match "d\['can_manage'\] == true") -and
+     ($deviceAuth -match 'o\.owner_technician_id=\$1')) 'admin global, supervisor own organization'
 
 $gaps = @(Get-ChildItem (Join-Path $root 'client-rustdesk-src\flutter\lib\tgdesk') -Filter *.dart |
     Select-String -Pattern 'GAP REMANESCENTE|TODO\(gap\)|ainda não é suportad')
