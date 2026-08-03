@@ -209,10 +209,10 @@ func (s *Server) ListDevices(w http.ResponseWriter, r *http.Request) {
 	var query string
 	var args []any
 	if claims.Role == models.RoleSuperAdmin {
-		query = `SELECT id, network_id, subnetwork_id, hostname, coalesce(display_name,''), coalesce(mac,''), coalesce(wg_pubkey,''), role, state, last_seen_at, created_at, updated_at, coalesce(rustdesk_id,'') FROM devices ORDER BY created_at DESC`
+		query = `SELECT d.id,d.network_id,coalesce((SELECT array_agg(dn.network_id::text ORDER BY dn.created_at) FROM device_networks dn WHERE dn.device_id=d.id),ARRAY[]::text[]),d.subnetwork_id,coalesce((SELECT array_agg(ds.subnetwork_id::text ORDER BY ds.created_at) FROM device_subnetworks ds WHERE ds.device_id=d.id),ARRAY[]::text[]),d.hostname,coalesce(d.display_name,''),coalesce(d.mac,''),coalesce(d.wg_pubkey,''),d.role,d.state,d.last_seen_at,d.created_at,d.updated_at,coalesce(d.rustdesk_id,'') FROM devices d ORDER BY d.created_at DESC`
 	} else if claims.Role == models.RoleSupervisor {
 		query = `
-			SELECT DISTINCT d.id, d.network_id, d.subnetwork_id, d.hostname, coalesce(d.display_name,''), coalesce(d.mac,''), coalesce(d.wg_pubkey,''), d.role, d.state, d.last_seen_at, d.created_at, d.updated_at, coalesce(d.rustdesk_id,'')
+			SELECT DISTINCT d.id,d.network_id,coalesce((SELECT array_agg(dn2.network_id::text ORDER BY dn2.created_at) FROM device_networks dn2 WHERE dn2.device_id=d.id),ARRAY[]::text[]),d.subnetwork_id,coalesce((SELECT array_agg(ds.subnetwork_id::text ORDER BY ds.created_at) FROM device_subnetworks ds WHERE ds.device_id=d.id),ARRAY[]::text[]),d.hostname,coalesce(d.display_name,''),coalesce(d.mac,''),coalesce(d.wg_pubkey,''),d.role,d.state,d.last_seen_at,d.created_at,d.updated_at,coalesce(d.rustdesk_id,'')
 			FROM devices d
 			JOIN device_networks dn ON dn.device_id=d.id
 			JOIN networks n ON dn.network_id=n.id
@@ -226,7 +226,7 @@ func (s *Server) ListDevices(w http.ResponseWriter, r *http.Request) {
 		args = append(args, claims.TechnicianID)
 	} else {
 		query = `
-			SELECT d.id, d.network_id, d.subnetwork_id, d.hostname, coalesce(d.display_name,''), coalesce(d.mac,''), coalesce(d.wg_pubkey,''), d.role, d.state, d.last_seen_at, d.created_at, d.updated_at, coalesce(d.rustdesk_id,'')
+			SELECT d.id,d.network_id,coalesce((SELECT array_agg(dn2.network_id::text ORDER BY dn2.created_at) FROM device_networks dn2 WHERE dn2.device_id=d.id),ARRAY[]::text[]),d.subnetwork_id,coalesce((SELECT array_agg(ds.subnetwork_id::text ORDER BY ds.created_at) FROM device_subnetworks ds WHERE ds.device_id=d.id),ARRAY[]::text[]),d.hostname,coalesce(d.display_name,''),coalesce(d.mac,''),coalesce(d.wg_pubkey,''),d.role,d.state,d.last_seen_at,d.created_at,d.updated_at,coalesce(d.rustdesk_id,'')
 			FROM devices d
 			JOIN networks n ON d.network_id = n.id
 			WHERE n.organization_id IN (SELECT id FROM organizations WHERE owner_technician_id=$1)
@@ -245,7 +245,10 @@ func (s *Server) ListDevices(w http.ResponseWriter, r *http.Request) {
 	devices := []models.Device{}
 	for rs.Next() {
 		var d models.Device
-		if err := rs.Scan(&d.ID, &d.NetworkID, &d.SubnetworkID, &d.Hostname, &d.DisplayName, &d.MAC, &d.WGPubkey, &d.Role, &d.State, &d.LastSeenAt, &d.CreatedAt, &d.UpdatedAt, &d.RustdeskID); err != nil {
+		if err := rs.Scan(&d.ID, &d.NetworkID, &d.NetworkIDs, &d.SubnetworkID,
+			&d.SubnetworkIDs, &d.Hostname, &d.DisplayName, &d.MAC, &d.WGPubkey,
+			&d.Role, &d.State, &d.LastSeenAt, &d.CreatedAt, &d.UpdatedAt,
+			&d.RustdeskID); err != nil {
 			writeErr(w, http.StatusInternalServerError, "falha ao ler dispositivos")
 			return
 		}
