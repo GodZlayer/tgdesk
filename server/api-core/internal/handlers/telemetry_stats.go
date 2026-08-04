@@ -3,6 +3,7 @@ package handlers
 import (
 	"context"
 	"encoding/json"
+	"strconv"
 	"time"
 )
 
@@ -213,18 +214,28 @@ func (s *Server) hardwareStatistics(ctx context.Context, deviceID string) map[st
 		"gpu_usage": gpuUsage, "gpu_clock_mhz": gpuClock,
 		"memory_used_bytes": mem, "networks": nets,
 	}
-	if len(samples) > 0 {
-		result["health"] = analyzeHardwareHealth(
-			samples[len(samples)-1].h,
-			recentCPUUsage,
-			recentMemoryUsage,
-			recentCPUTemperature,
-			recentGPUTemperature,
-			recentStorageTemperature,
-			recentSamples,
-		)
-	}
+	// A saúde vem da análise persistida sobre o histórico agregado, com
+	// histerese — não mais de um recálculo da janela de 15 minutos a cada
+	// telemetria. É o que faz a tela parar de oscilar.
+	health := s.persistedHealth(ctx, deviceID)
+	health["client_title"], health["client_summary"] = resumoCliente(health)
+	result["health"] = health
 	return result
+}
+
+// resumoCliente monta o título e o texto de cabeçalho da tela do cliente a
+// partir do nível já persistido, em vez de a tela decidi-los por conta própria.
+func resumoCliente(health map[string]any) (string, string) {
+	nivel, _ := health["client_level"].(string)
+	switch nivel {
+	case "maximum", "critical":
+		return "Entre em contato com seu técnico",
+			"Foi identificada uma condição persistente neste computador."
+	case "warning":
+		return "Vale falar com seu técnico",
+			"Uma condição vem se mantendo e merece atenção."
+	}
+	return "Tudo certo por aqui", "O TGDesk está acompanhando este computador."
 }
 
 func accumulate(s *metricStats, v *float64) {
@@ -239,6 +250,197 @@ func accumulate(s *metricStats, v *float64) {
 		s.Peak = *v
 	}
 	s.Samples++
+}
+
+// persistedHealth avalia a saúde do dispositivo sobre o histórico agregado, em
+// vários horizontes, e persiste o resultado com histerese.
+//
+// Substitui a avaliação sobre a janela móvel de 15 minutos, que era
+// recalculada do zero a cada telemetria. Três defeitos daquela abordagem:
+// limiar seco (a média passeando em torno de 75% alternava o nível a cada
+// 30s), reset por contagem de amostras (máquina que dorme voltava a "normal"),
+// e ocupação de disco tratada como alerta oscilante em vez de condição
+// persistente.
+func (s *Server) persistedHealth(ctx context.Context, deviceID string) map[string]any {
+	// 1h capta o agora; 24h e 7d é onde um padrão real aparece. O nível de uma
+	// categoria é o mais severo entre os horizontes.
+	horizontes := []struct {
+		nome  string
+		horas int
+	}{{"1h", 1}, {"24h", 24}, {"7d", 168}}
+
+	metrics := map[string]any{}
+	issues := []map[string]any{}
+	nivelGeral, nivelCliente := "normal", "normal"
+
+	avaliar := func(categoria, metrica, rotulo string) {
+		candidato := ""
+		var melhor janelaMetrica
+		var janelaEscolhida string
+		detalhe := map[string]any{}
+		for _, h := range horizontes {
+			w := s.metricWindow(ctx, deviceID, metrica, h.horas)
+			detalhe[h.nome] = map[string]any{
+				"samples": w.Samples, "media": w.Media, "pico": w.Pico,
+				"pct_acima_85": w.PctAcima85, "pct_acima_95": w.PctAcima95,
+			}
+			nivel := exposureLevel(w)
+			if categoria == catStorage {
+				nivel = occupancyLevel(w)
+			}
+			if nivel != "" && severityRank(nivel) > severityRank(candidato) {
+				candidato, melhor, janelaEscolhida = nivel, w, h.nome
+			}
+		}
+		nivel, desde := s.applyHysteresis(ctx, deviceID, categoria, candidato)
+		detalhe["level"] = nivel
+		detalhe["desde"] = desde.Format(time.RFC3339)
+		// A tela do cliente derivava esses textos localmente, por if de nível,
+		// sem saber há quanto tempo a condição dura nem para onde ela caminha.
+		// Quem tem o histórico é o servidor, então é ele quem narra.
+		detalhe["titulo"] = rotulo
+		detalhe["estado"] = estadoLegivel(categoria, nivel)
+		detalhe["detalhe"] = narrativaCliente(categoria, nivel, desde)
+		detalhe["tendencia"] = tendencia(
+			s.metricWindow(ctx, deviceID, metrica, 24),
+			s.metricWindow(ctx, deviceID, metrica, 168))
+		metrics[categoria] = detalhe
+		if severityRank(nivel) > severityRank(nivelGeral) {
+			nivelGeral = nivel
+		}
+		// Ocupação de disco é CONDIÇÃO, não evento: um disco cheio numa máquina
+		// ótima não deve gritar "procure seu técnico" com o mesmo peso de uma
+		// CPU sobrecarregada. Entra no relatório técnico, mas não eleva o nível
+		// mostrado ao cliente.
+		if categoria != catStorage && severityRank(nivel) > severityRank(nivelCliente) {
+			nivelCliente = nivel
+		}
+		if severityRank(nivel) > 0 {
+			tecnica := rotulo + ": " + descreveExposicao(melhor, janelaEscolhida)
+			cliente := rotulo + " vem apresentando uso elevado de forma persistente."
+			if categoria == catStorage {
+				tecnica = rotulo + ": " + fmtPct(melhor.Media) +
+					" de ocupação média nas últimas " + janelaEscolhida
+				cliente = "O espaço de armazenamento está ficando reduzido."
+			}
+			issues = append(issues, map[string]any{
+				"severity": nivel, "client_severity": nivel, "category": categoria,
+				"technical_message": tecnica, "client_message": cliente,
+				"desde": desde.Format(time.RFC3339),
+			})
+		}
+	}
+
+	avaliar(catProcessing, catProcessing, "Processamento")
+	avaliar(catMemory, catMemory, "Memória")
+	avaliar(catStorage, catStorage, "Armazenamento")
+
+	return map[string]any{
+		"level": nivelGeral, "client_level": nivelCliente,
+		"issues": issues, "metrics": metrics,
+		"evaluated_at": time.Now().UTC().Format(time.RFC3339),
+	}
+}
+
+// estadoLegivel é o rótulo curto do card, em linguagem de cliente.
+func estadoLegivel(categoria, nivel string) string {
+	if categoria == catStorage {
+		switch nivel {
+		case "maximum", "critical":
+			return "Espaço quase no fim"
+		case "warning":
+			return "Espaço reduzido"
+		}
+		return "Espaço disponível"
+	}
+	if categoria == catMemory {
+		switch nivel {
+		case "maximum", "critical":
+			return "Memória sobrecarregada"
+		case "warning":
+			return "Uso elevado"
+		}
+		return "Uso adequado"
+	}
+	switch nivel {
+	case "maximum", "critical":
+		return "Uso no limite"
+	case "warning":
+		return "Uso elevado"
+	}
+	return "Desempenho estável"
+}
+
+// narrativaCliente explica a condição e há quanto tempo ela dura. O "desde" é o
+// que faltava: saber que algo está assim há seis dias muda completamente a
+// leitura em relação a um alerta que apareceu agora.
+func narrativaCliente(categoria, nivel string, desde time.Time) string {
+	if severityRank(nivel) == 0 {
+		switch categoria {
+		case catStorage:
+			return "Há espaço livre suficiente neste computador."
+		case catMemory:
+			return "Há memória suficiente para as atividades atuais."
+		}
+		return "O computador está respondendo como esperado."
+	}
+	base := "Esta condição se mantém " + haQuantoTempo(desde) + "."
+	if categoria == catStorage {
+		return "O disco está ficando cheio. " + base +
+			" Liberar espaço costuma resolver."
+	}
+	return base + " Seu técnico consegue ver o histórico completo."
+}
+
+// haQuantoTempo devolve a duração em linguagem corrente, sem precisão falsa.
+func haQuantoTempo(desde time.Time) string {
+	d := time.Since(desde)
+	switch {
+	case d < time.Hour:
+		return "há menos de uma hora"
+	case d < 24*time.Hour:
+		return "há " + strconv.Itoa(int(d.Hours())) + "h"
+	case d < 48*time.Hour:
+		return "há um dia"
+	default:
+		return "há " + strconv.Itoa(int(d.Hours()/24)) + " dias"
+	}
+}
+
+// tendencia compara o curto prazo com o longo para dizer se a situação está
+// melhorando, estável ou piorando.
+func tendencia(curto, longo janelaMetrica) string {
+	if curto.Samples < 10 || longo.Samples < 10 {
+		return "indefinida"
+	}
+	delta := curto.PctAcima85 - longo.PctAcima85
+	switch {
+	case delta > 10:
+		return "piorando"
+	case delta < -10:
+		return "melhorando"
+	}
+	return "estavel"
+}
+
+// descreveExposicao narra o padrão real em vez de citar um limiar cru, para que
+// o chamado sintetizado e o card digam desde quando e com que frequência.
+func descreveExposicao(w janelaMetrica, janela string) string {
+	switch {
+	case w.PctAcima95 >= 15:
+		return fmtPct(w.PctAcima95) + " do tempo acima de 95% nas últimas " + janela +
+			" (pico de " + fmtPct(w.Pico) + ")"
+	case w.PctAcima85 >= 15:
+		return fmtPct(w.PctAcima85) + " do tempo acima de 85% nas últimas " + janela +
+			" (pico de " + fmtPct(w.Pico) + ")"
+	default:
+		return fmtPct(w.PctAcima75) + " do tempo acima de 75% nas últimas " + janela +
+			" (pico de " + fmtPct(w.Pico) + ")"
+	}
+}
+
+func fmtPct(v float64) string {
+	return strconv.FormatFloat(v, 'f', 0, 64) + "%"
 }
 
 func (s *Server) recentHardwareHealth(ctx context.Context, deviceID string) map[string]any {

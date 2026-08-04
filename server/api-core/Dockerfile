@@ -6,7 +6,7 @@ COPY api-core/ .
 RUN go mod tidy && CGO_ENABLED=0 go build -o /out/api-core ./cmd
 
 FROM alpine:3.20
-RUN apk add --no-cache ca-certificates iproute2 wireguard-tools
+RUN apk add --no-cache ca-certificates iproute2 wireguard-tools iptables
 WORKDIR /app
 COPY --from=build /out/api-core ./api-core
 COPY migrations ./migrations

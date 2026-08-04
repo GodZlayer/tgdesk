@@ -2,7 +2,6 @@ package handlers
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
 	"strings"
 
@@ -186,11 +185,12 @@ type technicianWGKeyRequest struct {
 	PublicKey string `json:"public_key"`
 }
 
-// TechnicianWGKey gives the logged-in technician their own WireGuard tunnel
-// identity — independent of any Host device that might be installed on the
-// same physical machine. Reserved octet 10.70.1.x, allocated via
-// technician_host_octet_seq (see 0005_technician_wg.sql). Sem isso, o Hub não
-// teria como alcançar o hbbs/hbbr agora que eles só respondem dentro da VPN.
+// TechnicianWGKey devolve ao Hub os dados do túnel da máquina do técnico.
+//
+// Não existe mais identidade de rede separada para o papel Técnico: há UM
+// adaptador por dispositivo, e o papel vem da credencial apresentada, nunca da
+// rede. O endpoint é mantido porque o Hub ainda o consulta, mas não aloca
+// endereço nem registra peer — o peer do dispositivo já está no hub.
 func (s *Server) TechnicianWGKey(w http.ResponseWriter, r *http.Request) {
 	if s.Hub == nil {
 		writeErr(w, http.StatusServiceUnavailable, "hub WireGuard indisponível neste servidor")
@@ -216,33 +216,24 @@ func (s *Server) TechnicianWGKey(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// O técnico não tem mais endereço próprio na VPN: existe UM adaptador por
+	// dispositivo, e o papel vem da credencial apresentada, não da rede. Este
+	// endpoint devolve o endereço da máquina do técnico para que clientes
+	// antigos continuem funcionando, mas não aloca nada nem registra peer — o
+	// peer do dispositivo já existe.
+	//
+	// Antes cada técnico subia um segundo adaptador ("TGDesk-Tech", 10.70.1.x),
+	// deixando duas rotas para 10.70.0.0/16 na mesma máquina.
 	var virtualIP string
-	if existingIP != nil && *existingIP != "" {
-		virtualIP = *existingIP
-	} else {
-		var hostOctet int
-		if err := s.Pool.QueryRow(r.Context(),
-			`SELECT nextval('technician_host_octet_seq')`,
-		).Scan(&hostOctet); err != nil {
-			writeErr(w, http.StatusInternalServerError, "falha ao alocar IP virtual do técnico")
-			return
-		}
-		virtualIP = fmt.Sprintf("10.70.1.%d", hostOctet)
-	}
-
-	if _, err := s.Pool.Exec(r.Context(), `
-		UPDATE technicians SET wg_pubkey=$1, wg_virtual_ip=$2 WHERE id=$3`,
-		req.PublicKey, virtualIP, claims.TechnicianID,
-	); err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao salvar chave WireGuard")
+	if err := s.Pool.QueryRow(r.Context(), `
+		SELECT coalesce(wg_virtual_ip,'') FROM devices
+		WHERE control_technician_id=$1 AND state='ativo'
+		  AND coalesce(wg_virtual_ip,'') <> ''
+		ORDER BY created_at LIMIT 1`, claims.TechnicianID).Scan(&virtualIP); err != nil {
+		writeErr(w, http.StatusConflict,
+			"o dispositivo desta máquina precisa estar vinculado e ativo")
 		return
 	}
-
-	if err := s.Hub.AddPeer(req.PublicKey, virtualIP); err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao registrar peer no hub: "+err.Error())
-		return
-	}
-
 	writeJSON(w, http.StatusOK, wgKeyResponse{
 		VirtualIP:        virtualIP,
 		HubPublicKey:     s.Hub.PublicKey.Base64(),
@@ -252,3 +243,5 @@ func (s *Server) TechnicianWGKey(w http.ResponseWriter, r *http.Request) {
 		RendezvousPubkey: readRendezvousKey(s.Cfg.RendezvousKeyFile),
 	})
 }
+
+// desativado: alocação de endereço próprio para o técnico.

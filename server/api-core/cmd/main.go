@@ -8,6 +8,7 @@ import (
 
 	"github.com/redis/go-redis/v9"
 
+	"tgdesk/api-core/internal/auth"
 	"tgdesk/api-core/internal/config"
 	"tgdesk/api-core/internal/db"
 	"tgdesk/api-core/internal/handlers"
@@ -49,12 +50,12 @@ func main() {
 	} else {
 		hub = h
 		log.Printf("wg-orchestrator: hub ativo, pubkey=%s porta=%d cidr=%s", hub.PublicKey.Base64(), port, cfg.HubCIDR)
+		// Só dispositivos: o papel Técnico não tem mais peer próprio, usa o
+		// adaptador da máquina dele. Restaurar peers de technicians aqui
+		// recriaria no hub os endereços que a migration 0045 devolveu ao pool.
 		rows, qerr := pool.Query(ctx, `
 			SELECT wg_pubkey, wg_virtual_ip FROM devices
-			WHERE state='ativo' AND coalesce(wg_pubkey,'')<>'' AND coalesce(wg_virtual_ip,'')<>''
-			UNION ALL
-			SELECT wg_pubkey, wg_virtual_ip FROM technicians
-			WHERE status='ativo' AND coalesce(wg_pubkey,'')<>'' AND coalesce(wg_virtual_ip,'')<>''`)
+			WHERE state='ativo' AND coalesce(wg_pubkey,'')<>'' AND coalesce(wg_virtual_ip,'')<>''`)
 		if qerr == nil {
 			restored := 0
 			for rows.Next() {
@@ -68,7 +69,9 @@ func main() {
 		}
 	}
 
-	s := &handlers.Server{Pool: pool, RDB: rdb, Cfg: cfg, Hub: hub}
+	s := &handlers.Server{Pool: pool, RDB: rdb, Cfg: cfg, Hub: hub, Authorizer: auth.NewAuthorizer(pool)}
+	s.StartIPReclaimer(ctx)
+	s.StartSessionIsolationReconciler(ctx)
 	router := handlers.NewRouter(s)
 
 	log.Printf("api-core ouvindo em %s", cfg.ListenAddr)

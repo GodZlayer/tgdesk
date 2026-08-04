@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"math"
 	"net/http"
 	"os"
@@ -27,6 +28,24 @@ func (s *Server) publishTicket(r *http.Request, ticketID, kind string, payload a
 	})
 }
 
+// standaloneNetwork devolve a rede-base "sem organização" (MODELO-PRODUTO.md,
+// "Rede pública da VPN"): a rede de sistema tgdevs.clientes_avulsos, criada em
+// 0035 com peer_isolation=true e invisível fora do super_admin. É onde o
+// dispositivo avulso vive enquanto não tem supervisor dono.
+//
+// Substitui ensureStandaloneScope, que criava uma org/rede paralela
+// ("Atendimento Avulso TGDesk"/"Pública isolada") anterior ao plano de
+// controle TGDevs e sem peer_isolation.
+func (s *Server) standaloneNetwork(ctx context.Context) (string, string, error) {
+	var orgID, netID string
+	err := s.Pool.QueryRow(ctx, `
+		SELECT organization_id,id FROM networks
+		WHERE system_key='tgdevs.clientes_avulsos' AND status='ativa'`).Scan(&orgID, &netID)
+	return orgID, netID, err
+}
+
+// Deprecated: mantido apenas enquanto houver dispositivos na rede avulsa
+// legada. Use standaloneNetwork.
 func (s *Server) ensureStandaloneScope(r *http.Request) (string, string, error) {
 	tx, err := s.Pool.Begin(r.Context())
 	if err != nil {
@@ -61,66 +80,232 @@ func (s *Server) ensureStandaloneScope(r *http.Request) (string, string, error) 
 	return orgID, netID, nil
 }
 
+type standaloneBindRequest struct {
+	DeviceID    string `json:"device_id"`
+	DeviceToken string `json:"device_token"`
+}
+
+// StandaloneBindDevice vincula um dispositivo à rede avulsa da TGDevs sem
+// exigir código de pareamento nem credencial de técnico — é a porta de entrada
+// do usuário particular, que instala o TGDesk por conta própria.
+//
+// Antes essa ativação só acontecia como efeito colateral de ClientOpenTicket,
+// o que obrigava o particular a abrir um chamado para entrar no sistema e
+// fazia o histórico de saúde começar depois do problema. Aqui ela é uma ação
+// de primeira classe: o dispositivo entra, recebe IP virtual e passa a
+// participar da telemetria; pedir ajuda é um passo separado e posterior.
+func (s *Server) StandaloneBindDevice(w http.ResponseWriter, r *http.Request) {
+	var req standaloneBindRequest
+	if json.NewDecoder(r.Body).Decode(&req) != nil || req.DeviceID == "" || req.DeviceToken == "" {
+		writeErr(w, http.StatusBadRequest, "dispositivo e token são obrigatórios")
+		return
+	}
+	var state string
+	var networkID *string
+	if s.Pool.QueryRow(r.Context(),
+		`SELECT state,network_id FROM devices WHERE id=$1 AND device_token=$2`,
+		req.DeviceID, req.DeviceToken).Scan(&state, &networkID) != nil {
+		writeErr(w, http.StatusUnauthorized, "dispositivo inválido")
+		return
+	}
+	if state == "suspenso" {
+		writeErr(w, http.StatusForbidden, "dispositivo suspenso")
+		return
+	}
+	orgID, netID, err := s.standaloneNetwork(r.Context())
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, "rede de clientes avulsos indisponível")
+		return
+	}
+	// Já vinculado a outra rede: é um dispositivo empresarial, e trocá-lo de
+	// escopo aqui apagaria silenciosamente o vínculo feito pelo técnico.
+	if networkID != nil && *networkID != "" && *networkID != netID {
+		writeErr(w, http.StatusConflict, "dispositivo já vinculado a uma rede")
+		return
+	}
+	// Mesmo conjunto de efeitos do pareamento por código (Bind): rede, subrede
+	// principal, consumo do código e a associação em device_networks — é ela
+	// que as listagens e o Authorizer consultam, não só devices.network_id.
+	if _, err := s.Pool.Exec(r.Context(), `
+		UPDATE devices SET network_id=$2,
+			subnetwork_id=(SELECT id FROM subnetworks WHERE network_id=$2 ORDER BY (name='Principal') DESC,created_at LIMIT 1),
+			state='ativo', pairing_code=NULL, updated_at=now()
+		WHERE id=$1`, req.DeviceID, netID); err != nil {
+		writeErr(w, http.StatusInternalServerError, "falha ao vincular dispositivo")
+		return
+	}
+	_, _ = s.Pool.Exec(r.Context(), `
+		INSERT INTO device_networks(device_id,network_id) VALUES ($1,$2)
+		ON CONFLICT DO NOTHING`, req.DeviceID, netID)
+	_ = presence.Publish(r.Context(), s.RDB, presence.Event{Type: "bind", TargetID: req.DeviceID})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"state": "ativo", "standalone": true,
+		"organization_id": orgID, "network_id": netID,
+	})
+}
+
 type clientTicketRequest struct {
 	DeviceID    string         `json:"device_id"`
 	DeviceToken string         `json:"device_token"`
 	Title       string         `json:"title"`
 	Description string         `json:"description"`
-	Modality    string         `json:"modality"`
-	Standalone  bool           `json:"standalone"`
 	Location    map[string]any `json:"location"`
 }
 
+// ClientOpenTicket é o pedido de ajuda do cliente. Ele não informa nada: o
+// cliente leigo não sabe além do que o próprio TGDesk diagnosticou, então
+// título e descrição são sintetizados aqui a partir da análise de saúde do
+// dispositivo. Modalidade (virtual/presencial) é decisão do supervisor na
+// triagem, não do cliente, e por isso deixou de ser um campo do pedido.
+//
+// standalone também deixou de vir do cliente: é derivado de o dispositivo
+// estar na rede-base de avulsos. Antes um device empresarial podia enviar
+// standalone=true e ser silenciosamente arrastado para a rede avulsa.
 func (s *Server) ClientOpenTicket(w http.ResponseWriter, r *http.Request) {
 	var req clientTicketRequest
-	if json.NewDecoder(r.Body).Decode(&req) != nil || req.DeviceID == "" || req.DeviceToken == "" || strings.TrimSpace(req.Title) == "" {
-		writeErr(w, http.StatusBadRequest, "dispositivo, token e título são obrigatórios")
+	if json.NewDecoder(r.Body).Decode(&req) != nil || req.DeviceID == "" || req.DeviceToken == "" {
+		writeErr(w, http.StatusBadRequest, "dispositivo e token são obrigatórios")
 		return
-	}
-	if req.Modality == "" {
-		req.Modality = "virtual"
 	}
 	if req.Location == nil {
 		req.Location = map[string]any{}
-	}
-	if req.Modality != "virtual" && req.Modality != "onsite" {
-		writeErr(w, 400, "modalidade inválida")
-		return
 	}
 	var state string
 	if s.Pool.QueryRow(r.Context(), `SELECT state FROM devices WHERE id=$1 AND device_token=$2`, req.DeviceID, req.DeviceToken).Scan(&state) != nil {
 		writeErr(w, 401, "dispositivo inválido")
 		return
 	}
-	var orgID, netID string
-	var err error
-	if req.Standalone {
-		orgID, netID, err = s.ensureStandaloneScope(r)
-		if err == nil {
-			_, err = s.Pool.Exec(r.Context(), `UPDATE devices SET state='ativo',network_id=$2 WHERE id=$1`, req.DeviceID, netID)
-		}
-	} else {
-		err = s.Pool.QueryRow(r.Context(), `SELECT n.organization_id,n.id FROM devices d JOIN networks n ON n.id=d.network_id WHERE d.id=$1`, req.DeviceID).Scan(&orgID, &netID)
+	if state != "ativo" {
+		writeErr(w, http.StatusConflict, "dispositivo precisa estar vinculado para pedir atendimento")
+		return
 	}
-	if err != nil {
+	var orgID, netID string
+	var systemKey *string
+	if s.Pool.QueryRow(r.Context(), `
+		SELECT n.organization_id,n.id,n.system_key FROM devices d
+		JOIN networks n ON n.id=d.network_id WHERE d.id=$1`,
+		req.DeviceID).Scan(&orgID, &netID, &systemKey) != nil {
 		writeErr(w, 400, "dispositivo sem escopo autorizado")
 		return
 	}
-	var id string
-	err = s.Pool.QueryRow(r.Context(), `
+	standalone := systemKey != nil && *systemKey == "tgdevs.clientes_avulsos"
+
+	// Pedido já aberto: devolve o existente em vez de duplicar. O cliente que
+	// clica de novo quer saber do chamado dele, não abrir outro.
+	var existingID, existingProtocol, existingStatus string
+	if s.Pool.QueryRow(r.Context(), `
+		SELECT id,protocol,status FROM support_tickets
+		WHERE opened_by_device_id=$1 AND status NOT IN ('closed','cancelled','expired')
+		ORDER BY created_at DESC LIMIT 1`, req.DeviceID).
+		Scan(&existingID, &existingProtocol, &existingStatus) == nil {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"id": existingID, "protocol": existingProtocol, "status": existingStatus,
+			"confirmation": true, "already_open": true, "standalone": standalone,
+			"organization_id": orgID, "network_id": netID,
+		})
+		return
+	}
+
+	title, description := s.synthesizeTicket(r.Context(), req.DeviceID)
+	// Texto livre do cliente é opcional e entra como complemento — nunca
+	// substitui o diagnóstico técnico.
+	if extra := strings.TrimSpace(req.Title + "\n" + req.Description); extra != "" {
+		description += "\n\nRelato do cliente: " + extra
+	}
+
+	var id, protocol string
+	err := s.Pool.QueryRow(r.Context(), `
 		INSERT INTO support_tickets(organization_id,network_id,device_id,opened_by_device_id,title,description,modality,standalone,location)
-		VALUES($1,$2,$3,$3,$4,$5,$6,$7,$8) RETURNING id`,
-		orgID, netID, req.DeviceID, strings.TrimSpace(req.Title), req.Description, req.Modality, req.Standalone, req.Location).Scan(&id)
+		VALUES($1,$2,$3,$3,$4,$5,'virtual',$6,$7) RETURNING id,protocol`,
+		orgID, netID, req.DeviceID, title, description, standalone, req.Location).Scan(&id, &protocol)
 	if err != nil {
 		writeErr(w, 500, "falha ao abrir chamado")
 		return
 	}
-	_, _ = s.Pool.Exec(r.Context(), `INSERT INTO ticket_events(ticket_id,actor_device_id,event_type,payload) VALUES($1,$2,'opened',$3)`, id, req.DeviceID, map[string]any{"modality": req.Modality, "standalone": req.Standalone})
-	if req.Standalone {
+	_, _ = s.Pool.Exec(r.Context(), `INSERT INTO ticket_events(ticket_id,actor_device_id,event_type,payload) VALUES($1,$2,'opened',$3)`, id, req.DeviceID, map[string]any{"standalone": standalone, "synthesized": true})
+	// Avulso vai para a Fila A (oferta concorrente aos supervisores por nota);
+	// o vinculado fica na fila exclusiva do supervisor da própria org e não é
+	// ofertado a ninguém. Ver MODELO-PRODUTO.md, "Duas filas dinâmicas".
+	status := "open"
+	if standalone {
 		s.DispatchToSupervisors(r.Context(), id)
+		status = "offered_supervisor"
 	}
-	s.publishTicket(r, id, "ticket_created", map[string]any{"status": "open", "standalone": req.Standalone})
-	writeJSON(w, http.StatusCreated, map[string]any{"id": id, "status": "open", "confirmation": true, "organization_id": orgID, "network_id": netID})
+	s.publishTicket(r, id, "ticket_created", map[string]any{"status": status, "standalone": standalone})
+	writeJSON(w, http.StatusCreated, map[string]any{
+		"id": id, "protocol": protocol, "status": status, "confirmation": true,
+		"standalone": standalone, "organization_id": orgID, "network_id": netID,
+	})
+}
+
+// ClientOpenTicketStatus devolve o pedido em aberto do próprio dispositivo,
+// para que a tela do cliente mostre o protocolo em vez de reoferecer o botão
+// depois de reiniciar o app. POST (e não GET) porque o device_token não pode
+// viajar em query string.
+func (s *Server) ClientOpenTicketStatus(w http.ResponseWriter, r *http.Request) {
+	var req standaloneBindRequest
+	if json.NewDecoder(r.Body).Decode(&req) != nil || req.DeviceID == "" || req.DeviceToken == "" {
+		writeErr(w, http.StatusBadRequest, "dispositivo e token são obrigatórios")
+		return
+	}
+	var ok bool
+	if s.Pool.QueryRow(r.Context(), `SELECT true FROM devices WHERE id=$1 AND device_token=$2`,
+		req.DeviceID, req.DeviceToken).Scan(&ok) != nil {
+		writeErr(w, http.StatusUnauthorized, "dispositivo inválido")
+		return
+	}
+	var id, protocol, status string
+	if s.Pool.QueryRow(r.Context(), `
+		SELECT id,protocol,status FROM support_tickets
+		WHERE opened_by_device_id=$1 AND status NOT IN ('closed','cancelled','expired')
+		ORDER BY created_at DESC LIMIT 1`, req.DeviceID).
+		Scan(&id, &protocol, &status) != nil {
+		writeJSON(w, http.StatusOK, map[string]any{"open": false})
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"open": true, "id": id, "protocol": protocol, "status": status,
+	})
+}
+
+// synthesizeTicket monta título e descrição do chamado a partir da análise de
+// saúde do dispositivo, para que o pedido do cliente já chegue ao supervisor
+// com o diagnóstico técnico em vez de um texto que o leigo teria que redigir.
+func (s *Server) synthesizeTicket(ctx context.Context, deviceID string) (string, string) {
+	var hostname string
+	_ = s.Pool.QueryRow(ctx, `SELECT coalesce(nullif(display_name,''),hostname) FROM devices WHERE id=$1`, deviceID).Scan(&hostname)
+	if hostname == "" {
+		hostname = "computador do cliente"
+	}
+	health := s.persistedHealth(ctx, deviceID)
+	issues, _ := health["issues"].([]map[string]any)
+	if len(issues) == 0 {
+		return "Pedido de atendimento — " + hostname,
+			"O cliente pediu atendimento em " + hostname + ".\n\n" +
+				"A análise automática não apontou nenhuma condição de hardware sustentada " +
+				"no período avaliado. O motivo do pedido provavelmente não aparece na " +
+				"telemetria (software, periférico, rede externa ou dúvida de uso)."
+	}
+	level, _ := health["level"].(string)
+	headline := "Pedido de atendimento"
+	if severityRank(level) >= 2 {
+		headline = "Pedido de atendimento (condição crítica detectada)"
+	} else if severityRank(level) == 1 {
+		headline = "Pedido de atendimento (condição em atenção)"
+	}
+	var b strings.Builder
+	b.WriteString("O cliente pediu atendimento em " + hostname + ".\n\n")
+	b.WriteString("Diagnóstico automático do TGDesk:\n")
+	for _, issue := range issues {
+		severity, _ := issue["severity"].(string)
+		technical, _ := issue["technical_message"].(string)
+		b.WriteString("- [" + severity + "] " + technical + "\n")
+	}
+	if samples, ok := health["recent_samples"].(int); ok {
+		b.WriteString(fmt.Sprintf("\nBaseado em %d verificações dos últimos %v minutos.",
+			samples, health["recent_window_minutes"]))
+	}
+	return headline + " — " + hostname, b.String()
 }
 
 // DispatchToSupervisors mirrors DispatchTicket (Fila B) but targets supervisors
@@ -217,8 +402,17 @@ func (s *Server) AddTicketMessage(w http.ResponseWriter, r *http.Request, id str
 		writeErr(w, 404, "chamado não encontrado")
 		return
 	}
-	if status == "open" || status == "offered" || status == "offered_supervisor" {
-		writeErr(w, 403, "chat disponível apenas após aceite do chamado")
+	// O chat existe a partir do momento em que o chamado tem dono. Antes disso
+	// não há com quem conversar — o dispositivo do avulso ainda não é de
+	// ninguém. 'open' com supervisor_id preenchido É um chamado adotado (o
+	// aceite da Fila A devolve o ticket a 'open' com dono), então checar o
+	// status sozinho recusava justamente o supervisor que acabou de assumir.
+	var temDono bool
+	_ = s.Pool.QueryRow(r.Context(),
+		`SELECT supervisor_id IS NOT NULL OR assigned_freelancer_id IS NOT NULL
+		 FROM support_tickets WHERE id=$1`, id).Scan(&temDono)
+	if !temDono {
+		writeErr(w, 403, "chat disponível apenas após alguém assumir o chamado")
 		return
 	}
 	c := middleware.ClaimsFrom(r.Context())
@@ -266,23 +460,18 @@ func (s *Server) TransitionTicket(w http.ResponseWriter, r *http.Request, id str
 		_, err = tx.Exec(r.Context(), `INSERT INTO ticket_events(ticket_id,actor_technician_id,event_type,payload) VALUES($1,$2,'transition',$3)`, id, middleware.ClaimsFrom(r.Context()).TechnicianID, map[string]any{"from": old, "to": req.Status})
 	}
 	if closed && err == nil {
-		var pubkeys []string
-		peerRows, peerErr := tx.Query(r.Context(), `SELECT DISTINCT d.wg_pubkey FROM temporary_ticket_permissions tp JOIN devices d ON d.id=tp.device_id WHERE tp.ticket_id=$1 AND tp.status='active' AND d.wg_pubkey IS NOT NULL AND d.wg_pubkey != ''`, id)
-		if peerErr == nil {
-			for peerRows.Next() {
-				var pk string
-				if peerRows.Scan(&pk) == nil {
-					pubkeys = append(pubkeys, pk)
-				}
-			}
-			peerRows.Close()
-		}
 		_, err = tx.Exec(r.Context(), `UPDATE temporary_ticket_permissions SET status='revoked',revoked_at=now() WHERE ticket_id=$1 AND status='active'`, id)
-		if s.Hub != nil {
-			for _, pk := range pubkeys {
-				_ = s.Hub.RemovePeer(pk)
-			}
+		// Apagar a subrede temporária é o que revoga o acesso: corta a rota
+		// direta na VPN e o pertencimento que o Authorizer consulta, no mesmo
+		// ato. Substitui o RemovePeer que era feito aqui sobre a pubkey do
+		// DISPOSITIVO DO CLIENTE — aquilo não revogava o acesso do técnico,
+		// removia o cliente da VPN inteira, derrubando telemetria e controle
+		// dele até reconectar.
+		if err == nil {
+			_, err = tx.Exec(r.Context(), `DELETE FROM subnetworks WHERE ticket_id=$1`, id)
 		}
+		// Fecha a rota sem esperar a passada periódica.
+		defer func() { _ = s.ReconcileSessionIsolation(context.Background()) }()
 	}
 	if err != nil || tx.Commit(r.Context()) != nil {
 		writeErr(w, 500, "falha ao alterar estado")
@@ -533,15 +722,70 @@ func (s *Server) AcceptDispatch(w http.ResponseWriter, r *http.Request, id strin
 		return
 	}
 	_, err = tx.Exec(r.Context(), `UPDATE dispatch_offers SET accepted_at=CASE WHEN freelancer_id=$2 THEN now() ELSE accepted_at END WHERE ticket_id=$1`, id, c.TechnicianID)
+	// Este ramo é o do cliente AVULSO, onde o acesso remoto do técnico depende
+	// de duas condições: o chamado ser virtual (já garantido aqui) e o cliente
+	// permitir. Por isso o aceite entrega diagnóstico, e allow_remote só é
+	// ligado quando a permissão chega pelo chat.
+	//
+	// No empresarial é diferente: o supervisor é o responsável pelos
+	// dispositivos da sua rede e acessa sem depender do cliente — esse caminho
+	// não passa por aqui, é resolvido pelo Authorizer via organização/rede.
+	//
+	// O prazo deixou de ser de 4 horas: um atendimento pode levar dias, e quem
+	// encerra o acesso é o fechamento do chamado.
 	if err == nil && standalone && modality == "virtual" && deviceID != nil {
-		_, err = tx.Exec(r.Context(), `INSERT INTO temporary_ticket_permissions(ticket_id,freelancer_id,device_id,allow_remote,allow_analysis,exclusive,expires_at) VALUES($1,$2,$3,true,true,true,now()+interval '4 hours') ON CONFLICT(ticket_id,freelancer_id,device_id) DO UPDATE SET status='active',allow_remote=true,allow_analysis=true,exclusive=true,expires_at=excluded.expires_at`, id, c.TechnicianID, *deviceID)
+		_, err = tx.Exec(r.Context(), `INSERT INTO temporary_ticket_permissions(ticket_id,freelancer_id,device_id,allow_remote,allow_analysis,exclusive,expires_at) VALUES($1,$2,$3,false,true,true,now()+interval '30 days') ON CONFLICT(ticket_id,freelancer_id,device_id) DO UPDATE SET status='active',allow_remote=false,allow_analysis=true,exclusive=true,expires_at=excluded.expires_at`, id, c.TechnicianID, *deviceID)
 	}
 	if err != nil || tx.Commit(r.Context()) != nil {
 		writeErr(w, 500, "falha ao aceitar")
 		return
 	}
+	if standalone && modality == "virtual" && deviceID != nil {
+		_ = s.createSessionSubnetwork(r.Context(), id, *deviceID, c.TechnicianID)
+	}
+	// Abre a rota direta da sessão imediatamente; a passada periódica apenas
+	// confirma, e depois a apaga quando o chamado fecha ou a subrede expira.
+	_ = s.ReconcileSessionIsolation(r.Context())
 	s.publishTicket(r, id, "dispatch_accepted", map[string]any{"freelancer_id": c.TechnicianID})
 	writeJSON(w, 200, map[string]any{"ticket_id": id, "status": "accepted", "temporary_access": standalone && modality == "virtual"})
+}
+
+// createSessionSubnetwork monta a subrede temporária do chamado: o dispositivo
+// atendido, o técnico que aceitou e o supervisor dono, se houver. Enquanto ela
+// existir, esses participantes se alcançam diretamente pela VPN; ao ser
+// apagada no fechamento, o acesso some — sem mover ninguém de rede e sem
+// trocar endereço, porque o pertencimento a subrede é M:N.
+//
+// A subrede vive na mesma rede do dispositivo, para não deslocá-lo do seu
+// escopo, e dura enquanto o chamado estiver aberto — não por um prazo fixo. Um
+// atendimento pode legitimamente levar dias, então expirar por tempo cortaria
+// a sessão no meio do trabalho. O ciclo é fechado pelo encerramento do
+// chamado/OS, não pelo relógio.
+func (s *Server) createSessionSubnetwork(ctx context.Context, ticketID, deviceID, technicianID string) error {
+	var subnetID string
+	if err := s.Pool.QueryRow(ctx, `
+		INSERT INTO subnetworks(network_id,name,peer_isolation,ticket_id)
+		SELECT d.network_id,'Sessão '||left($1::text,8),false,$1
+		FROM devices d WHERE d.id=$2 AND d.network_id IS NOT NULL
+		ON CONFLICT (network_id,name) DO UPDATE SET ticket_id=excluded.ticket_id
+		RETURNING id`, ticketID, deviceID).Scan(&subnetID); err != nil {
+		return err
+	}
+	if _, err := s.Pool.Exec(ctx, `
+		INSERT INTO device_subnetworks(device_id,subnetwork_id) VALUES($1,$2)
+		ON CONFLICT DO NOTHING`, deviceID, subnetID); err != nil {
+		return err
+	}
+	// Técnico que aceitou e supervisor dono entram pela identidade de técnico.
+	_, err := s.Pool.Exec(ctx, `
+		INSERT INTO technician_assignments(technician_id,subnetwork_id,assignment_scope,permissions_level)
+		SELECT tid,$2,'subnetwork','full' FROM (
+			SELECT $1::uuid AS tid
+			UNION
+			SELECT supervisor_id FROM support_tickets WHERE id=$3 AND supervisor_id IS NOT NULL
+		) participantes
+		ON CONFLICT DO NOTHING`, technicianID, subnetID, ticketID)
+	return err
 }
 
 func (s *Server) TicketPermission(w http.ResponseWriter, r *http.Request, id string) {
@@ -739,6 +983,17 @@ func (s *Server) AcceptSupervisorOffer(w http.ResponseWriter, r *http.Request, i
 	if err != nil || tx.Commit(r.Context()) != nil {
 		writeErr(w, 500, "falha ao aceitar")
 		return
+	}
+	// O supervisor que adota o chamado ganha testes e diagnóstico para
+	// determinar a causa real antes de decidir pela OS — e a subrede de sessão
+	// para que isso funcione pela VPN. Acesso remoto não vem junto: é pedido no
+	// chat e depende do cliente.
+	var deviceID *string
+	if s.Pool.QueryRow(r.Context(), `SELECT device_id FROM support_tickets WHERE id=$1`, id).
+		Scan(&deviceID) == nil && deviceID != nil {
+		s.grantAnalysisOnly(r.Context(), id, c.TechnicianID, *deviceID)
+		_ = s.createSessionSubnetwork(r.Context(), id, *deviceID, c.TechnicianID)
+		_ = s.ReconcileSessionIsolation(r.Context())
 	}
 	s.publishTicket(r, id, "supervisor_offer_accepted", map[string]any{"supervisor_id": c.TechnicianID})
 	writeJSON(w, 200, map[string]any{"ticket_id": id, "status": "open", "supervisor_id": c.TechnicianID})

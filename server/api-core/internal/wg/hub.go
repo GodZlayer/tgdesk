@@ -2,6 +2,7 @@ package wg
 
 import (
 	"fmt"
+	"log"
 	"os"
 	"strings"
 
@@ -53,10 +54,79 @@ func StartHub(keyFile string, listenPort int, hubCIDR string) (*Hub, error) {
 		return nil, err
 	}
 
-	return &Hub{
+	h := &Hub{
 		dev: dev, tunName: realName,
 		privateKey: priv, PublicKey: priv.Public(), ListenPort: listenPort,
-	}, nil
+	}
+	if err := h.installPeerIsolation(); err != nil {
+		// Não é fatal: o hub segue servindo. Mas o isolamento é requisito de
+		// produto, então precisa aparecer no log em vez de falhar em silêncio.
+		log.Printf("wg-orchestrator: isolamento entre peers NÃO aplicado (%v) — "+
+			"dispositivos podem se alcançar diretamente pela VPN", err)
+	}
+	return h, nil
+}
+
+// peerChain concentra as regras de tráfego entre peers, para que o DROP padrão
+// e as liberações temporárias de sessão vivam num lugar só e possam ser
+// inspecionadas com `iptables -L TGDESK_PEERS`.
+const peerChain = "TGDESK_PEERS"
+
+// installPeerIsolation bloqueia, por padrão, todo tráfego de um peer para
+// outro dentro da VPN.
+//
+// O modelo de produto define visibilidade por organização → rede → subrede, e
+// a rede-base dos avulsos exige que os participantes não se enxerguem. Isso já
+// era aplicado na camada de autorização (networks.peer_isolation), mas não na
+// de rede: como todo cliente sobe o túnel com AllowedIPs 10.70.0.0/16, sem
+// esta regra qualquer dispositivo alcança qualquer outro por IP.
+//
+// Tráfego peer → hub (API, controle, telemetria, rendezvous e relay, todos em
+// 10.70.0.1) é entrega local e não passa por FORWARD, então não é afetado.
+// Sessões de acesso remoto que precisem de rota direta são liberadas caso a
+// caso por AllowSessionPair.
+func (h *Hub) installPeerIsolation() error {
+	// Idempotente: a chain é recriada a cada boot para não acumular regras
+	// órfãs de sessões que ficaram abertas num processo anterior.
+	_ = runCmd("iptables", "-D", "FORWARD", "-i", h.tunName, "-o", h.tunName, "-j", peerChain)
+	_ = runCmd("iptables", "-F", peerChain)
+	_ = runCmd("iptables", "-X", peerChain)
+	if err := runCmd("iptables", "-N", peerChain); err != nil {
+		return err
+	}
+	if err := runCmd("iptables", "-A", peerChain, "-j", "DROP"); err != nil {
+		return err
+	}
+	return runCmd("iptables", "-I", "FORWARD", "1",
+		"-i", h.tunName, "-o", h.tunName, "-j", peerChain)
+}
+
+// ApplySessionPairs reescreve a chain para liberar exatamente os pares
+// informados — a "subrede temporária de sessão" do modelo de produto — e
+// bloquear todo o resto.
+//
+// É deliberadamente uma reconciliação do conjunto inteiro, não um par de
+// operações abrir/fechar. Regra de firewall que depende de receber o evento de
+// fechamento vaza sempre que o evento se perde: permissão que expira sozinha,
+// processo reiniciado no meio de uma sessão, erro no caminho de revogação. Aqui
+// o estado do firewall é sempre derivado das permissões ativas no banco, então
+// qualquer divergência se corrige na próxima passada.
+func (h *Hub) ApplySessionPairs(pairs [][2]string) error {
+	if err := runCmd("iptables", "-F", peerChain); err != nil {
+		return err
+	}
+	for _, p := range pairs {
+		if p[0] == "" || p[1] == "" {
+			continue
+		}
+		for _, d := range [][2]string{{p[0], p[1]}, {p[1], p[0]}} {
+			if err := runCmd("iptables", "-A", peerChain,
+				"-s", d[0]+"/32", "-d", d[1]+"/32", "-j", "ACCEPT"); err != nil {
+				return err
+			}
+		}
+	}
+	return runCmd("iptables", "-A", peerChain, "-j", "DROP")
 }
 
 func assignInterfaceIP(ifaceName, cidr string) error {

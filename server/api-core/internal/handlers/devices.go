@@ -8,7 +8,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"net/http"
 	"os"
 	"strings"
@@ -319,7 +318,7 @@ func (s *Server) ListDevices(w http.ResponseWriter, r *http.Request) {
 		capabilities := presence.GetCapabilities(r.Context(), s.RDB, d.ID)
 		d.RemoteReady = capabilities.RemoteReady
 		d.FilesReady = capabilities.FilesReady
-		d.HealthLevel, _ = s.recentHardwareHealth(r.Context(), d.ID)["level"].(string)
+		d.HealthLevel = s.readHealthLevel(r.Context(), d.ID)
 		d.CanManage, _ = s.Authorizer.CanManageDevice(r.Context(), claims, d.ID)
 		devices = append(devices, d)
 	}
@@ -711,17 +710,14 @@ func (s *Server) WGKey(w http.ResponseWriter, r *http.Request) {
 	if existingIP != nil && *existingIP != "" {
 		virtualIP = *existingIP
 	} else {
-		var hostOctet, netOctet int
-		err := s.Pool.QueryRow(r.Context(), `
-			UPDATE networks SET next_host_octet = next_host_octet + 1
-			WHERE id=$1
-			RETURNING next_host_octet - 1, cidr_octet`, *networkID,
-		).Scan(&hostOctet, &netOctet)
-		if err != nil {
+		// allocate_virtual_ip reaproveita endereços devolvidos por dispositivos
+		// inativos e abre um octeto novo quando o atual lota — a rede deixou de
+		// ser limitada a um único /24. Ver 0041_network_pools.sql.
+		if err := s.Pool.QueryRow(r.Context(),
+			`SELECT allocate_virtual_ip($1)`, *networkID).Scan(&virtualIP); err != nil {
 			writeErr(w, http.StatusInternalServerError, "falha ao alocar IP virtual")
 			return
 		}
-		virtualIP = fmt.Sprintf("10.70.%d.%d", netOctet, hostOctet)
 	}
 
 	if _, err := s.Pool.Exec(r.Context(), `

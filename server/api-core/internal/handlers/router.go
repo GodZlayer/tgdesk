@@ -33,6 +33,16 @@ func NewRouter(s *Server) http.Handler {
 	mux.HandleFunc("GET /api/v1/client/updater/download", s.DownloadStandaloneUpdater)
 	mux.HandleFunc("GET /api/v1/client/bootstrap.ps1", s.DownloadPublicBootstrap)
 	mux.HandleFunc("POST /api/v1/support/client/tickets", s.ClientOpenTicket)
+	mux.HandleFunc("POST /api/v1/support/client/tickets/open", s.ClientOpenTicketStatus)
+	// Chat do cliente e consentimento de acesso remoto. Autenticados por
+	// device_id + device_token no corpo, como os demais endpoints de
+	// dispositivo — o cliente não tem sessão de técnico.
+	mux.HandleFunc("POST /api/v1/support/client/tickets/thread", s.ClientTicketThread)
+	mux.HandleFunc("POST /api/v1/support/client/tickets/remote-access", s.ClientRespondRemoteAccess)
+	// Entrada do cliente particular. Público como os demais endpoints de
+	// dispositivo (autenticado por device_id + device_token no corpo): o device
+	// ainda é guest, logo não tem túnel e não pode passar por private().
+	mux.HandleFunc("POST /api/v1/pairing/standalone-bind", s.StandaloneBindDevice)
 
 	jwtAuth := middleware.RequireAuth(s.Cfg.JWTSecret)
 	auth := func(h http.Handler) http.Handler {
@@ -117,6 +127,9 @@ func NewRouter(s *Server) http.Handler {
 	mux.Handle("GET /api/v1/support/tickets", private(auth(http.HandlerFunc(s.ListTickets))))
 	mux.Handle("POST /api/v1/support/tickets/{id}/messages", private(auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.AddTicketMessage(w, r, r.PathValue("id"))
+	}))))
+	mux.Handle("POST /api/v1/support/tickets/{id}/remote-access", private(auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.RequestRemoteAccess(w, r, r.PathValue("id"))
 	}))))
 	mux.Handle("POST /api/v1/support/tickets/{id}/transition", private(auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.TransitionTicket(w, r, r.PathValue("id"))

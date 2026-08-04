@@ -60,74 +60,36 @@ func submitTechnicianWGKey(serverURL, token string, pub wgKey) (*wgKeyResponse, 
 	return &out, nil
 }
 
-// runTechnician dá ao Técnico (Hub) seu próprio túnel WireGuard —
-// identidade, adaptador ("tgdesk-tech0") e pool de IP (10.70.1.x)
-// completamente independentes do papel Host que este mesmo binário também
-// sabe desempenhar (ver ARCHITECTURE_FLOW.md, Seção 3).
+// runTechnician não sobe mais túnel próprio.
+//
+// O TGDesk é uma base só: todo dispositivo tem UM adaptador ("tgdesk0") e um
+// endereço na VPN. Papel — cliente, técnico, supervisor, admin — é decidido
+// pelo servidor a partir da credencial apresentada, nunca pela rede.
+//
+// Antes existia um segundo adaptador ("TGDesk-Tech", pool 10.70.1.x) para o
+// papel Técnico. Isso deixava a mesma máquina com duas rotas para
+// 10.70.0.0/16, resolvidas por métrica do Windows, tornando imprevisível qual
+// endereço originava o tráfego — e o isolamento por subrede depende de saber
+// exatamente isso.
+//
+// Mantido como ponto de entrada porque o serviço Windows e o Hub ainda o
+// invocam: garante que o túnel do dispositivo está de pé, e é por ele que o
+// técnico alcança o hub.
 func runTechnician(args []string) int {
 	if !isElevated() {
 		elevateAndRestart()
 		return 0
 	}
-	if !acquireTechnicianSingleton() {
-		log.Println("túnel do técnico já está ativo")
-		return 0
-	}
 	fs := flag.NewFlagSet("technician", flag.ExitOnError)
-	server := fs.String("server", os.Getenv("TGDESK_SERVER"), "URL do api-core")
-	token := fs.String("token", os.Getenv("TGDESK_TOKEN"), "JWT do técnico logado no Hub")
+	_ = fs.String("server", os.Getenv("TGDESK_SERVER"), "URL do api-core")
+	_ = fs.String("token", os.Getenv("TGDESK_TOKEN"), "JWT do técnico logado no Hub")
 	_ = fs.Parse(args)
-	if *server == "" {
-		*server = "http://127.0.0.1:8090"
-	}
-	if *token == "" {
-		log.Println("faltou --token (ou TGDESK_TOKEN) — o Hub deve passar o JWT do login")
-		return 1
-	}
 
-	cfg := loadTechnicianConfig()
-	var priv wgKey
-	if cfg.PrivateKey == "" {
-		k, err := generateKey()
-		if err != nil {
-			log.Printf("gerar chave: %v", err)
-			return 1
-		}
-		priv = k
-	} else {
-		k, err := decodeBase64Key(cfg.PrivateKey)
-		if err != nil {
-			log.Printf("chave salva inválida: %v", err)
-			return 1
-		}
-		priv = k
+	// Remove o adaptador antigo, se a máquina vem de uma versão anterior: duas
+	// rotas para o mesmo /16 é justamente o que estamos eliminando.
+	if err := stopWireGuardNT("TGDesk-Tech"); err == nil {
+		log.Println("adaptador TGDesk-Tech removido — o técnico passa a usar o túnel do dispositivo")
 	}
-
-	hubCfg, err := submitTechnicianWGKey(*server, *token, priv.public())
-	if err != nil {
-		log.Printf("registrar chave no servidor: %v", err)
-		return 1
-	}
-	cfg.PrivateKey = priv.base64()
-	cfg.VirtualIP = hubCfg.VirtualIP
-	saveTechnicianConfig(cfg)
-	log.Printf("túnel do técnico: IP virtual %s (hub %s em %s)", hubCfg.VirtualIP, hubCfg.HubVirtualIP, hubCfg.HubEndpoint)
-
-	hubPub, err := decodeBase64Key(hubCfg.HubPublicKey)
-	if err != nil {
-		log.Printf("chave do hub inválida: %v", err)
-		return 1
-	}
-	log.Println("criando adaptador WireGuardNT TGDesk-Tech")
-	if err := startWireGuardNT("TGDesk-Tech", tgdeskTechAdapterGUID, priv, hubPub, hubCfg.HubEndpoint); err != nil {
-		log.Printf("subir túnel WireGuardNT: %v", err)
-		return 1
-	}
-
-	if err := assignWindowsIP("TGDesk-Tech", hubCfg.VirtualIP); err != nil {
-		log.Printf("aviso: configure o IP manualmente: netsh interface ip set address name=\"TGDesk-Tech\" static %s 255.255.0.0", hubCfg.VirtualIP)
-	}
-
-	log.Println("túnel WireGuardNT do técnico ativo — hbbs/hbbr agora alcançáveis pela VPN")
-	select {}
+	log.Println("papel de técnico usa o túnel do dispositivo (tgdesk0); nenhum adaptador adicional é criado")
+	return 0
 }

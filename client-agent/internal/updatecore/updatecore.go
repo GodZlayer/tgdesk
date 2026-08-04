@@ -107,6 +107,7 @@ type ProgressEvent struct {
 type ProgressReporter func(ProgressEvent)
 
 func reportProgress(report ProgressReporter, percent int, message string) {
+	log.Printf("update: %d%% - %s", percent, message)
 	if report != nil {
 		report(ProgressEvent{Percent: percent, Message: message})
 	}
@@ -327,18 +328,16 @@ func selectChangedModules(manifest moduleManifest, installDir string) (
 // hospedeiro); usamos esse diretório, não o executável em si, para montar o
 // caminho do tgdesk-updater.exe.
 func launchStagedUpdaterElevated(staging, installDir string, parentPID uint32) error {
-	installedUpdater := filepath.Join(installDir, "tgdesk-updater.exe")
-	if info, err := os.Stat(installedUpdater); err != nil || info.IsDir() {
+	// tgdesk-updater.exe roda direto do diretório de instalação. A cópia pra
+	// uma pasta runtime com nome aleatório só fazia sentido se o próprio
+	// updater pudesse ser substituído por uma atualização modular — mas ele
+	// é deliberadamente excluído do pacote modular (por design, sempre foi
+	// assim) e nunca se auto-atualiza. Manter a cópia só adicionava um
+	// arquivo recém-criado sem reputação, alvo fácil do SmartScreen/Defender,
+	// sem nenhum ganho real.
+	updaterExe := filepath.Join(installDir, "tgdesk-updater.exe")
+	if info, err := os.Stat(updaterExe); err != nil || info.IsDir() {
 		return fmt.Errorf("atualizador standalone ausente: %w", err)
-	}
-	runtimeDir := filepath.Join(DataDir(), "updates", "runtime")
-	if err := os.MkdirAll(runtimeDir, 0700); err != nil {
-		return err
-	}
-	updaterExe := filepath.Join(runtimeDir,
-		fmt.Sprintf("tgdesk-updater-%d.exe", time.Now().UnixNano()))
-	if err := copyFile(installedUpdater, updaterExe); err != nil {
-		return fmt.Errorf("nao foi possivel preparar a GUI do atualizador: %w", err)
 	}
 	readyFile := filepath.Join(filepath.Dir(staging),
 		fmt.Sprintf("updater-ui-ready-%d.signal", os.Getpid()))
@@ -364,7 +363,7 @@ func launchStagedUpdaterElevated(staging, installDir string, parentPID uint32) e
 	if err != nil {
 		return err
 	}
-	dir, err := syscall.UTF16PtrFromString(runtimeDir)
+	dir, err := syscall.UTF16PtrFromString(installDir)
 	if err != nil {
 		return err
 	}

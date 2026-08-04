@@ -38,6 +38,7 @@ func (s *Server) ReportTelemetry(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "falha ao gravar telemetria")
 		return
 	}
+	s.rollHardwareJSON(r.Context(), req.DeviceID, req.Hardware)
 	writeJSON(w, http.StatusOK, map[string]any{
 		"status": "ok", "statistics": s.hardwareStatistics(r.Context(), req.DeviceID),
 	})

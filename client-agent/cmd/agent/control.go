@@ -27,7 +27,15 @@ func privateControlURL(cfg *agentConfig) string {
 
 // runDeviceControlLoop substitui heartbeat e telemetria HTTP depois que a
 // VPN está disponível. O retorno sempre significa que o canal privado caiu.
+// uiChannel é a ponte com as telas desta máquina. Vive fora do laço porque o
+// canal com o servidor pode cair e reconectar, e a tela não deve perceber.
+var uiChannel = newUIBridge()
+
+// UIBridgePort é a porta local onde a tela encontra o agente.
+const UIBridgePort = 47615
+
 func runDeviceControlLoop(cfg *agentConfig, remoteReady bool) error {
+	_ = uiChannel.Listen(UIBridgePort)
 	conn, _, err := websocket.DefaultDialer.Dial(privateControlURL(cfg), nil)
 	if err != nil {
 		return fmt.Errorf("conectar controle privado: %w", err)
@@ -51,6 +59,11 @@ func runDeviceControlLoop(cfg *agentConfig, remoteReady bool) error {
 			if err := conn.ReadJSON(&msg); err != nil {
 				readErr <- err
 				return
+			}
+			// Respostas de RPC e eventos do chamado seguem para a tela pela
+			// ponte local: um canal só com o servidor, várias telas possíveis.
+			if msg.Type == "rpc_response" || msg.Type == "ticket_thread" {
+				uiChannel.Broadcast(msg)
 			}
 			if msg.Type == "telemetry_stats" {
 				select {
@@ -180,6 +193,11 @@ func runDeviceControlLoop(cfg *agentConfig, remoteReady bool) error {
 		select {
 		case err := <-readErr:
 			return err
+		case fromUI := <-uiChannel.outbound:
+			// A tela fala com o servidor por este canal — nunca por fora dele.
+			if conn.WriteMessage(websocket.TextMessage, fromUI) != nil {
+				return fmt.Errorf("canal privado caiu ao encaminhar a tela")
+			}
 		case statistics = <-statsCh:
 			writeCurrentStatus()
 		case branding = <-brandingCh:

@@ -1,5 +1,5 @@
 param(
-    [string]$ExpectedVersion = '1.1.29',
+    [string]$ExpectedVersion = '1.1.33',
     [switch]$RequireInstalledClient
 )
 
@@ -40,10 +40,10 @@ Add-Check 'updater.realtime_status_gui' `
      ($updaterUI -match 'ApplyStagedOfflineWithProgress') -and
      ($updaterUI -match 'msctls_progress32')) 'native status window'
 $updateCore = Get-Content (Join-Path $root 'client-agent\internal\updatecore\updatecore.go') -Raw
-Add-Check 'updater.runs_from_external_copy' `
-    (($updateCore -match 'updates", "runtime"') -and
-     ($updateCore -match 'copyFile\(installedUpdater, updaterExe\)')) `
-    'external GUI runtime copy permits safe updater replacement'
+Add-Check 'updater.runs_from_install_dir' `
+    (($updateCore -match 'updaterExe := filepath\.Join\(installDir, "tgdesk-updater\.exe"\)') -and
+     ($updateCore -notmatch 'copyFile\(installedUpdater, updaterExe\)')) `
+    'no unsigned random-named copy — runs the installed exe directly, avoiding SmartScreen churn'
 Add-Check 'updater.windows_replace_checks_remove' `
     (($updateCore -match 'removeErr = os\.Remove\(target\)') -and
      ($updateCore -match 'if removeErr != nil')) `

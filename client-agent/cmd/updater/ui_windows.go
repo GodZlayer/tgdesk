@@ -4,7 +4,9 @@ package main
 
 import (
 	"fmt"
+	"log"
 	"os"
+	"path/filepath"
 	"runtime"
 	"sync/atomic"
 	"syscall"
@@ -172,6 +174,7 @@ func (w *updaterWindow) update(event updatecore.ProgressEvent) {
 }
 
 func (w *updaterWindow) complete() {
+	log.Println("update: concluido com sucesso")
 	w.update(updatecore.ProgressEvent{Percent: 100, Message: "Atualizacao concluida. O TGDesk foi iniciado."})
 	time.Sleep(1800 * time.Millisecond)
 	windowFinished.Store(true)
@@ -179,6 +182,7 @@ func (w *updaterWindow) complete() {
 }
 
 func (w *updaterWindow) fail(err error) {
+	log.Printf("update: FALHOU: %v", err)
 	w.update(updatecore.ProgressEvent{Percent: 100, Message: "A atualizacao falhou. A versao anterior foi preservada."})
 	procMessageBox.Call(uintptr(w.hwnd), uintptr(unsafe.Pointer(utf16(err.Error()))),
 		uintptr(unsafe.Pointer(utf16("Falha na atualizacao do TGDesk"))), 0x10)
@@ -186,7 +190,28 @@ func (w *updaterWindow) fail(err error) {
 	procPostMessage.Call(uintptr(w.hwnd), wmClose, 0, 0)
 }
 
+func openUpdaterLog() *os.File {
+	base := os.Getenv("ProgramData")
+	if base == "" {
+		base = `C:\ProgramData`
+	}
+	logDir := filepath.Join(base, "TGDesk", "logs")
+	_ = os.MkdirAll(logDir, 0755)
+	logFile, err := os.OpenFile(filepath.Join(logDir, "update.log"),
+		os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		return nil
+	}
+	log.SetOutput(logFile)
+	return logFile
+}
+
 func runApplyStagedWithStatus(staging, installDir string, parentPID uint32, readyFile string) error {
+	if logFile := openUpdaterLog(); logFile != nil {
+		defer logFile.Close()
+	}
+	log.Printf("update: tgdesk-updater.exe iniciado (staging=%s install-dir=%s parent=%d)",
+		staging, installDir, parentPID)
 	windowFinished.Store(false)
 	w, windowErr := newUpdaterWindow()
 	if windowErr != nil {

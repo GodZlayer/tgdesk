@@ -1,6 +1,6 @@
 param(
     [Parameter(Mandatory = $false)]
-    [string]$Version = '1.1.29',
+    [string]$Version = '1.1.33',
     [Parameter(Mandatory = $false)]
     [string]$Source = '',
     [Parameter(Mandatory = $false)]

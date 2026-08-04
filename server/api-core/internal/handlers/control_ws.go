@@ -80,6 +80,52 @@ func (s *Server) DeviceControlWS(w http.ResponseWriter, r *http.Request) {
 		"payload": map[string]any{"branding": branding},
 	})
 
+	// Dado no TGDesk é tempo real. O chat do cliente e o aviso de acesso remoto
+	// chegam por push neste mesmo canal, em vez de a tela ficar perguntando ao
+	// servidor de tempos em tempos.
+	//
+	// WriteJSON não é seguro para uso concorrente, e este canal já escreve do
+	// laço principal — daí o mutex.
+	var writeMu sync.Mutex
+	pushWrite := func(v any) error {
+		writeMu.Lock()
+		defer writeMu.Unlock()
+		return conn.WriteJSON(v)
+	}
+	chatSub := presence.Subscribe(r.Context(), s.RDB)
+	defer chatSub.Close()
+	go func() {
+		for raw := range chatSub.Channel() {
+			var evt presence.Event
+			if json.Unmarshal([]byte(raw.Payload), &evt) != nil {
+				continue
+			}
+			switch evt.Type {
+			case "client_message", "remote_access_requested", "remote_access_response":
+			default:
+				continue
+			}
+			// TargetID é o chamado; só interessa se for um chamado deste
+			// dispositivo.
+			var pertence bool
+			if s.Pool.QueryRow(context.Background(), `
+				SELECT true FROM support_tickets
+				WHERE id=$1 AND opened_by_device_id=$2`,
+				evt.TargetID, deviceID).Scan(&pertence) != nil {
+				continue
+			}
+			// Empurra a conversa INTEIRA, não um aviso de "vá buscar". Mandar
+			// um sinalizador que dispara uma requisição de leitura é polling
+			// disfarçado — a informação viaja por aqui, completa.
+			thread := s.clientThreadPayload(context.Background(), evt.TargetID)
+			if pushWrite(map[string]any{
+				"type": "ticket_thread", "id": evt.TargetID, "payload": thread,
+			}) != nil {
+				return
+			}
+		}
+	}()
+
 	for {
 		_ = conn.SetReadDeadline(time.Now().Add(45 * time.Second))
 		var msg controlMessage
@@ -91,6 +137,33 @@ func (s *Server) DeviceControlWS(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		switch msg.Type {
+		case "rpc":
+			// Mesma primitiva de RPC do canal com credencial de técnico. O
+			// TGDesk é uma base só: o transporte é sempre este canal, e a
+			// credencial apresentada é que define o que pode ser feito nele.
+			// Aqui a credencial é a do dispositivo, então o que se libera são
+			// as operações do próprio dispositivo — pedir atendimento,
+			// conversar no chamado, responder o pedido de acesso remoto.
+			if msg.ID == "" || !deviceRPCPath(msg.Path) {
+				continue
+			}
+			body := mergeDeviceCredential(msg.Payload, deviceID, token)
+			req := httptest.NewRequest(msg.Method, "http://10.70.0.1"+msg.Path,
+				bytes.NewReader(body))
+			req.RemoteAddr = "10.70.0.2:1"
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			NewRouter(s).ServeHTTP(rec, req)
+			var payload any
+			if rec.Body.Len() != 0 {
+				if json.Unmarshal(rec.Body.Bytes(), &payload) != nil {
+					payload = rec.Body.String()
+				}
+			}
+			if pushWrite(map[string]any{"type": "rpc_response", "id": msg.ID,
+				"status": rec.Code, "payload": payload}) != nil {
+				return
+			}
 		case "heartbeat":
 			var capabilities presence.Capabilities
 			_ = json.Unmarshal(msg.Payload, &capabilities)
@@ -109,13 +182,13 @@ func (s *Server) DeviceControlWS(w http.ResponseWriter, r *http.Request) {
 						"remote_ready": capabilities.RemoteReady,
 						"files_ready":  capabilities.FilesReady,
 					}})
-			_ = conn.WriteJSON(map[string]any{
+			_ = pushWrite(map[string]any{
 				"type": "heartbeat_ack", "state": state,
 				"version": os.Getenv("CLIENT_VERSION"),
 			})
 			if latestBranding, latestSignature := s.deviceBranding(r.Context(), deviceID); brandingChanged(brandSignature, latestSignature) {
 				brandSignature = latestSignature
-				_ = conn.WriteJSON(map[string]any{
+				_ = pushWrite(map[string]any{
 					"type": "branding", "payload": latestBranding,
 				})
 			}
@@ -125,7 +198,7 @@ func (s *Server) DeviceControlWS(w http.ResponseWriter, r *http.Request) {
 				WHERE device_id=$1 AND status='cancelled'
 				  AND started_at IS NOT NULL AND finished_at IS NULL
 				ORDER BY created_at LIMIT 1`, deviceID).Scan(&cancelledRunID) == nil {
-				_ = conn.WriteJSON(map[string]any{
+				_ = pushWrite(map[string]any{
 					"type": "diagnostic_cancel", "id": cancelledRunID,
 				})
 			}
@@ -134,7 +207,7 @@ func (s *Server) DeviceControlWS(w http.ResponseWriter, r *http.Request) {
 				SELECT id,status FROM diagnostic_runs
 				WHERE device_id=$1 AND status IN ('running','paused')
 				ORDER BY created_at LIMIT 1`, deviceID).Scan(&activeRunID, &activeRunStatus) == nil {
-				_ = conn.WriteJSON(map[string]any{
+				_ = pushWrite(map[string]any{
 					"type": "diagnostic_pause", "id": activeRunID,
 					"payload": map[string]any{"paused": activeRunStatus == "paused"},
 				})
@@ -157,7 +230,7 @@ func (s *Server) DeviceControlWS(w http.ResponseWriter, r *http.Request) {
 				var selected []string
 				_ = json.Unmarshal(tests, &selected)
 				if len(selected) > 0 {
-					_ = conn.WriteJSON(map[string]any{
+					_ = pushWrite(map[string]any{
 						"type": "diagnostic_run", "id": runID,
 						"payload": map[string]any{"tests": selected},
 					})
@@ -180,8 +253,11 @@ func (s *Server) DeviceControlWS(w http.ResponseWriter, r *http.Request) {
 					DELETE FROM telemetry_snapshots
 					WHERE coletado_em < now()-interval '30 days'`,
 					deviceID, payload.Hardware)
+				if encoded, mErr := json.Marshal(payload.Hardware); mErr == nil {
+					s.rollHardwareJSON(r.Context(), deviceID, encoded)
+				}
 				stats := s.hardwareStatistics(r.Context(), deviceID)
-				_ = conn.WriteJSON(map[string]any{"type": "telemetry_stats", "payload": stats})
+				_ = pushWrite(map[string]any{"type": "telemetry_stats", "payload": stats})
 				_ = presence.Publish(r.Context(), s.RDB,
 					presence.Event{Type: "telemetry", TargetID: deviceID, Payload: map[string]any{
 						"hardware": payload.Hardware, "statistics": stats,
@@ -400,6 +476,33 @@ func (s *Server) TechnicianControlWS(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+// deviceRPCPath são as operações que a credencial de dispositivo libera no
+// canal. É o mesmo mecanismo de privateRPCPath, com o alcance que este nível
+// de permissão concede.
+func deviceRPCPath(path string) bool {
+	return strings.HasPrefix(path, "/api/v1/support/client/")
+}
+
+// mergeDeviceCredential injeta a identidade do dispositivo no corpo da chamada.
+//
+// Quem já provou quem é ao abrir o canal não precisa repetir a credencial a
+// cada mensagem — e, mais importante, não deve poder informar OUTRA: sem isso,
+// um dispositivo poderia agir em nome de outro simplesmente escrevendo outro
+// device_id no corpo.
+func mergeDeviceCredential(payload json.RawMessage, deviceID, token string) []byte {
+	body := map[string]any{}
+	if len(payload) > 0 {
+		_ = json.Unmarshal(payload, &body)
+	}
+	body["device_id"] = deviceID
+	body["device_token"] = token
+	encoded, err := json.Marshal(body)
+	if err != nil {
+		return []byte("{}")
+	}
+	return encoded
+}
+
 func privateRPCPath(path string) bool {
 	for _, prefix := range []string{
 		"/api/v1/pairing/", "/api/v1/devices", "/api/v1/organizations",
@@ -527,7 +630,7 @@ func (s *Server) controlSnapshot(ctx context.Context, technicianID, role string)
 			capabilities := presence.GetCapabilities(ctx, s.RDB, d.ID)
 			d.RemoteReady = capabilities.RemoteReady
 			d.FilesReady = capabilities.FilesReady
-			d.HealthLevel, _ = s.recentHardwareHealth(ctx, d.ID)["level"].(string)
+			d.HealthLevel = s.readHealthLevel(ctx, d.ID)
 			d.CanManage, _ = s.Authorizer.CanManageDevice(ctx, &tgauth.Claims{
 				TechnicianID: technicianID,
 				Role:         role,
