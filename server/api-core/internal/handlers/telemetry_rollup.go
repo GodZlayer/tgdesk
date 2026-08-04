@@ -112,7 +112,7 @@ func (s *Server) metricWindow(ctx context.Context, deviceID, metrica string, hor
 		       coalesce(sum(acima_75),0), coalesce(sum(acima_85),0), coalesce(sum(acima_95),0)
 		FROM device_metric_rollup
 		WHERE device_id=$1 AND metrica=$2
-		  AND bucket_hora >= date_trunc('hour', now()) - ($3 || ' hours')::interval`,
+		  AND bucket_hora >= date_trunc('hour', now()) - make_interval(hours => $3)`,
 		deviceID, metrica, horas).Scan(&w.Samples, &soma, &pico, &a75, &a85, &a95)
 	if err != nil || w.Samples == 0 {
 		return janelaMetrica{}
