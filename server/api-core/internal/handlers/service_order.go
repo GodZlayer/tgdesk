@@ -127,6 +127,70 @@ func (s *Server) FinishServiceOrder(w http.ResponseWriter, r *http.Request, tick
 	})
 }
 
+// RecordServiceOrderStep registra uma etapa da execução entre o início e o
+// fim — assinatura do cliente, foto de chegada, o que a operação exigir.
+//
+// As etapas são abertas de propósito: o dono do produto disse que outras podem
+// aparecer, então cada uma é um evento no histórico do chamado em vez de uma
+// coluna nova a cada ideia.
+func (s *Server) RecordServiceOrderStep(w http.ResponseWriter, r *http.Request, ticketID string) {
+	c := middleware.ClaimsFrom(r.Context())
+	var req struct {
+		Etapa string         `json:"etapa"`
+		Dados map[string]any `json:"dados"`
+	}
+	if json.NewDecoder(r.Body).Decode(&req) != nil || req.Etapa == "" {
+		writeErr(w, http.StatusBadRequest, "etapa é obrigatória")
+		return
+	}
+	var osStatus string
+	if s.Pool.QueryRow(r.Context(), `
+		SELECT status FROM service_orders
+		WHERE ticket_id=$1 AND assigned_technician_id=$2`,
+		ticketID, c.TechnicianID).Scan(&osStatus) != nil {
+		writeErr(w, http.StatusForbidden, "esta OS não está atribuída a você")
+		return
+	}
+	if osStatus != "in_progress" {
+		writeErr(w, http.StatusConflict, "a execução precisa estar em andamento")
+		return
+	}
+	if req.Dados == nil {
+		req.Dados = map[string]any{}
+	}
+	req.Dados["etapa"] = req.Etapa
+	s.registrarEventoOS(r.Context(), ticketID, c.TechnicianID, "os_step", req.Dados)
+	s.publishTicket(r, ticketID, "os_step", map[string]any{"etapa": req.Etapa})
+	writeJSON(w, http.StatusOK, map[string]any{"etapa": req.Etapa, "registrada": true})
+}
+
+// serviceOrderResumo devolve o estado da OS para a tela do cliente: em que
+// ponto do atendimento está e o que se espera dele.
+func (s *Server) serviceOrderResumo(ctx context.Context, ticketID string) map[string]any {
+	var status, tipo, escopo string
+	var agendada *time.Time
+	if s.Pool.QueryRow(ctx, `
+		SELECT status,os_type,coalesce(scope_notes,''),scheduled_at
+		FROM service_orders WHERE ticket_id=$1`, ticketID).
+		Scan(&status, &tipo, &escopo, &agendada) != nil {
+		return nil
+	}
+	resumo := map[string]any{"status": status, "tipo": tipo, "escopo": escopo}
+	if agendada != nil {
+		resumo["agendada_para"] = agendada.UTC().Format(time.RFC3339)
+	}
+	if status == "awaiting_confirmation" {
+		pendentes, _ := s.confirmacoesPendentes(ctx, ticketID)
+		resumo["confirmacoes_pendentes"] = pendentes
+		for _, p := range pendentes {
+			if p == "cliente" {
+				resumo["aguarda_sua_confirmacao"] = true
+			}
+		}
+	}
+	return resumo
+}
+
 // confirmacoesPendentes devolve quais papéis ainda precisam confirmar.
 //
 // Empresarial exige técnico e supervisor. Avulso exige também o cliente — é o

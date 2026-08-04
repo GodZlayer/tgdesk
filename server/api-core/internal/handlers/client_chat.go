@@ -117,10 +117,16 @@ func (s *Server) clientThreadPayload(ctx context.Context, ticketID string) map[s
 	_ = s.Pool.QueryRow(ctx,
 		`SELECT protocol,status FROM support_tickets WHERE id=$1`, ticketID).
 		Scan(&protocol, &status)
-	return map[string]any{
+	payload := map[string]any{
 		"open": true, "id": ticketID, "protocol": protocol, "status": status,
 		"messages": mensagens, "remote_access_requests": pedidos,
 	}
+	// Estado da OS: a tela precisa saber se o atendimento está agendado, em
+	// execução, ou esperando a confirmação dele para encerrar.
+	if os := s.serviceOrderResumo(ctx, ticketID); os != nil {
+		payload["service_order"] = os
+	}
+	return payload
 }
 
 type clientConsentRequest struct {

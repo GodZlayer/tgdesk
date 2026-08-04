@@ -1219,8 +1219,14 @@ func (s *Server) SetFreelancerAvailability(w http.ResponseWriter, r *http.Reques
 type supervisorTicketRequest struct {
 	DeviceID       string         `json:"device_id"`
 	Title          string         `json:"title"`
-	StructuredData map[string]any `json:"structured_data"`
 	Modality       string         `json:"modality"`
+	StructuredData map[string]any `json:"structured_data"`
+	// Chamado aberto pelo supervisor já nasce como OS: se ele está abrindo, é
+	// porque o caso precisa de um técnico em campo. Estes campos definem a OS
+	// que vai direto para a fila dos técnicos.
+	ScopeNotes        string         `json:"scope_notes"`
+	ScheduledAt       *time.Time     `json:"scheduled_at"`
+	ScheduledLocation map[string]any `json:"scheduled_location"`
 }
 
 // SupervisorOpenTicket lets a supervisor open a ticket directly against a
@@ -1263,16 +1269,34 @@ func (s *Server) SupervisorOpenTicket(w http.ResponseWriter, r *http.Request) {
 	}
 	var id string
 	err = s.Pool.QueryRow(r.Context(), `
-		INSERT INTO support_tickets(organization_id,network_id,device_id,supervisor_id,title,structured_data,modality,standalone)
-		VALUES($1,$2,$3,$4,$5,$6,$7,false) RETURNING id`,
+		INSERT INTO support_tickets(organization_id,network_id,device_id,supervisor_id,title,structured_data,modality,standalone,status)
+		VALUES($1,$2,$3,$4,$5,$6,$7,false,'accepted') RETURNING id`,
 		orgID, netID, req.DeviceID, c.TechnicianID, strings.TrimSpace(req.Title), req.StructuredData, req.Modality).Scan(&id)
 	if err != nil {
 		writeErr(w, 500, "falha ao abrir chamado")
 		return
 	}
-	_, _ = s.Pool.Exec(r.Context(), `INSERT INTO ticket_events(ticket_id,actor_technician_id,event_type,payload) VALUES($1,$2,'opened',$3)`, id, c.TechnicianID, map[string]any{"modality": req.Modality, "standalone": false})
-	s.publishTicket(r, id, "ticket_created", map[string]any{"status": "open", "standalone": false})
-	writeJSON(w, http.StatusCreated, map[string]any{"id": id, "status": "open"})
+	_, _ = s.Pool.Exec(r.Context(), `INSERT INTO ticket_events(ticket_id,actor_technician_id,event_type,payload) VALUES($1,$2,'opened',$3)`, id, c.TechnicianID, map[string]any{"modality": req.Modality, "standalone": false, "origem": "supervisor"})
+
+	// Já vira OS e entra na fila dos técnicos: um chamado aberto pelo
+	// supervisor pressupõe atendimento em campo, então esperar um segundo
+	// comando para converter seria só uma etapa vazia.
+	if req.ScheduledLocation == nil {
+		req.ScheduledLocation = map[string]any{}
+	}
+	escopo := strings.TrimSpace(req.ScopeNotes)
+	if escopo == "" {
+		escopo = strings.TrimSpace(req.Title)
+	}
+	var osID string
+	if s.Pool.QueryRow(r.Context(), `
+		INSERT INTO service_orders(ticket_id,os_type,scope_notes,scheduled_at,scheduled_location,status)
+		VALUES($1,$2,$3,$4,$5,'offered') RETURNING id`,
+		id, req.Modality, escopo, req.ScheduledAt, req.ScheduledLocation).Scan(&osID) == nil {
+		s.dispatchToFreelancers(r.Context(), id)
+	}
+	s.publishTicket(r, id, "ticket_created", map[string]any{"status": "offered", "standalone": false, "service_order_id": osID})
+	writeJSON(w, http.StatusCreated, map[string]any{"id": id, "status": "offered", "service_order_id": osID})
 }
 
 func parseIntDefault(raw string, fallback int) int {

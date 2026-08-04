@@ -136,6 +136,9 @@ func NewRouter(s *Server) http.Handler {
 	mux.Handle("POST /api/v1/support/tickets/{id}/os/start", private(auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.StartServiceOrder(w, r, r.PathValue("id"))
 	}))))
+	mux.Handle("POST /api/v1/support/tickets/{id}/os/step", private(auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.RecordServiceOrderStep(w, r, r.PathValue("id"))
+	}))))
 	mux.Handle("POST /api/v1/support/tickets/{id}/os/finish", private(auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.FinishServiceOrder(w, r, r.PathValue("id"))
 	}))))
