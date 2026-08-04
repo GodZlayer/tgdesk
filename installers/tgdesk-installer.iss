@@ -3,8 +3,11 @@
 ; uso único validada pelo servidor dentro do próprio TGDesk.
 
 #define MyAppName "TGDesk"
-#define MyAppVersion "1.1.21"
+#define MyAppVersion "1.1.29"
 #define MyAppPublisher "TGDesk"
+#ifndef TGDeskServerHost
+  #define TGDeskServerHost "127.0.0.1"
+#endif
 
 [Setup]
 AppId={{A582695B-1F46-4D8D-A434-9B0D2F42D6A8}
@@ -16,7 +19,7 @@ DefaultGroupName=TGDesk
 DisableProgramGroupPage=yes
 PrivilegesRequired=admin
 OutputDir=.\output
-OutputBaseFilename=tgdesk-installer-1.1.21
+OutputBaseFilename=tgdesk-installer-1.1.29
 Compression=lzma2
 SolidCompression=yes
 ArchitecturesInstallIn64BitMode=x64compatible
@@ -76,7 +79,7 @@ Root: HKCU; Subkey: "SOFTWARE\TGDesk"; ValueType: dword; ValueName: "StartWithWi
 [Code]
 const
   ControlInstallUrl =
-    'http://127.0.0.1:8090/api/v1/auth/control-key/install';
+    'http://{#TGDeskServerHost}:8090/api/v1/auth/control-key/install';
 
 var
   PreserveIdentityPage: TInputOptionWizardPage;
@@ -276,7 +279,10 @@ begin
     Wintun, deixando o driver em uso e preso em STATUS_WAIT_2. }
   Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
     '-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "' +
-    '$names=@(''TGDesk'',''TGDeskService'',''TGDeskHost'');' +
+    '$names=@(Get-Service -ErrorAction SilentlyContinue | ' +
+    'Where-Object { $_.Name -match ''^TGDesk'' } | Select-Object -ExpandProperty Name);' +
+    '$names += @(''TGDesk'',''TGDeskService'',''TGDeskHost'');' +
+    '$names = $names | Select-Object -Unique;' +
     'foreach($n in $names){' +
     'sc.exe failure $n reset= 0 actions= '''' | Out-Null;' +
     'sc.exe config $n start= disabled | Out-Null;' +
@@ -359,6 +365,53 @@ begin
     'SOFTWARE\Microsoft\Windows\CurrentVersion\Uninstall\{3D2C9F41-6A8B-4E7C-BF2D-TGDESK-TECH}_is1');
 end;
 
+{ Varre uma raiz por QUALQUER pasta "TGDesk*", apagando tudo que encontrar
+  exceto o nome exato em SkipExactName (deixe '' para apagar tudo). Usado
+  tanto em Program Files (onde nada precisa ser preservado) quanto em
+  AppData/ProgramData (onde a pasta "TGDesk" exata guarda a identidade
+  Admin/Tech e do dispositivo — essa nunca pode ser varrida por aqui). }
+procedure RemoveLegacyTGDeskFoldersIn(RootPath, SkipExactName: string);
+var
+  FindRec: TFindRec;
+  FullPath: string;
+begin
+  if RootPath = '' then Exit;
+  if FindFirst(RootPath + '\TGDesk*', FindRec) then
+  begin
+    try
+      repeat
+        if (FindRec.Attributes and $10) <> 0 then
+        begin
+          if (SkipExactName = '') or
+              (CompareText(FindRec.Name, SkipExactName) <> 0) then
+          begin
+            FullPath := RootPath + '\' + FindRec.Name;
+            DelTree(FullPath, True, True, True);
+          end;
+        end;
+      until not FindNext(FindRec);
+    finally
+      FindClose(FindRec);
+    end;
+  end;
+end;
+
+{ Cobre toda pasta "TGDesk*" órfã que já existiu: a antiga "TGDesk Client"
+  (sem serviço formal), e resíduos do TGDESKLAB (infraestrutura de VMs de
+  teste removida do código-fonte em 30/07, mas cuja limpeza no Windows nunca
+  chegou a rodar — ver .godzmind/objetivos/obj-20260730-remover-tgdesklab.md).
+  Program Files não tem nada a preservar; em AppData/ProgramData a pasta
+  "TGDesk" exata é pulada porque é onde mora identity/ (technician.dat e
+  device.json) que o resto do instalador já trata com cuidado. }
+procedure RemoveLegacyTGDeskFolders;
+begin
+  RemoveLegacyTGDeskFoldersIn(ExpandConstant('{autopf}'), '');
+  RemoveLegacyTGDeskFoldersIn(ExpandConstant('{pf32}'), '');
+  RemoveLegacyTGDeskFoldersIn(ExpandConstant('{localappdata}'), 'TGDesk');
+  RemoveLegacyTGDeskFoldersIn(ExpandConstant('{userappdata}'), 'TGDesk');
+  RemoveLegacyTGDeskFoldersIn(ExpandConstant('{commonappdata}'), 'TGDesk');
+end;
+
 function PrepareToInstall(var NeedsRestart: Boolean): string;
 begin
   Result := '';
@@ -371,19 +424,28 @@ begin
     StopLegacyTGDesk;
     CleanupProgressPage.SetProgress(1, 3);
     RemoveLegacyUninstallEntries;
+    RemoveLegacyTGDeskFolders;
+    { So apaga identity/ (que guarda tanto technician.dat quanto device.json)
+      quando o usuario ESCOLHEU isso explicitamente na pagina "Manter chave
+      de registro?" - pagina que so aparece se ja existe technician.dat.
+      Quando essa pagina nunca apareceu (ExistingControlIdentity=False, ex:
+      computador que so era Cliente e nunca teve Admin/Tech) a identidade do
+      DISPOSITIVO ja registrado tem que sobreviver de qualquer forma: sem
+      isso o agente esquece quem e, tenta se registrar como novo e o servidor
+      recusa (409) porque o MAC ja pertence a um dispositivo existente. }
     if ExistingControlIdentity and
-        (PreserveIdentityPage.SelectedValueIndex = 0) then
-    begin
-      DelTree(ExpandConstant('{commonappdata}\TGDesk\state'), True, True, True);
-      DelTree(ExpandConstant('{commonappdata}\TGDesk\logs'), True, True, True);
-      DelTree(ExpandConstant('{commonappdata}\TGDesk\updates'), True, True, True);
-    end
-    else
+        (PreserveIdentityPage.SelectedValueIndex = 1) then
     begin
       DelTree(ExpandConstant('{commonappdata}\TGDesk'), True, True, True);
       RegDeleteKeyIncludingSubkeys(HKCU, 'SOFTWARE\TGDesk');
       RegDeleteKeyIncludingSubkeys(HKLM64, 'SOFTWARE\TGDesk');
       RegDeleteKeyIncludingSubkeys(HKLM32, 'SOFTWARE\TGDesk');
+    end
+    else
+    begin
+      DelTree(ExpandConstant('{commonappdata}\TGDesk\state'), True, True, True);
+      DelTree(ExpandConstant('{commonappdata}\TGDesk\logs'), True, True, True);
+      DelTree(ExpandConstant('{commonappdata}\TGDesk\updates'), True, True, True);
     end;
     DelTree(ExpandConstant('{app}'), True, True, True);
     DelTree(ExpandConstant('{autopf}\RustDesk'), True, True, True);

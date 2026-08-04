@@ -32,7 +32,28 @@ if (-not $compiler) {
     throw 'Compilador Inno Setup 6 nao encontrado.'
 }
 
-& $compiler $issPath
+# O instalador precisa validar a chave de controle contra o endereco publico
+# do servidor, nao contra localhost (so funciona quando o instalador roda na
+# propria maquina do servidor). Reaproveita o mesmo host de HUB_PUBLIC_ADDR
+# do .env, ja usado para o hub WireGuard, como unica fonte de verdade.
+$serverHost = '127.0.0.1'
+$envPath = Join-Path $PSScriptRoot '..\server\.env'
+if (Test-Path -LiteralPath $envPath) {
+    $hubLine = Get-Content -LiteralPath $envPath |
+        Where-Object { $_ -match '^\s*HUB_PUBLIC_ADDR\s*=\s*(.+)$' } |
+        Select-Object -First 1
+    if ($hubLine) {
+        $value = ($hubLine -replace '^\s*HUB_PUBLIC_ADDR\s*=\s*', '').Trim()
+        if ($value -match '^([^:]+):') {
+            $serverHost = $Matches[1]
+        } elseif ($value) {
+            $serverHost = $value
+        }
+    }
+}
+Write-Host "Host do servidor para validacao de chave de controle: $serverHost"
+
+& $compiler "/DTGDeskServerHost=$serverHost" $issPath
 if ($LASTEXITCODE -ne 0) {
     throw "Falha ao compilar o instalador $Version."
 }

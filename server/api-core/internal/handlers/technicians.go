@@ -126,6 +126,12 @@ func (s *Server) CreateTechnician(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusInternalServerError, "falha ao vincular organizacao pessoal")
 		return
 	}
+	if _, err = tx.Exec(r.Context(), `
+		INSERT INTO supervisor_profiles(technician_id, rating_avg, rating_count)
+		VALUES ($1, 5.00, 0) ON CONFLICT (technician_id) DO NOTHING`, t.ID); err != nil {
+		writeErr(w, http.StatusInternalServerError, "falha ao criar perfil de supervisor")
+		return
+	}
 	if err = tx.Commit(r.Context()); err != nil {
 		writeErr(w, http.StatusInternalServerError, "falha ao concluir criacao do supervisor")
 		return

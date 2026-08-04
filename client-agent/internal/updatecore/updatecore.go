@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"net/url"
@@ -125,16 +126,17 @@ func UpdateIsNewer(version string) bool {
 // a atualização disponível. Códigos de saída: 0 = já atualizado,
 // 10 = atualização baixada/iniciada, 1 = erro.
 func RunUpdate() int {
+	log.Printf("RunUpdate: versão atual %s", CurrentClientVersion())
 	updating, err := checkAndInstallUpdate()
 	if err != nil {
-		fmt.Println(err.Error())
+		log.Printf("RunUpdate: falhou: %v", err)
 		return 1
 	}
 	if !updating {
-		fmt.Println("O TGDesk já está atualizado.")
+		log.Println("RunUpdate: já está atualizado")
 		return 0
 	}
-	fmt.Println("Atualização baixada e iniciada.")
+	log.Println("RunUpdate: atualização baixada e iniciada")
 	return 10
 }
 
@@ -142,28 +144,29 @@ func RunUpdate() int {
 // Códigos de saída: 0 = atualizado, 10 = tem atualização, 1 = erro.
 func CheckForUpdate() int {
 	client := &http.Client{Timeout: 15 * time.Second}
-	resp, _, err := getUpdate(client, "/api/v1/client/update?version="+CurrentClientVersion())
+	resp, apiBase, err := getUpdate(client, "/api/v1/client/update?version="+CurrentClientVersion())
 	if err != nil {
-		fmt.Println(err.Error())
+		log.Printf("CheckForUpdate: falhou: %v", err)
 		return 1
 	}
 	defer resp.Body.Close()
+	log.Printf("CheckForUpdate: consultou %s, status %d", apiBase, resp.StatusCode)
 	if resp.StatusCode == http.StatusNoContent {
 		return 0
 	}
 	if resp.StatusCode != http.StatusOK {
-		fmt.Printf("consulta retornou status %d\n", resp.StatusCode)
+		log.Printf("CheckForUpdate: consulta retornou status %d", resp.StatusCode)
 		return 1
 	}
 	var info updateInfo
 	if json.NewDecoder(resp.Body).Decode(&info) != nil || info.Version == "" {
-		fmt.Println("metadados inválidos")
+		log.Println("CheckForUpdate: metadados inválidos")
 		return 1
 	}
 	if !updateIsNewer(info.Version) {
 		return 0
 	}
-	fmt.Println(info.Version)
+	log.Printf("CheckForUpdate: nova versão disponível %s", info.Version)
 	return 10
 }
 

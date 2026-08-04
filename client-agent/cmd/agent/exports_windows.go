@@ -8,10 +8,28 @@ package main
 import "C"
 
 import (
+	"log"
 	"os"
+	"path/filepath"
 
 	"tgdesk/agent/internal/updatecore"
 )
+
+// tgdesk.exe --tgdesk-update roda como app grafico (subsystem windows), sem
+// console — fmt.Println nesse caminho nao vai a lugar nenhum e o resultado
+// (sucesso ou falha) ficava totalmente invisivel. Redireciona pro mesmo
+// padrao de log em arquivo usado no resto do agente.
+func openUpdateLog() *os.File {
+	logDir := filepath.Join(updatecore.DataDir(), "logs")
+	_ = os.MkdirAll(logDir, 0755)
+	logFile, err := os.OpenFile(filepath.Join(logDir, "update.log"),
+		os.O_CREATE|os.O_APPEND|os.O_WRONLY, 0644)
+	if err != nil {
+		return nil
+	}
+	log.SetOutput(logFile)
+	return logFile
+}
 
 //export TGDeskAgentHost
 func TGDeskAgentHost(server *C.char, coreExe *C.char) C.int {
@@ -49,10 +67,19 @@ func TGDeskAgentTechnicianService(server *C.char) C.int {
 
 //export TGDeskAgentUpdate
 func TGDeskAgentUpdate(checkOnly C.int) C.int {
-	if checkOnly != 0 {
-		return C.int(updatecore.CheckForUpdate())
+	if logFile := openUpdateLog(); logFile != nil {
+		defer logFile.Close()
 	}
-	return C.int(updatecore.RunUpdate())
+	if checkOnly != 0 {
+		log.Println("--tgdesk-update-check: consultando atualização")
+		result := updatecore.CheckForUpdate()
+		log.Printf("--tgdesk-update-check: código de saída %d", result)
+		return C.int(result)
+	}
+	log.Println("--tgdesk-update: iniciando verificação e aplicação")
+	result := updatecore.RunUpdate()
+	log.Printf("--tgdesk-update: código de saída %d", result)
+	return C.int(result)
 }
 
 //export TGDeskAgentApplyStaged

@@ -201,6 +201,63 @@ func (s *Server) Bind(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"device_id": deviceID, "state": "ativo"})
 }
 
+// SelfBindDevice lets a supervisor or super_admin whose own physical machine
+// also runs the Host/device layer skip the manual pairing-code approval.
+// The technician already proved who they are through the machine-bound
+// enrollment credential (a stronger check than a pairing code); requiring a
+// second human approval for the same machine's device identity is pure
+// friction, not additional security. Binds straight into the caller's own
+// organization, picking its "Principal" network when there is one.
+func (s *Server) SelfBindDevice(w http.ResponseWriter, r *http.Request) {
+	claims := middleware.ClaimsFrom(r.Context())
+	if claims.Role != models.RoleSupervisor && claims.Role != models.RoleSuperAdmin {
+		writeErr(w, http.StatusForbidden, "apenas supervisor ou admin")
+		return
+	}
+	var req struct {
+		PairingCode string `json:"pairing_code"`
+	}
+	if json.NewDecoder(r.Body).Decode(&req) != nil || req.PairingCode == "" {
+		writeErr(w, http.StatusBadRequest, "pairing_code é obrigatório")
+		return
+	}
+	var networkID string
+	err := s.Pool.QueryRow(r.Context(), `
+		SELECT n.id FROM networks n JOIN organizations o ON o.id=n.organization_id
+		WHERE o.owner_technician_id=$1 AND n.status='ativa' AND o.status='ativa'
+		ORDER BY (n.name='Principal') DESC, n.created_at LIMIT 1`,
+		claims.TechnicianID).Scan(&networkID)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "nenhuma rede própria encontrada para vincular automaticamente")
+		return
+	}
+	var deviceID string
+	err = s.Pool.QueryRow(r.Context(), `
+		UPDATE devices SET network_id=$1,
+			subnetwork_id=(SELECT id FROM subnetworks WHERE network_id=$1 ORDER BY (name='Principal') DESC,created_at LIMIT 1),
+			state='ativo', pairing_code=NULL, updated_at=now()
+		WHERE pairing_code=$2 AND state='guest'
+		RETURNING id`, networkID, strings.ToUpper(req.PairingCode),
+	).Scan(&deviceID)
+	if err != nil {
+		writeErr(w, http.StatusNotFound, "código de pareamento inválido ou já usado")
+		return
+	}
+	_, _ = s.Pool.Exec(r.Context(), `
+		INSERT INTO device_networks(device_id,network_id) VALUES ($1,$2)
+		ON CONFLICT DO NOTHING`, deviceID, networkID)
+
+	detalhes, _ := json.Marshal(map[string]string{"network_id": networkID, "self_bind": "true"})
+	_, _ = s.Pool.Exec(r.Context(), `
+		INSERT INTO admin_actions (actor_id, tipo, alvo_id, detalhes)
+		VALUES ($1, 'vinculacao', $2, $3::jsonb)`, claims.TechnicianID, deviceID, string(detalhes))
+
+	_ = presence.Publish(r.Context(), s.RDB, presence.Event{Type: "bind", TargetID: deviceID})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"device_id": deviceID, "network_id": networkID, "state": "ativo",
+	})
+}
+
 // ListDevices returns devices visible to the caller, RBAC-filtered by
 // technician_assignments (super_admin sees everything, including unbound guests).
 func (s *Server) ListDevices(w http.ResponseWriter, r *http.Request) {

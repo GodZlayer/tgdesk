@@ -66,6 +66,7 @@ func NewRouter(s *Server) http.Handler {
 
 	// Autenticado — qualquer técnico (RBAC aplicado dentro do handler).
 	mux.Handle("POST /api/v1/pairing/bind", private(auth(http.HandlerFunc(s.Bind))))
+	mux.Handle("POST /api/v1/pairing/self-bind", private(auth(http.HandlerFunc(s.SelfBindDevice))))
 	mux.Handle("GET /api/v1/bootstrap/pairing-context", private(auth(http.HandlerFunc(s.PairingContext))))
 	mux.Handle("GET /api/v1/devices", private(auth(http.HandlerFunc(s.ListDevices))))
 	mux.Handle("PATCH /api/v1/devices/{id}/display-name", private(auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

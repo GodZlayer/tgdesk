@@ -336,11 +336,15 @@ func (a *Authorizer) CanManageTicket(ctx context.Context, claims *Claims, ticket
 
 	case models.RoleSupervisor:
 		var orgID string
+		var supervisorID *string
 		err := a.pool.QueryRow(ctx, `
-			SELECT organization_id FROM support_tickets WHERE id=$1`, ticketID).
-			Scan(&orgID)
+			SELECT organization_id,supervisor_id FROM support_tickets WHERE id=$1`, ticketID).
+			Scan(&orgID, &supervisorID)
 		if err != nil {
 			return false, err
+		}
+		if supervisorID != nil && *supervisorID == claims.TechnicianID {
+			return true, nil
 		}
 		return a.CanAccessOrganization(ctx, claims, orgID)
 
