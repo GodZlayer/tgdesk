@@ -330,6 +330,26 @@ class TgdeskApi {
         body: {'device_id': deviceId, 'device_token': deviceToken},
       ) as Map);
 
+  /// Código que vincula outro supervisor a esta organização. A fila de
+  /// chamados sempre foi da org, então todos os supervisores vinculados veem
+  /// os mesmos chamados ao mesmo tempo.
+  static Future<Map<String, dynamic>> createSupervisorInvite(
+          String organizationId) async =>
+      Map<String, dynamic>.from(await _send(
+              'POST', '/api/v1/organizations/$organizationId/supervisor-invite')
+          as Map);
+
+  static Future<Map<String, dynamic>> redeemSupervisorInvite(
+          String code) async =>
+      Map<String, dynamic>.from(await _send(
+              'POST', '/api/v1/organizations/supervisor-invite/redeem',
+              body: {'code': code}) as Map);
+
+  static Future<List<dynamic>> organizationSupervisors(
+          String organizationId) async =>
+      await _send('GET', '/api/v1/organizations/$organizationId/supervisors')
+          as List<dynamic>;
+
   static Future<Map<String, dynamic>> pairingContext() async =>
       await _send('GET', '/api/v1/bootstrap/pairing-context')
           as Map<String, dynamic>;

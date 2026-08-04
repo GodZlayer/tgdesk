@@ -215,12 +215,18 @@ class _DevicesPageState extends State<DevicesPage> {
             child: Text(org['name'] as String,
                 style: const TextStyle(fontWeight: FontWeight.bold)),
           ),
-          if (org['can_manage'] == true)
+          if (org['can_manage'] == true) ...[
             IconButton(
               icon: const Icon(Icons.add_circle_outline),
               tooltip: 'Criar rede nesta organização',
               onPressed: () => _openCreateNetworkDialog(org),
             ),
+            IconButton(
+              icon: const Icon(Icons.group_add_outlined),
+              tooltip: 'Vincular outro supervisor a esta organização',
+              onPressed: () => _openSupervisorInviteDialog(org),
+            ),
+          ],
         ]),
         subtitle: Text('status: ${org['status']}'),
         children: netsOfOrg.map<Widget>((n) => _buildNetTile(n)).toList(),
@@ -358,6 +364,87 @@ class _DevicesPageState extends State<DevicesPage> {
             style: TextStyle(fontWeight: FontWeight.bold)),
         subtitle: Text('${unbound.length} dispositivo(s) em estado guest'),
         children: unbound.map<Widget>((d) => _buildDeviceTile(d)).toList(),
+      ),
+    );
+  }
+
+  // Uma organização pode ter vários supervisores. A fila de chamados sempre
+  // foi da org, então quem entra passa a ver os mesmos chamados ao mesmo
+  // tempo — não é uma cópia nem um repasse.
+  Future<void> _openSupervisorInviteDialog(dynamic organization) async {
+    final orgId = organization['id'] as String;
+    String? codigo;
+    List<dynamic> supervisores = [];
+    try {
+      supervisores = await TgdeskApi.organizationSupervisors(orgId);
+    } catch (_) {}
+    if (!mounted) return;
+    await showDialog(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setDialog) => AlertDialog(
+          title: Text('Supervisores de ${organization['name']}'),
+          content: SizedBox(
+            width: 460,
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              if (supervisores.isNotEmpty) ...[
+                Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text('Já supervisionam esta organização:',
+                      style: Theme.of(ctx).textTheme.bodySmall),
+                ),
+                const SizedBox(height: 6),
+                ...supervisores.map((s) => ListTile(
+                      dense: true,
+                      leading: Icon(s['dono'] == true
+                          ? Icons.star
+                          : Icons.person_outline),
+                      title: Text(s['username']?.toString() ?? ''),
+                      subtitle: Text(s['dono'] == true
+                          ? 'dono da organização'
+                          : s['role']?.toString() ?? ''),
+                    )),
+                const Divider(),
+              ],
+              const Text(
+                  'Gere um código e entregue ao outro supervisor. Ele resgata '
+                  'na tela Cliente da máquina dele e passa a ver os mesmos '
+                  'chamados desta organização.',
+                  style: TextStyle(fontSize: 12)),
+              const SizedBox(height: 12),
+              if (codigo == null)
+                FilledButton.icon(
+                  icon: const Icon(Icons.key),
+                  label: const Text('Gerar código'),
+                  onPressed: () async {
+                    try {
+                      final r = await TgdeskApi.createSupervisorInvite(orgId);
+                      setDialog(() => codigo = r['code']?.toString());
+                    } catch (e) {
+                      if (ctx.mounted) {
+                        ScaffoldMessenger.of(ctx).showSnackBar(
+                            SnackBar(content: Text(e.toString())));
+                      }
+                    }
+                  },
+                )
+              else
+                Column(children: [
+                  SelectableText(codigo!,
+                      style: const TextStyle(
+                          fontSize: 26, letterSpacing: 4, fontWeight: FontWeight.bold)),
+                  const SizedBox(height: 6),
+                  const Text('Válido por 7 dias, uso único.',
+                      style: TextStyle(fontSize: 11)),
+                ]),
+            ]),
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Fechar')),
+          ],
+        ),
       ),
     );
   }

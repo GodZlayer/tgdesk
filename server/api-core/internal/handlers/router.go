@@ -93,6 +93,15 @@ func NewRouter(s *Server) http.Handler {
 		s.UpdateDeviceSubnetwork(w, r, r.PathValue("id"))
 	}))))
 	mux.Handle("GET /api/v1/organizations", private(auth(http.HandlerFunc(s.ListOrganizations))))
+	// Uma organização pode ter vários supervisores: o dono gera um código e o
+	// outro resgata, passando a enxergar a mesma fila de chamados.
+	mux.Handle("POST /api/v1/organizations/{id}/supervisor-invite", private(auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.CreateSupervisorInvite(w, r, r.PathValue("id"))
+	}))))
+	mux.Handle("GET /api/v1/organizations/{id}/supervisors", private(auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.ListOrganizationSupervisors(w, r, r.PathValue("id"))
+	}))))
+	mux.Handle("POST /api/v1/organizations/supervisor-invite/redeem", private(auth(http.HandlerFunc(s.RedeemSupervisorInvite))))
 	mux.Handle("GET /api/v1/networks", private(auth(http.HandlerFunc(s.ListNetworks))))
 	mux.Handle("POST /api/v1/networks", private(auth(http.HandlerFunc(s.CreateNetwork))))
 	mux.Handle("GET /api/v1/subnetworks", private(auth(http.HandlerFunc(s.ListSubnetworks))))

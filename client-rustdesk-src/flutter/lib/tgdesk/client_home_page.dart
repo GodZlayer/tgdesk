@@ -171,6 +171,77 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
         ]),
       );
 
+  // A tela Cliente já é diferente por tier. Para quem está logado como
+  // supervisor ou admin, ela oferece o resgate do convite: é assim que ele
+  // passa a supervisionar a organização de outro, vendo a mesma fila.
+  Widget _supervisorInvitePanel() => Container(
+        width: double.infinity,
+        margin: const EdgeInsets.only(top: 12),
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+        decoration: BoxDecoration(
+          color: const Color(0xff111d29),
+          border: Border.all(color: const Color(0xff25384b)),
+          borderRadius: BorderRadius.circular(12),
+        ),
+        child: Row(children: [
+          const Icon(Icons.group_add_outlined, color: Color(0xff8db8ee)),
+          const SizedBox(width: 12),
+          const Expanded(
+            child: Text(
+                'Recebeu um código para supervisionar outra organização? '
+                'Resgate aqui para passar a ver os chamados dela.',
+                style: TextStyle(color: Color(0xffb7c2d1), fontSize: 13)),
+          ),
+          TextButton(
+            onPressed: _resgatarConviteSupervisor,
+            child: const Text('Resgatar código'),
+          ),
+        ]),
+      );
+
+  Future<void> _resgatarConviteSupervisor() async {
+    final campo = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (d) => AlertDialog(
+        title: const Text('Supervisionar outra organização'),
+        content: SizedBox(
+          width: 380,
+          child: TextField(
+            controller: campo,
+            autofocus: true,
+            textCapitalization: TextCapitalization.characters,
+            decoration: const InputDecoration(
+                labelText: 'Código recebido',
+                helperText: 'Você passa a ver os chamados dessa organização.'),
+          ),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(d, false),
+              child: const Text('Cancelar')),
+          FilledButton(
+              onPressed: () => Navigator.pop(d, true),
+              child: const Text('Resgatar')),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    try {
+      final r = await TgdeskApi.redeemSupervisorInvite(campo.text.trim());
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(
+                'Você agora supervisiona ${r['organization_name'] ?? 'a organização'}.')));
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+    }
+  }
+
   Future<void> _confirmarEncerramento() async {
     final ok = await showDialog<bool>(
       context: context,
@@ -892,6 +963,8 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
                   ),
                   const SizedBox(height: 14),
                   _supportPanel(color),
+                  if (AppState.isSupervisor || AppState.isSuperAdmin)
+                    _supervisorInvitePanel(),
                 ]),
               ),
             ),
