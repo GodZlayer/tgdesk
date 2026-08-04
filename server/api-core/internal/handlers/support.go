@@ -7,6 +7,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"log"
 	"math"
 	"net/http"
 	"os"
@@ -136,6 +137,13 @@ func (s *Server) StandaloneBindDevice(w http.ResponseWriter, r *http.Request) {
 	}
 	_, _ = s.Pool.Exec(r.Context(), `
 		INSERT INTO device_networks(device_id,network_id) VALUES ($1,$2)
+		ON CONFLICT DO NOTHING`, req.DeviceID, netID)
+	// device_subnetworks é o que o modelo de visibilidade consulta; sem esta
+	// linha o dispositivo entra na rede mas fica fora de qualquer subrede.
+	_, _ = s.Pool.Exec(r.Context(), `
+		INSERT INTO device_subnetworks(device_id,subnetwork_id)
+		SELECT $1,id FROM subnetworks WHERE network_id=$2
+		ORDER BY (name='Principal') DESC, created_at LIMIT 1
 		ON CONFLICT DO NOTHING`, req.DeviceID, netID)
 	_ = presence.Publish(r.Context(), s.RDB, presence.Event{Type: "bind", TargetID: req.DeviceID})
 	writeJSON(w, http.StatusOK, map[string]any{
@@ -741,7 +749,9 @@ func (s *Server) AcceptDispatch(w http.ResponseWriter, r *http.Request, id strin
 		return
 	}
 	if standalone && modality == "virtual" && deviceID != nil {
-		_ = s.createSessionSubnetwork(r.Context(), id, *deviceID, c.TechnicianID)
+		if err := s.createSessionSubnetwork(r.Context(), id, *deviceID, c.TechnicianID); err != nil {
+			log.Printf("subrede de sessão não criada para o chamado %s: %v", id, err)
+		}
 	}
 	// Abre a rota direta da sessão imediatamente; a passada periódica apenas
 	// confirma, e depois a apaga quando o chamado fecha ou a subrede expira.
@@ -762,13 +772,17 @@ func (s *Server) AcceptDispatch(w http.ResponseWriter, r *http.Request, id strin
 // a sessão no meio do trabalho. O ciclo é fechado pelo encerramento do
 // chamado/OS, não pelo relógio.
 func (s *Server) createSessionSubnetwork(ctx context.Context, ticketID, deviceID, technicianID string) error {
+	// O identificador entra duas vezes com tipos diferentes — uuid na coluna e
+	// text no nome — então vai como dois parâmetros. Reaproveitar $1 nos dois
+	// papéis faz o Postgres fixar o tipo em text por causa do cast, e a
+	// inserção na coluna uuid falha.
 	var subnetID string
 	if err := s.Pool.QueryRow(ctx, `
 		INSERT INTO subnetworks(network_id,name,peer_isolation,ticket_id)
-		SELECT d.network_id,'Sessão '||left($1::text,8),false,$1
+		SELECT d.network_id,'Sessão '||left($3,8),false,$1
 		FROM devices d WHERE d.id=$2 AND d.network_id IS NOT NULL
 		ON CONFLICT (network_id,name) DO UPDATE SET ticket_id=excluded.ticket_id
-		RETURNING id`, ticketID, deviceID).Scan(&subnetID); err != nil {
+		RETURNING id`, ticketID, deviceID, ticketID).Scan(&subnetID); err != nil {
 		return err
 	}
 	if _, err := s.Pool.Exec(ctx, `
@@ -992,7 +1006,9 @@ func (s *Server) AcceptSupervisorOffer(w http.ResponseWriter, r *http.Request, i
 	if s.Pool.QueryRow(r.Context(), `SELECT device_id FROM support_tickets WHERE id=$1`, id).
 		Scan(&deviceID) == nil && deviceID != nil {
 		s.grantAnalysisOnly(r.Context(), id, c.TechnicianID, *deviceID)
-		_ = s.createSessionSubnetwork(r.Context(), id, *deviceID, c.TechnicianID)
+		if err := s.createSessionSubnetwork(r.Context(), id, *deviceID, c.TechnicianID); err != nil {
+			log.Printf("subrede de sessão não criada para o chamado %s: %v", id, err)
+		}
 		_ = s.ReconcileSessionIsolation(r.Context())
 	}
 	s.publishTicket(r, id, "supervisor_offer_accepted", map[string]any{"supervisor_id": c.TechnicianID})

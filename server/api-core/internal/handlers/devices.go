@@ -190,6 +190,13 @@ func (s *Server) Bind(w http.ResponseWriter, r *http.Request) {
 	_, _ = s.Pool.Exec(r.Context(), `
 		INSERT INTO device_networks(device_id,network_id) VALUES ($1,$2)
 		ON CONFLICT DO NOTHING`, deviceID, req.NetworkID)
+	// Sem isto o dispositivo fica fora de device_subnetworks, e portanto fora
+	// do modelo de visibilidade: nem máquinas da mesma loja se enxergariam.
+	_, _ = s.Pool.Exec(r.Context(), `
+		INSERT INTO device_subnetworks(device_id,subnetwork_id)
+		SELECT $1,id FROM subnetworks WHERE network_id=$2
+		ORDER BY (name='Principal') DESC, created_at LIMIT 1
+		ON CONFLICT DO NOTHING`, deviceID, req.NetworkID)
 
 	detalhes, _ := json.Marshal(map[string]string{"network_id": req.NetworkID})
 	_, _ = s.Pool.Exec(r.Context(), `
