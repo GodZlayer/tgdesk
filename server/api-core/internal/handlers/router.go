@@ -39,6 +39,7 @@ func NewRouter(s *Server) http.Handler {
 	// dispositivo — o cliente não tem sessão de técnico.
 	mux.HandleFunc("POST /api/v1/support/client/tickets/thread", s.ClientTicketThread)
 	mux.HandleFunc("POST /api/v1/support/client/tickets/remote-access", s.ClientRespondRemoteAccess)
+	mux.HandleFunc("POST /api/v1/support/client/tickets/confirm-closure", s.ClientConfirmClosure)
 	// Entrada do cliente particular. Público como os demais endpoints de
 	// dispositivo (autenticado por device_id + device_token no corpo): o device
 	// ainda é guest, logo não tem túnel e não pode passar por private().
@@ -130,6 +131,16 @@ func NewRouter(s *Server) http.Handler {
 	}))))
 	mux.Handle("POST /api/v1/support/tickets/{id}/remote-access", private(auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.RequestRemoteAccess(w, r, r.PathValue("id"))
+	}))))
+	// Etapas de execução da OS e fechamento por confirmação de cada parte.
+	mux.Handle("POST /api/v1/support/tickets/{id}/os/start", private(auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.StartServiceOrder(w, r, r.PathValue("id"))
+	}))))
+	mux.Handle("POST /api/v1/support/tickets/{id}/os/finish", private(auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.FinishServiceOrder(w, r, r.PathValue("id"))
+	}))))
+	mux.Handle("POST /api/v1/support/tickets/{id}/confirm-closure", private(auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.ConfirmClosure(w, r, r.PathValue("id"))
 	}))))
 	mux.Handle("POST /api/v1/support/tickets/{id}/transition", private(auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.TransitionTicket(w, r, r.PathValue("id"))

@@ -499,6 +499,9 @@ func (s *Server) ConvertServiceOrder(w http.ResponseWriter, r *http.Request, id 
 		Values     any    `json:"values"`
 		ScopeNotes string `json:"scope_notes"`
 		OsType     string `json:"os_type"`
+		// Execução é marcada: aceitar a OS não significa executá-la agora.
+		ScheduledAt       *time.Time     `json:"scheduled_at"`
+		ScheduledLocation map[string]any `json:"scheduled_location"`
 	}
 	_ = json.NewDecoder(r.Body).Decode(&req)
 	if strings.TrimSpace(req.ScopeNotes) == "" {
@@ -514,16 +517,41 @@ func (s *Server) ConvertServiceOrder(w http.ResponseWriter, r *http.Request, id 
 		writeErr(w, 404, "chamado não encontrado")
 		return
 	}
-	if status != "accepted" && status != "in_progress" {
-		writeErr(w, 409, "chamado precisa estar aceito ou em andamento para gerar OS")
+	// A OS nasce do chamado que o supervisor já assumiu. 'open' com dono é o
+	// estado em que o aceite da Fila A deixa o chamado, e o empresarial nasce
+	// assim — então ambos podem virar OS sem passar pela fila do técnico antes.
+	// É a OS que vai para a fila, não o chamado cru.
+	if status != "accepted" && status != "in_progress" && status != "open" {
+		writeErr(w, 409, "chamado não está em estado que permita gerar OS")
 		return
 	}
+	var temDono bool
+	_ = s.Pool.QueryRow(r.Context(),
+		`SELECT supervisor_id IS NOT NULL FROM support_tickets WHERE id=$1`, id).Scan(&temDono)
+	if !temDono {
+		writeErr(w, 409, "o chamado precisa ter um supervisor responsável antes de virar OS")
+		return
+	}
+	if req.ScheduledLocation == nil {
+		req.ScheduledLocation = map[string]any{}
+	}
 	var osID string
-	err := s.Pool.QueryRow(r.Context(), `INSERT INTO service_orders(ticket_id,items,values,os_type,scope_notes) VALUES($1,$2,$3,$4,$5) ON CONFLICT(ticket_id) DO UPDATE SET items=excluded.items,values=excluded.values,os_type=excluded.os_type,scope_notes=excluded.scope_notes RETURNING id`, id, req.Items, req.Values, req.OsType, strings.TrimSpace(req.ScopeNotes)).Scan(&osID)
+	err := s.Pool.QueryRow(r.Context(), `
+		INSERT INTO service_orders(ticket_id,items,values,os_type,scope_notes,scheduled_at,scheduled_location,status)
+		VALUES($1,$2,$3,$4,$5,$6,$7,'offered')
+		ON CONFLICT(ticket_id) DO UPDATE SET items=excluded.items,values=excluded.values,
+			os_type=excluded.os_type,scope_notes=excluded.scope_notes,
+			scheduled_at=excluded.scheduled_at,scheduled_location=excluded.scheduled_location
+		RETURNING id`,
+		id, req.Items, req.Values, req.OsType, strings.TrimSpace(req.ScopeNotes),
+		req.ScheduledAt, req.ScheduledLocation).Scan(&osID)
 	if err != nil {
 		writeErr(w, 500, "falha ao converter OS")
 		return
 	}
+	// Converter em OS já a coloca na fila dos técnicos: é a OS que é ofertada,
+	// e não faz sentido criar uma e esperar um segundo comando para despachar.
+	s.dispatchToFreelancers(r.Context(), id)
 	_, _ = s.Pool.Exec(r.Context(), `INSERT INTO ticket_events(ticket_id,actor_technician_id,event_type,payload) VALUES($1,$2,'service_order',$3)`, id, middleware.ClaimsFrom(r.Context()).TechnicianID, map[string]any{"service_order_id": osID})
 	s.publishTicket(r, id, "service_order", map[string]any{"id": osID})
 	writeJSON(w, 201, map[string]any{"id": osID, "ticket_id": id, "history_preserved": true})
@@ -729,7 +757,17 @@ func (s *Server) AcceptDispatch(w http.ResponseWriter, r *http.Request, id strin
 		writeErr(w, 409, "chamado já aceito ou oferta indisponível")
 		return
 	}
-	_, err = tx.Exec(r.Context(), `UPDATE dispatch_offers SET accepted_at=CASE WHEN freelancer_id=$2 THEN now() ELSE accepted_at END WHERE ticket_id=$1`, id, c.TechnicianID)
+	// O aceite tira a OS da fila dos outros: quem pegou, pegou. Sem isso a
+	// oferta continuava listada para todo mundo até expirar.
+	_, err = tx.Exec(r.Context(), `UPDATE dispatch_offers SET accepted_at=now() WHERE ticket_id=$1 AND freelancer_id=$2`, id, c.TechnicianID)
+	if err == nil {
+		_, err = tx.Exec(r.Context(), `DELETE FROM dispatch_offers WHERE ticket_id=$1 AND freelancer_id<>$2`, id, c.TechnicianID)
+	}
+	if err == nil {
+		// A OS passa a ter dono e fica aguardando a data marcada: aceitar não
+		// é executar.
+		_, err = tx.Exec(r.Context(), `UPDATE service_orders SET status='assigned',assigned_technician_id=$2 WHERE ticket_id=$1`, id, c.TechnicianID)
+	}
 	// Este ramo é o do cliente AVULSO, onde o acesso remoto do técnico depende
 	// de duas condições: o chamado ser virtual (já garantido aqui) e o cliente
 	// permitir. Por isso o aceite entrega diagnóstico, e allow_remote só é
@@ -993,7 +1031,11 @@ func (s *Server) AcceptSupervisorOffer(w http.ResponseWriter, r *http.Request, i
 		writeErr(w, 409, "chamado já aceito ou oferta indisponível")
 		return
 	}
-	_, err = tx.Exec(r.Context(), `UPDATE supervisor_offers SET accepted_at=CASE WHEN supervisor_id=$2 THEN now() ELSE accepted_at END WHERE ticket_id=$1`, id, c.TechnicianID)
+	// Mesma regra da Fila B: aceito, sai da fila dos demais.
+	_, err = tx.Exec(r.Context(), `UPDATE supervisor_offers SET accepted_at=now() WHERE ticket_id=$1 AND supervisor_id=$2`, id, c.TechnicianID)
+	if err == nil {
+		_, err = tx.Exec(r.Context(), `DELETE FROM supervisor_offers WHERE ticket_id=$1 AND supervisor_id<>$2`, id, c.TechnicianID)
+	}
 	if err != nil || tx.Commit(r.Context()) != nil {
 		writeErr(w, 500, "falha ao aceitar")
 		return
@@ -1107,8 +1149,8 @@ func (s *Server) RateTicket(w http.ResponseWriter, r *http.Request, id string) {
 				rating_count=(SELECT COUNT(*) FROM ticket_ratings WHERE ratee_role='supervisor' AND ratee_id=$1)`, req.RateeID)
 	case "freelancer":
 		_, err = tx.Exec(r.Context(), `
-			UPDATE freelancer_profiles SET quality_score=LEAST(100,GREATEST(0,
-				(SELECT AVG(stars) FROM ticket_ratings WHERE ratee_role='freelancer' AND ratee_id=$1) * 20))
+			UPDATE freelancer_profiles SET quality_score=LEAST(5,GREATEST(1,
+				(SELECT AVG(stars) FROM ticket_ratings WHERE ratee_role='freelancer' AND ratee_id=$1)))
 			WHERE technician_id=$1`, req.RateeID)
 	case "cliente", "cliente_avulso":
 		_, err = tx.Exec(r.Context(), `
