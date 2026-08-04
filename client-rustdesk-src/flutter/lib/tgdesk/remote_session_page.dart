@@ -1,0 +1,552 @@
+import 'dart:convert';
+
+import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_hbb/common.dart';
+import 'package:flutter_hbb/consts.dart';
+import 'package:flutter_hbb/desktop/screen/desktop_remote_screen.dart';
+import 'package:flutter_hbb/models/platform_model.dart';
+import 'package:flutter_hbb/models/state_model.dart';
+
+import 'diagnostics_dialog.dart';
+
+const _annotationPrefix = '__TGDESK_ANNOTATION__:';
+
+class TgdeskRemoteSessionPage extends StatefulWidget {
+  const TgdeskRemoteSessionPage({
+    super.key,
+    required this.deviceId,
+    required this.remoteId,
+    required this.hostname,
+    required this.credential,
+  });
+
+  final String deviceId;
+  final String remoteId;
+  final String hostname;
+  final String credential;
+
+  @override
+  State<TgdeskRemoteSessionPage> createState() =>
+      _TgdeskRemoteSessionPageState();
+}
+
+class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
+  final _focusNode = FocusNode();
+  final List<_DrawingSegment> _segments = [];
+  bool _inputBlocked = false;
+  bool _drawing = false;
+  bool _eraser = false;
+  bool _clipboardEnabled = false;
+  bool _fileTransferEnabled = false;
+  Color _color = const Color(0xffff3b30);
+  double _strokeWidth = 5;
+  Offset? _lastPoint;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await Future<void>.delayed(const Duration(milliseconds: 700));
+      if (!mounted) return;
+      final sessionId = gFFI.sessionId;
+      final clipboardDisabled = bind.sessionGetToggleOptionSync(
+        sessionId: sessionId,
+        arg: 'disable-clipboard',
+      );
+      if (!clipboardDisabled) {
+        await bind.sessionToggleOption(
+          sessionId: sessionId,
+          value: 'disable-clipboard',
+        );
+      }
+      final fileTransferEnabled = bind.sessionGetToggleOptionSync(
+        sessionId: sessionId,
+        arg: kOptionEnableFileCopyPaste,
+      );
+      if (fileTransferEnabled) {
+        await bind.sessionToggleOption(
+          sessionId: sessionId,
+          value: kOptionEnableFileCopyPaste,
+        );
+      }
+    });
+  }
+
+  @override
+  void dispose() {
+    if (_inputBlocked) {
+      bind.sessionToggleOption(
+          sessionId: gFFI.sessionId, value: 'unblock-input');
+    }
+    if (_clipboardEnabled) {
+      bind.sessionToggleOption(
+        sessionId: gFFI.sessionId,
+        value: 'disable-clipboard',
+      );
+    }
+    if (_fileTransferEnabled) {
+      bind.sessionToggleOption(
+        sessionId: gFFI.sessionId,
+        value: kOptionEnableFileCopyPaste,
+      );
+    }
+    _sendAnnotation(const {'t': 'ClearDrawing'});
+    _focusNode.dispose();
+    super.dispose();
+  }
+
+  void _toggleInputBlock() {
+    bind.sessionToggleOption(
+      sessionId: gFFI.sessionId,
+      value: _inputBlocked ? 'unblock-input' : 'block-input',
+    );
+    setState(() => _inputBlocked = !_inputBlocked);
+  }
+
+  void _toggleDrawing() {
+    setState(() {
+      _drawing = !_drawing;
+      _lastPoint = null;
+    });
+    _focusNode.requestFocus();
+  }
+
+  void _toggleClipboard() {
+    bind.sessionToggleOption(
+      sessionId: gFFI.sessionId,
+      value: 'disable-clipboard',
+    );
+    setState(() => _clipboardEnabled = !_clipboardEnabled);
+  }
+
+  void _toggleFileTransfer() {
+    bind.sessionToggleOption(
+      sessionId: gFFI.sessionId,
+      value: kOptionEnableFileCopyPaste,
+    );
+    setState(() => _fileTransferEnabled = !_fileTransferEnabled);
+  }
+
+  void _clearDrawing() {
+    setState(_segments.clear);
+    _sendAnnotation(const {'t': 'ClearDrawing'});
+  }
+
+  void _sendAnnotation(Map<String, dynamic> event) {
+    bind.sessionSendChat(
+      sessionId: gFFI.sessionId,
+      text: '$_annotationPrefix${jsonEncode(event)}',
+    );
+  }
+
+  void _startStroke(DragStartDetails details, Size size) {
+    _lastPoint = details.localPosition;
+  }
+
+  void _continueStroke(DragUpdateDetails details, Size size) {
+    final previous = _lastPoint;
+    final current = details.localPosition;
+    if (previous == null || (current - previous).distance < 1.2) return;
+    final segment = _DrawingSegment(
+      start: Offset(previous.dx / size.width, previous.dy / size.height),
+      end: Offset(current.dx / size.width, current.dy / size.height),
+      color: _color,
+      width: _eraser ? _strokeWidth * 3 : _strokeWidth,
+      erase: _eraser,
+    );
+    setState(() => _segments.add(segment));
+    _lastPoint = current;
+    _sendAnnotation({
+      't': 'Stroke',
+      'c': {
+        'x0': segment.start.dx,
+        'y0': segment.start.dy,
+        'x1': segment.end.dx,
+        'y1': segment.end.dy,
+        'argb': segment.color.value,
+        'width': segment.width,
+        'erase': segment.erase,
+      }
+    });
+  }
+
+  KeyEventResult _handleKey(FocusNode node, KeyEvent event) {
+    if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    final keys = HardwareKeyboard.instance;
+    if (event.logicalKey == LogicalKeyboardKey.f11) {
+      stateGlobal.setFullscreen(!stateGlobal.fullscreen.value);
+      return KeyEventResult.handled;
+    }
+    if (event.logicalKey == LogicalKeyboardKey.escape &&
+        stateGlobal.fullscreen.value &&
+        !_drawing) {
+      stateGlobal.setFullscreen(false);
+      return KeyEventResult.handled;
+    }
+    if (keys.isControlPressed && keys.isShiftPressed) {
+      if (event.logicalKey == LogicalKeyboardKey.keyB) {
+        _toggleInputBlock();
+        return KeyEventResult.handled;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.keyD) {
+        _toggleDrawing();
+        return KeyEventResult.handled;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.keyC) {
+        _toggleClipboard();
+        return KeyEventResult.handled;
+      }
+      if (event.logicalKey == LogicalKeyboardKey.keyF) {
+        _toggleFileTransfer();
+        return KeyEventResult.handled;
+      }
+    }
+    if (_drawing && event.logicalKey == LogicalKeyboardKey.escape) {
+      _toggleDrawing();
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
+  }
+
+  Widget _tgdeskToolbarMenu(BuildContext context) => PopupMenuButton<String>(
+        tooltip: 'Ferramentas TGDesk',
+        icon: const Icon(Icons.build_circle_outlined, size: 20),
+        onSelected: (value) {
+          switch (value) {
+            case 'diagnostics':
+              showDialog<void>(
+                context: context,
+                barrierDismissible: false,
+                builder: (_) => DiagnosticDialog(
+                  deviceId: widget.deviceId,
+                  deviceName: widget.hostname,
+                  online: true,
+                ),
+              );
+              break;
+            case 'block_input':
+              _toggleInputBlock();
+              break;
+            case 'drawing':
+              _toggleDrawing();
+              break;
+            case 'clipboard':
+              _toggleClipboard();
+              break;
+            case 'file_transfer':
+              _toggleFileTransfer();
+              break;
+          }
+        },
+        itemBuilder: (_) => [
+          const PopupMenuItem<String>(
+            value: 'diagnostics',
+            child: _MenuEntry(
+              icon: Icons.science_outlined,
+              text: 'Diagnósticos do dispositivo',
+            ),
+          ),
+          PopupMenuItem<String>(
+            value: 'block_input',
+            child: _MenuEntry(
+              icon: _inputBlocked
+                  ? Icons.keyboard_alt_outlined
+                  : Icons.keyboard_hide_outlined,
+              text: _inputBlocked
+                  ? 'Liberar mouse e teclado do cliente'
+                  : 'Bloquear mouse e teclado do cliente',
+              shortcut: 'Ctrl+Shift+B',
+            ),
+          ),
+          PopupMenuItem<String>(
+            value: 'drawing',
+            child: _MenuEntry(
+              icon: _drawing ? Icons.edit_off_outlined : Icons.draw_outlined,
+              text:
+                  _drawing ? 'Encerrar anotação' : 'Anotar na tela do cliente',
+              shortcut: 'Ctrl+Shift+D',
+            ),
+          ),
+          PopupMenuItem<String>(
+            value: 'clipboard',
+            child: _MenuEntry(
+              icon: _clipboardEnabled
+                  ? Icons.content_paste_go_outlined
+                  : Icons.content_paste_off_outlined,
+              text: _clipboardEnabled
+                  ? 'Desativar copiar e colar'
+                  : 'Ativar copiar e colar',
+              shortcut: 'Ctrl+Shift+C',
+            ),
+          ),
+          PopupMenuItem<String>(
+            value: 'file_transfer',
+            child: _MenuEntry(
+              icon: _fileTransferEnabled
+                  ? Icons.file_copy_outlined
+                  : Icons.folder_off_outlined,
+              text: _fileTransferEnabled
+                  ? 'Desativar transferência de arquivos'
+                  : 'Ativar transferência de arquivos',
+              shortcut: 'Ctrl+Shift+F',
+            ),
+          ),
+        ],
+      );
+
+  @override
+  Widget build(BuildContext context) {
+    return Focus(
+      focusNode: _focusNode,
+      autofocus: true,
+      onKeyEvent: _handleKey,
+      child: Scaffold(
+        backgroundColor: Colors.black,
+        body: Stack(
+          fit: StackFit.expand,
+          children: [
+            DesktopRemoteScreen(params: {
+              'id': widget.remoteId,
+              'windowId': 0,
+              'embedded': true,
+              'forceRelay': true,
+              'password': widget.credential,
+              'tgdeskToolbarMenuBuilder': _tgdeskToolbarMenu,
+            }),
+            if (_drawing)
+              Positioned.fill(
+                child: LayoutBuilder(
+                  builder: (context, constraints) => GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onPanStart: (event) =>
+                        _startStroke(event, constraints.biggest),
+                    onPanUpdate: (event) =>
+                        _continueStroke(event, constraints.biggest),
+                    onPanEnd: (_) => _lastPoint = null,
+                    child: CustomPaint(
+                      painter: _AnnotationPainter(_segments),
+                    ),
+                  ),
+                ),
+              ),
+            if (_inputBlocked)
+              Positioned(
+                right: 14,
+                bottom: 14,
+                child: _StatusChip(
+                  icon: Icons.keyboard_hide_outlined,
+                  text: 'Entrada do cliente bloqueada',
+                  color: const Color(0xffffb020),
+                  onTap: _toggleInputBlock,
+                ),
+              ),
+            if (_drawing) _drawingToolbar(),
+            if (_clipboardEnabled || _fileTransferEnabled)
+              Positioned(
+                left: 14,
+                bottom: 14,
+                child: _StatusChip(
+                  icon: _fileTransferEnabled
+                      ? Icons.file_copy_outlined
+                      : Icons.content_paste_go_outlined,
+                  text: _clipboardEnabled && _fileTransferEnabled
+                      ? 'Copiar, colar e arquivos ativos'
+                      : _fileTransferEnabled
+                          ? 'Transferência de arquivos ativa'
+                          : 'Copiar e colar ativo',
+                  color: const Color(0xff35a7ff),
+                  onTap: _fileTransferEnabled
+                      ? _toggleFileTransfer
+                      : _toggleClipboard,
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _drawingToolbar() => Positioned(
+        top: 8,
+        left: 0,
+        right: 0,
+        child: Center(
+          child: Material(
+            color: const Color(0xff111820).withOpacity(.97),
+            elevation: 8,
+            borderRadius: BorderRadius.circular(10),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              child: Row(mainAxisSize: MainAxisSize.min, children: [
+                const Padding(
+                  padding: EdgeInsets.symmetric(horizontal: 8),
+                  child: Text('Anotação'),
+                ),
+                IconButton(
+                  tooltip: 'Caneta',
+                  onPressed: () => setState(() => _eraser = false),
+                  color: !_eraser ? const Color(0xff35a7ff) : null,
+                  icon: const Icon(Icons.edit_outlined),
+                ),
+                IconButton(
+                  tooltip: 'Borracha',
+                  onPressed: () => setState(() => _eraser = true),
+                  color: _eraser ? const Color(0xff35a7ff) : null,
+                  icon: const Icon(Icons.auto_fix_normal_outlined),
+                ),
+                if (!_eraser)
+                  ...[
+                    const Color(0xffff3b30),
+                    const Color(0xffffcc00),
+                    const Color(0xff34c759),
+                    const Color(0xff32ade6),
+                    const Color(0xffffffff),
+                  ].map((color) => _ColorButton(
+                        color: color,
+                        selected: color.value == _color.value,
+                        onTap: () => setState(() => _color = color),
+                      )),
+                SizedBox(
+                  width: 115,
+                  child: Slider(
+                    value: _strokeWidth,
+                    min: 2,
+                    max: 18,
+                    onChanged: (value) => setState(() => _strokeWidth = value),
+                  ),
+                ),
+                IconButton(
+                  tooltip: 'Apagar todas as anotações',
+                  onPressed: _clearDrawing,
+                  icon: const Icon(Icons.delete_sweep_outlined),
+                ),
+                IconButton(
+                  tooltip: 'Encerrar anotação (Esc)',
+                  onPressed: _toggleDrawing,
+                  icon: const Icon(Icons.close),
+                ),
+              ]),
+            ),
+          ),
+        ),
+      );
+}
+
+class _DrawingSegment {
+  const _DrawingSegment({
+    required this.start,
+    required this.end,
+    required this.color,
+    required this.width,
+    required this.erase,
+  });
+
+  final Offset start;
+  final Offset end;
+  final Color color;
+  final double width;
+  final bool erase;
+}
+
+class _AnnotationPainter extends CustomPainter {
+  const _AnnotationPainter(this.segments);
+  final List<_DrawingSegment> segments;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    canvas.saveLayer(Offset.zero & size, Paint());
+    for (final segment in segments) {
+      canvas.drawLine(
+        Offset(segment.start.dx * size.width, segment.start.dy * size.height),
+        Offset(segment.end.dx * size.width, segment.end.dy * size.height),
+        Paint()
+          ..color = segment.color
+          ..strokeWidth = segment.width
+          ..strokeCap = StrokeCap.round
+          ..blendMode = segment.erase ? BlendMode.clear : BlendMode.srcOver,
+      );
+    }
+    canvas.restore();
+  }
+
+  @override
+  bool shouldRepaint(covariant _AnnotationPainter oldDelegate) => true;
+}
+
+class _MenuEntry extends StatelessWidget {
+  const _MenuEntry(
+      {required this.icon, required this.text, this.shortcut = ''});
+  final IconData icon;
+  final String text;
+  final String shortcut;
+
+  @override
+  Widget build(BuildContext context) => Row(children: [
+        Icon(icon),
+        const SizedBox(width: 12),
+        Expanded(child: Text(text)),
+        if (shortcut.isNotEmpty) ...[
+          const SizedBox(width: 20),
+          Text(shortcut, style: Theme.of(context).textTheme.labelSmall),
+        ],
+      ]);
+}
+
+class _ColorButton extends StatelessWidget {
+  const _ColorButton(
+      {required this.color, required this.selected, required this.onTap});
+  final Color color;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => InkWell(
+        onTap: onTap,
+        customBorder: const CircleBorder(),
+        child: Container(
+          margin: const EdgeInsets.all(4),
+          width: 24,
+          height: 24,
+          decoration: BoxDecoration(
+            color: color,
+            shape: BoxShape.circle,
+            border: Border.all(
+                color: selected ? const Color(0xff35a7ff) : Colors.black,
+                width: selected ? 3 : 1),
+          ),
+        ),
+      );
+}
+
+class _StatusChip extends StatelessWidget {
+  const _StatusChip({
+    required this.icon,
+    required this.text,
+    required this.color,
+    required this.onTap,
+  });
+  final IconData icon;
+  final String text;
+  final Color color;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => Material(
+        color: const Color(0xff111820).withOpacity(.96),
+        elevation: 6,
+        borderRadius: BorderRadius.circular(24),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(24),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+            child: Row(mainAxisSize: MainAxisSize.min, children: [
+              Icon(icon, color: color, size: 18),
+              const SizedBox(width: 8),
+              Text(text),
+            ]),
+          ),
+        ),
+      );
+}
