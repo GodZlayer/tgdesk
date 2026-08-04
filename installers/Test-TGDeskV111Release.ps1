@@ -1,5 +1,5 @@
 param(
-    [string]$ExpectedVersion = '1.1.33',
+    [string]$ExpectedVersion = '1.1.34',
     [switch]$RequireInstalledClient
 )
 
@@ -77,7 +77,7 @@ Add-Check 'docker.health' $health ([string]$health)
 
 $migration = (& docker compose -f $compose exec -T postgres psql -U tgdesk -d tgdesk -Atqc `
     "SELECT count(*)||':'||max(name) FROM schema_migrations" | Out-String).Trim()
-Add-Check 'schema.migrations' ($migration -match '^46:0046_') $migration
+Add-Check 'schema.migrations' ($migration -match '^47:0047_') $migration
 
 $integrity = @(& docker compose -f $compose exec -T postgres psql -U tgdesk -d tgdesk -Atqc `
     "SELECT check_name||':'||status FROM validate_schema_integrity() ORDER BY check_name")
