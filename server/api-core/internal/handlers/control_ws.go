@@ -681,7 +681,14 @@ func (s *Server) controlSnapshot(ctx context.Context, technicianID, role string)
 	// a tela se monta a partir do canal, nunca de uma busca própria. Sem isto
 	// a tela de Chamados consultava o servidor ao montar, e quem abrisse a
 	// aba antes de um chamado existir ficava sem ele até remontar a tela.
+	tickets := s.ticketsForSnapshot(ctx, technicianID, role)
+	ids := make([]string, 0, len(tickets))
+	for _, ticket := range tickets {
+		if id, ok := ticket["id"].(string); ok {
+			ids = append(ids, id)
+		}
+	}
 	return map[string]any{"type": "snapshot", "organizations": orgs,
 		"networks": nets, "subnetworks": subnets, "devices": devices,
-		"tickets": s.ticketsForSnapshot(ctx, technicianID, role)}, nil
+		"tickets": tickets, "ticket_events": s.ticketEventsForSnapshot(ctx, ids)}, nil
 }

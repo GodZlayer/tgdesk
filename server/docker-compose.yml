@@ -50,7 +50,7 @@ services:
       HUB_PUBLIC_ADDR: ${HUB_PUBLIC_ADDR:-127.0.0.1:41820}
       RENDEZVOUS_KEY_FILE: "/hbbs-data/id_ed25519.pub"
       RENDEZVOUS_PUBLIC_HOST: ${RENDEZVOUS_PUBLIC_HOST:-10.70.0.1}
-      CLIENT_VERSION: "1.1.47"
+      CLIENT_VERSION: "1.1.48"
       BRANDING_DIR: "/branding"
       EVIDENCE_DIR: "/evidence"
     ports:

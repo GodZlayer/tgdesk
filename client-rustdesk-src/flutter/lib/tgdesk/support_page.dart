@@ -39,6 +39,11 @@ class _SupportPageState extends State<SupportPage> {
   /// tem histórico, conversa, diagnóstico e partes, e isso pede espaço
   /// próprio em vez de nove botões espremidos num card fechado.
   String? _selectedId;
+
+  /// Seção aberta no dossiê. A conversa é uma delas, não uma coluna
+  /// permanente: chat fixo ao lado de uma lista é a forma de um
+  /// mensageiro, e o que se gerencia aqui é trabalho, não conversa.
+  String _detailTab = 'geral';
   bool _loading = false;
   List<Map<String, dynamic>> _supervisorQueue = [];
   bool _queueLoading = false;
@@ -500,72 +505,165 @@ class _SupportPageState extends State<SupportPage> {
     return const Color(0xff45c95a);
   }
 
-  /// Painel do chamado: um dossiê, não uma conversa.
+  /// Painel do chamado: cabeçalho denso mais seções.
   ///
-  /// A versão anterior era cabeçalho magro mais chat ocupando o resto, e por
-  /// isso parecia janela de mensageiro. Quem atende precisa ver, sem sair
-  /// daqui, o que a máquina reportou e o que dá para fazer com ela — é o que
-  /// NinjaOne e Atera fazem colando dispositivo e chamado. A conversa é uma
-  /// coluna estreita ao lado, porque é complemento.
+  /// A versão anterior era lista estreita, conteúdo e chat fixo — exatamente
+  /// a forma de um mensageiro. Um gerenciador de chamado abre com os fatos:
+  /// protocolo, quem, onde, desde quando, quem responde. A conversa é uma
+  /// seção entre outras.
   Widget _ticketDetail(Map<String, dynamic> ticket) {
     final state = ticketStateFromServer(ticket['status']?.toString());
-    return Column(children: [
+    return Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
       _detailHeader(ticket, state),
       const Divider(height: 1),
-      Expanded(
-        child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          Expanded(
-            child: ListView(
-              padding: const EdgeInsets.fromLTRB(24, 18, 24, 24),
-              children: [
-                _relatoSection(ticket),
-                _diagnosisSection(ticket),
-                _timelineSection(ticket),
-              ],
-            ),
-          ),
-          const VerticalDivider(width: 1),
-          SizedBox(width: 330, child: _ticketThread(ticket)),
-        ]),
-      ),
+      _detailTabs(ticket),
+      const Divider(height: 1),
+      Expanded(child: _detailBody(ticket)),
     ]);
   }
 
   Widget _detailHeader(Map<String, dynamic> ticket, TgdeskTicketState state) {
-    final rede = _networkLabel(ticket);
     final acoes = _ticketActions(ticket, state);
     return Padding(
-      padding: const EdgeInsets.fromLTRB(24, 18, 24, 14),
+      padding: const EdgeInsets.fromLTRB(24, 18, 24, 16),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
-          Icon(
-              ticket['modality'] == 'onsite'
-                  ? Icons.location_on_outlined
-                  : Icons.desktop_windows_outlined,
-              size: 28),
-          const SizedBox(width: 12),
           Expanded(
-            child:
-                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            child: Row(children: [
               Text(ticket['title']?.toString() ?? 'Computador',
-                  style: Theme.of(context).textTheme.headlineSmall),
-              const SizedBox(height: 2),
-              Text(
-                  [
-                    ticket['protocol']?.toString() ?? '',
-                    ticket['modality'] == 'onsite' ? 'Presencial' : 'Remoto',
-                    if (rede != null) rede,
-                  ].where((v) => v.isNotEmpty).join('  \u00b7  '),
-                  style: Theme.of(context).textTheme.bodySmall),
+                  style: Theme.of(context)
+                      .textTheme
+                      .titleLarge
+                      ?.copyWith(fontWeight: FontWeight.w600)),
+              const SizedBox(width: 12),
+              Text(ticket['protocol']?.toString() ?? '',
+                  style: Theme.of(context)
+                      .textTheme
+                      .titleMedium
+                      ?.copyWith(color: Theme.of(context).colorScheme.outline)),
             ]),
           ),
           _statusChip(state),
         ]),
+        const SizedBox(height: 14),
+        _factGrid(ticket),
         if (acoes.isNotEmpty) ...[
-          const SizedBox(height: 14),
+          const SizedBox(height: 16),
           Wrap(spacing: 8, runSpacing: 8, children: acoes),
         ],
       ]),
+    );
+  }
+
+  /// Os fatos do chamado em grade, no lugar de uma linha de texto separada por
+  /// pontos. É o que um gerenciador mostra antes de qualquer outra coisa.
+  Widget _factGrid(Map<String, dynamic> ticket) {
+    final rede = _networkLabel(ticket) ?? '—';
+    final prioridade = (ticket['priority'] as num?)?.toInt() ?? 2;
+    final aberto = _relativeDate(ticket['created_at']?.toString());
+    final responsavel = ticket['supervisor_id'] == null &&
+            ticket['assigned_freelancer_id'] == null
+        ? 'Sem respons\u00e1vel'
+        : 'Atribu\u00eddo';
+    return Wrap(spacing: 32, runSpacing: 12, children: [
+      _fact('Modalidade',
+          ticket['modality'] == 'onsite' ? 'Presencial' : 'Remoto'),
+      _fact('Origem', ticket['standalone'] == true ? 'Avulso' : 'Empresarial'),
+      _fact('Rede', rede),
+      _fact('Prioridade', _priorityLabel(prioridade),
+          cor: _priorityColor(prioridade)),
+      _fact('Aberto', aberto),
+      _fact('Respons\u00e1vel', responsavel),
+    ]);
+  }
+
+  Widget _fact(String rotulo, String valor, {Color? cor}) => Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(rotulo.toUpperCase(),
+              style: Theme.of(context)
+                  .textTheme
+                  .labelSmall
+                  ?.copyWith(letterSpacing: .8)),
+          const SizedBox(height: 2),
+          Text(valor,
+              style: TextStyle(fontWeight: FontWeight.w600, color: cor)),
+        ],
+      );
+
+  String _priorityLabel(int prioridade) {
+    if (prioridade >= 4) return 'Alta';
+    if (prioridade == 3) return 'M\u00e9dia';
+    return 'Normal';
+  }
+
+  String _relativeDate(String? iso) {
+    final at = DateTime.tryParse(iso ?? '');
+    if (at == null) return '\u2014';
+    final d = DateTime.now().difference(at.toLocal());
+    if (d.inMinutes < 60) return 'h\u00e1 ${d.inMinutes} min';
+    if (d.inHours < 24) return 'h\u00e1 ${d.inHours} h';
+    return 'h\u00e1 ${d.inDays} d';
+  }
+
+  Widget _detailTabs(Map<String, dynamic> ticket) {
+    final id = ticket['id']?.toString() ?? '';
+    final mensagens = (_control.ticketEvents[id] ?? const []).where((evento) =>
+        evento['type'] == 'message' || evento['type'] == 'client_message');
+    final abas = <String, String>{
+      'geral': 'Vis\u00e3o geral',
+      'historico': 'Hist\u00f3rico',
+      'conversa':
+          mensagens.isEmpty ? 'Conversa' : 'Conversa (${mensagens.length})',
+    };
+    return SizedBox(
+      height: 44,
+      child: Row(
+          children: abas.entries.map((aba) {
+        final ativo = _detailTab == aba.key;
+        return InkWell(
+          onTap: () => setState(() => _detailTab = aba.key),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              border: Border(
+                bottom: BorderSide(
+                    width: 2,
+                    color: ativo
+                        ? Theme.of(context).colorScheme.primary
+                        : Colors.transparent),
+              ),
+            ),
+            child: Text(aba.value,
+                style: TextStyle(
+                    fontWeight: ativo ? FontWeight.w600 : FontWeight.w400)),
+          ),
+        );
+      }).toList(growable: false)),
+    );
+  }
+
+  Widget _detailBody(Map<String, dynamic> ticket) {
+    switch (_detailTab) {
+      case 'historico':
+        return ListView(
+          padding: const EdgeInsets.fromLTRB(24, 18, 24, 24),
+          children: [_timelineSection(ticket)],
+        );
+      case 'conversa':
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(24, 12, 24, 16),
+          child: _ticketThread(ticket),
+        );
+    }
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(24, 18, 24, 24),
+      children: [
+        _relatoSection(ticket),
+        _diagnosisSection(ticket),
+      ],
     );
   }
 

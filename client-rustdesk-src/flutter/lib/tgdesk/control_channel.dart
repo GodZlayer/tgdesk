@@ -158,6 +158,17 @@ class TgdeskControlChannel extends ChangeNotifier {
           .whereType<Map>()
           .map((item) => Map<String, dynamic>.from(item))
           .toList(growable: false);
+      // O histórico vem junto: sem ele a tela do chamado abria vazia,
+      // porque os eventos só chegavam por delta e tudo que aconteceu
+      // antes da sessão era invisível.
+      ticketEvents.clear();
+      for (final item in (event['ticket_events'] as List? ?? const [])) {
+        if (item is! Map) continue;
+        final entry = Map<String, dynamic>.from(item);
+        final ticketId = entry['ticket_id']?.toString();
+        if (ticketId == null) continue;
+        (ticketEvents[ticketId] ??= <Map<String, dynamic>>[]).add(entry);
+      }
       error = null;
       notifyListeners();
       return;
@@ -220,8 +231,8 @@ class TgdeskControlChannel extends ChangeNotifier {
       final id = device['id']?.toString();
       if (id != null) {
         devices = [
-          ...devices.where(
-              (item) => item is! Map || item['id']?.toString() != id),
+          ...devices
+              .where((item) => item is! Map || item['id']?.toString() != id),
           device,
         ];
         notifyListeners();

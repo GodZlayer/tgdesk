@@ -189,3 +189,46 @@ func (s *Server) ticketsForSnapshot(ctx context.Context, technicianID, role stri
 	}
 	return out
 }
+
+// ticketEventsForSnapshot leva o histórico junto da abertura da sessão. Sem
+// isto a tela do chamado abria vazia: os eventos só chegavam por delta, então
+// tudo que aconteceu antes de a sessão abrir era invisível.
+//
+// O teto por chamado existe para o snapshot não crescer sem limite; o que
+// passar dele é histórico antigo, que ninguém lê de relance.
+func (s *Server) ticketEventsForSnapshot(ctx context.Context, ticketIDs []string) []map[string]any {
+	out := []map[string]any{}
+	if len(ticketIDs) == 0 {
+		return out
+	}
+	rows, err := s.Pool.Query(ctx, `
+		SELECT id,ticket_id,event_type,payload,actor_technician_id,
+		       actor_device_id,created_at
+		FROM (
+		  SELECT e.*, row_number() OVER (
+		           PARTITION BY e.ticket_id ORDER BY e.created_at DESC, e.id DESC) AS pos
+		  FROM ticket_events e WHERE e.ticket_id = ANY($1::uuid[])
+		) t WHERE pos <= 50
+		ORDER BY created_at, id`, ticketIDs)
+	if err != nil {
+		return out
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var id, tid, kind string
+		var payload []byte
+		var tech, device *string
+		var at time.Time
+		if rows.Scan(&id, &tid, &kind, &payload, &tech, &device, &at) != nil {
+			continue
+		}
+		var body any
+		_ = json.Unmarshal(payload, &body)
+		out = append(out, map[string]any{
+			"id": id, "ticket_id": tid, "type": kind, "payload": body,
+			"actor_technician_id": tech, "actor_device_id": device,
+			"created_at": at,
+		})
+	}
+	return out
+}
