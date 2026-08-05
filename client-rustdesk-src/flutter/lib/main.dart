@@ -168,7 +168,12 @@ void runMainApp(bool startService) async {
     // Check the startup argument, if we successfully handle the argument, we keep the main window hidden.
     final handledByUniLinks = await initUniLinks();
     debugPrint("handled by uni links: $handledByUniLinks");
-    if (handledByUniLinks || handleUriLink(cmdArgs: kBootArgs)) {
+    // O TGDesk vive na bandeja: o serviço o inicia junto do Windows, e nascer
+    // com a janela aberta e maximizada tomava a tela de quem só ligou o
+    // computador. Com --minimized ele fica na bandeja e espera ser chamado;
+    // abrir pelo atalho continua abrindo.
+    final startMinimized = kBootArgs.contains('--minimized');
+    if (handledByUniLinks || handleUriLink(cmdArgs: kBootArgs) || startMinimized) {
       windowManager.hide();
     } else {
       await windowManager.show();

@@ -48,9 +48,12 @@ Add-Check 'updater.windows_replace_checks_remove' `
     (($updateCore -match 'removeErr = os\.Remove\(target\)') -and
      ($updateCore -match 'if removeErr != nil')) `
     'locked target is diagnosed before rename and rollback'
-Add-Check 'updater.launches_gui_visible' `
-    ($updateCore -match 'updaterExe[\s\S]{0,1800}ShellExecute\(0, verb, file, params, dir, windows\.SW_SHOWNORMAL\)') `
-    'standalone updater is launched visible'
+# A atualização é empurrada pelo servidor a qualquer momento, e o TGDesk vive
+# na bandeja. Uma janela aparecendo sozinha sobre o trabalho de alguém é
+# interrupção; quem informa agora é o indicador na barra de título.
+Add-Check 'updater.runs_in_background' `
+    ($updateCore -match 'updaterExe[\s\S]{0,2400}ShellExecute\(0, verb, file, params, dir, windows\.SW_HIDE\)') `
+    'server-pushed update never steals focus'
 
 function Get-PEContract([string]$Path) {
     $bytes = [IO.File]::ReadAllBytes($Path)

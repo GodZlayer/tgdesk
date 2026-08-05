@@ -21,7 +21,10 @@ Future<void> setTgdeskStartsWithWindows(bool enabled) async {
       '/t',
       'REG_SZ',
       '/d',
-      Platform.resolvedExecutable,
+      // Mesma linha que o instalador grava. Sem --minimized aqui, ligar o
+      // interruptor no menu devolveria o TGDesk abrindo maximizado a cada
+      // login — que é justamente o que ele deixou de fazer.
+      '"${Platform.resolvedExecutable}" --minimized',
       '/f',
     ]);
     if (add.exitCode != 0) {

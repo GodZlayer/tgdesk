@@ -97,23 +97,21 @@ void main() {
   });
 
   group('branding policy', () {
-    test('customer brand is client-only and not shown in control preview', () {
-      expect(
-          TgdeskBrandingPolicy.showCustomerBrand(
-              embeddedClientPreview: false,
-              role: 'client',
-              state: 'ativo',
-              enabled: true),
-          isTrue);
-      for (final role in ['supervisor', 'super_admin', 'freelancer']) {
+    test('brand reaches the technician machine too, never the preview', () {
+      // Quem personaliza o atendimento personaliza a ferramenta inteira: a
+      // marca vale para o computador do técnico e para o do cliente dele.
+      for (final role in ['client', 'supervisor', 'super_admin', 'freelancer']) {
         expect(
             TgdeskBrandingPolicy.showCustomerBrand(
                 embeddedClientPreview: false,
                 role: role,
                 state: 'ativo',
                 enabled: true),
-            isFalse);
+            isTrue,
+            reason: 'a marca precisa alcançar $role');
       }
+      // A aba Cliente dentro do Hub existe para mostrar a tela do cliente,
+      // não para ser mais uma superfície de marca.
       expect(
           TgdeskBrandingPolicy.showCustomerBrand(
               embeddedClientPreview: true,

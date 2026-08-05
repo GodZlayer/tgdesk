@@ -4,6 +4,7 @@ import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'api_client.dart';
+import 'branding_window_icon.dart';
 import 'devices_page.dart';
 import 'admin_page.dart';
 import 'technicians_page.dart';
@@ -26,6 +27,28 @@ class _HubHomePageState extends State<HubHomePage> {
   Timer? _updateTimer;
   String _version = '';
   TgdeskUpdateStatus? _updateStatus;
+  Map<String, dynamic> _branding = {};
+
+  String get _productName {
+    if (_branding['enabled'] != true) return 'TGDesk';
+    final name = _branding['name']?.toString().trim() ?? '';
+    return name.isEmpty ? 'TGDesk' : name;
+  }
+
+  Widget? _brandTitle() {
+    if (_branding['enabled'] != true) return null;
+    final encoded = _branding['logo_base64']?.toString() ?? '';
+    return Row(mainAxisSize: MainAxisSize.min, children: [
+      if (encoded.isNotEmpty)
+        Padding(
+          padding: const EdgeInsets.only(right: 8),
+          child: Image.memory(base64Decode(encoded),
+              height: 25, width: 72, fit: BoxFit.contain),
+        ),
+      Text(_productName,
+          style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
+    ]);
+  }
 
   static String _text(dynamic map, String key) =>
       map is Map ? (map[key]?.toString() ?? '') : '';
@@ -74,7 +97,16 @@ class _HubHomePageState extends State<HubHomePage> {
       final status =
           jsonDecode(await file.readAsString()) as Map<String, dynamic>;
       if (!mounted) return;
+      // A marca vale para o computador do próprio técnico. Ela já chega aqui
+      // pelo canal de controle — deviceBranding resolve pela organização dona
+      // da rede do dispositivo, que no caso dele é a própria.
+      final branding = status['branding'];
+      if (branding is Map) {
+        unawaited(applyClientBrandingWindowIcon(
+            Map<String, dynamic>.from(branding)));
+      }
       setState(() {
+        _branding = branding is Map ? Map<String, dynamic>.from(branding) : {};
         _version = status['current_version']?.toString() ?? '';
         // O computador do técnico também é um dispositivo, e a atualização
         // dele é empurrada pelo servidor como a de qualquer outro. A barra só
@@ -131,6 +163,8 @@ class _HubHomePageState extends State<HubHomePage> {
     if (_index >= pages.length) _index = 0;
 
     return TgdeskWindowScaffold(
+      title: _brandTitle(),
+      productName: _productName,
       updateStatus: _updateStatus,
       actions: [
         if (_version.isNotEmpty)

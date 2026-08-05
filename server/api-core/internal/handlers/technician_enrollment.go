@@ -148,9 +148,19 @@ func (s *Server) ValidateTechnicianEnrollment(w http.ResponseWriter, r *http.Req
 		writeErr(w, http.StatusGone, "chave expirada")
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]string{
-		"role": role, "username": username,
-	})
+	// A marca vai junto: o servidor já sabe de quem é a chave, então o
+	// instalador não precisa de uma segunda volta nem de descobrir o id do
+	// técnico. O computador dele nasce com a marca dele, como o do cliente.
+	response := map[string]any{"role": role, "username": username}
+	var technicianID string
+	if s.Pool.QueryRow(r.Context(),
+		`SELECT technician_id FROM technician_enrollment_keys WHERE id=$1`,
+		req.Key.KeyID).Scan(&technicianID) == nil {
+		if record, brandErr := s.technicianBrand(r.Context(), technicianID); brandErr == nil {
+			response["branding"] = brandJSON(record, true)
+		}
+	}
+	writeJSON(w, http.StatusOK, response)
 }
 
 // RedeemTechnicianEnrollment atomically consumes a one-time key and binds the

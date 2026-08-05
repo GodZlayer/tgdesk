@@ -372,11 +372,17 @@ func launchStagedUpdaterElevated(staging, installDir string, parentPID uint32) e
 	if err != nil {
 		return err
 	}
-	// O atualizador possui uma janela nativa de progresso e deve nascer
-	// explicitamente visível na sessão interativa. SW_HIDE anulava justamente
-	// a GUI que o executável cria e deixava o usuário apenas com o fluxo legado
-	// aparente do processo chamador.
-	if err := windows.ShellExecute(0, verb, file, params, dir, windows.SW_SHOWNORMAL); err != nil {
+	// O atualizador nasce oculto. Ele tinha janela própria porque a
+	// atualização era pedida pelo usuário, com a tela aberta na frente: sumir
+	// no meio disso deixava a pessoa no escuro. Agora quem manda atualizar é o
+	// servidor, a qualquer momento, e o TGDesk vive na bandeja — uma janela
+	// aparecendo sozinha sobre o trabalho de alguém é interrupção, não aviso.
+	//
+	// O que substituiu essa janela é o indicador na barra de título, que mostra
+	// progresso e velocidade sem tomar o foco de ninguém. A janela nativa do
+	// atualizador continua existindo para o caminho de recuperação, quando o
+	// tgdesk.exe não consegue sequer iniciar e não há barra de título alguma.
+	if err := windows.ShellExecute(0, verb, file, params, dir, windows.SW_HIDE); err != nil {
 		return fmt.Errorf("não foi possível elevar a atualização modular: %w", err)
 	}
 	deadline := time.Now().Add(15 * time.Second)

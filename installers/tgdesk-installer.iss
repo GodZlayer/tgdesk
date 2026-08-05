@@ -3,7 +3,7 @@
 ; uso único validada pelo servidor dentro do próprio TGDesk.
 
 #define MyAppName "TGDesk"
-#define MyAppVersion "1.1.38"
+#define MyAppVersion "1.1.39"
 #define MyAppPublisher "TGDesk"
 #ifndef TGDeskServerHost
   #define TGDeskServerHost "127.0.0.1"
@@ -23,7 +23,7 @@ DefaultGroupName={code:BrandDisplayName}
 DisableProgramGroupPage=yes
 PrivilegesRequired=admin
 OutputDir=.\output
-OutputBaseFilename=tgdesk-installer-1.1.38
+OutputBaseFilename=tgdesk-installer-1.1.39
 Compression=lzma2
 SolidCompression=yes
 ArchitecturesInstallIn64BitMode=x64compatible
@@ -77,7 +77,7 @@ Name: "{autodesktop}\{code:BrandDisplayName}"; Filename: "{app}\tgdesk.exe"; Ico
 ; Remove autostarts usados pelas arquiteturas 0.1/0.2.
 Root: HKCU; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\Run"; ValueType: none; ValueName: "TGDeskHostAgent"; Flags: deletevalue
 Root: HKCU; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\Run"; ValueType: none; ValueName: "TGDeskClient"; Flags: deletevalue
-Root: HKCU; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "TGDesk"; ValueData: """{app}\tgdesk.exe"""; Check: ShouldInitializeAutoStart; Flags: uninsdeletevalue
+Root: HKCU; Subkey: "SOFTWARE\Microsoft\Windows\CurrentVersion\Run"; ValueType: string; ValueName: "TGDesk"; ValueData: """{app}\tgdesk.exe"" --minimized"; Check: ShouldInitializeAutoStart; Flags: uninsdeletevalue
 Root: HKCU; Subkey: "SOFTWARE\TGDesk"; ValueType: dword; ValueName: "StartWithWindowsConfigured"; ValueData: "1"; Check: ShouldInitializeAutoStart
 Root: HKCU; Subkey: "SOFTWARE\TGDesk"; ValueType: dword; ValueName: "StartWithWindows"; ValueData: "1"; Check: ShouldInitializeAutoStart
 
@@ -463,9 +463,10 @@ end;
   e não depois da máquina já ter sido limpa. }
 function ValidateControlKey: Boolean;
 var
-  ResponseText: string;
+  ResponseText, BrandName: string;
   KeyJson: AnsiString;
   Http: Variant;
+  Cursor: Integer;
 begin
   Result := False;
   if not LoadStringFromFile(ControlKeyFilePage.Values[0], KeyJson) then
@@ -486,6 +487,14 @@ begin
         mbError, MB_OK);
       exit;
     end;
+    { A resposta traz a marca do dono da chave. O computador do técnico ganha
+      a marca dele pelo mesmo caminho que o do cliente — quem personaliza o
+      atendimento personaliza a ferramenta inteira. }
+    BrandingPayload := ResponseText;
+    Cursor := 1;
+    BrandName := JsonStringAfter(ResponseText, Cursor, 'name');
+    if Trim(BrandName) <> '' then
+      SelectedTechnicianName := BrandName;
     Result := True;
   except
     MsgBox('Não foi possível conferir a chave no servidor. Verifique a conexão.',

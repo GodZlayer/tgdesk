@@ -77,13 +77,20 @@ class TgdeskRemotePolicy {
 class TgdeskBrandingPolicy {
   const TgdeskBrandingPolicy._();
 
+  /// A marca vale para o computador do próprio técnico também, e não só para
+  /// o do cliente dele: quem personaliza o atendimento personaliza a
+  /// ferramenta inteira.
+  ///
+  /// A prévia embutida continua de fora por outro motivo: ela é a aba Cliente
+  /// dentro do Hub, e existe para mostrar a tela do cliente — não para ser
+  /// mais uma superfície com a marca aplicada.
   static bool showCustomerBrand({
     required bool embeddedClientPreview,
     required String role,
     required String state,
     required bool enabled,
   }) =>
-      !embeddedClientPreview && role == 'client' && state == 'ativo' && enabled;
+      !embeddedClientPreview && state == 'ativo' && enabled;
 
   static bool canEdit({
     required String role,
