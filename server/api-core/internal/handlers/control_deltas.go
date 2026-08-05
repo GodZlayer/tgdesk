@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"time"
+
+	"tgdesk/api-core/internal/auth"
 )
 
 // Delta do canal de controle: o que mudou, e só isso.
@@ -148,4 +150,42 @@ func (s *Server) deltaFor(ctx context.Context, eventType, targetID string,
 		}
 	}
 	return nil, false
+}
+
+// ticketsForSnapshot devolve os chamados visíveis a quem abriu a sessão,
+// com o mesmo recorte de CanListTickets — admin vê tudo, supervisor vê a
+// organização dele, freelancer vê o que lhe foi ofertado.
+func (s *Server) ticketsForSnapshot(ctx context.Context, technicianID, role string) []map[string]any {
+	query, args, err := s.Authorizer.CanListTickets(ctx,
+		&auth.Claims{TechnicianID: technicianID, Role: role})
+	if err != nil {
+		return []map[string]any{}
+	}
+	rows, err := s.Pool.Query(ctx, query, args...)
+	if err != nil {
+		return []map[string]any{}
+	}
+	defer rows.Close()
+	out := []map[string]any{}
+	for rows.Next() {
+		var id, title, desc, modality, status, org string
+		var priority int
+		var standalone bool
+		var net, dev, freelancer, supervisor *string
+		var created, updated time.Time
+		if rows.Scan(&id, &title, &desc, &modality, &priority, &status,
+			&standalone, &org, &net, &dev, &freelancer, &supervisor,
+			&created, &updated) != nil {
+			continue
+		}
+		out = append(out, map[string]any{
+			"id": id, "title": title, "description": desc,
+			"modality": modality, "priority": priority, "status": status,
+			"standalone": standalone, "organization_id": org,
+			"network_id": net, "device_id": dev,
+			"assigned_freelancer_id": freelancer, "supervisor_id": supervisor,
+			"created_at": created, "updated_at": updated,
+		})
+	}
+	return out
 }

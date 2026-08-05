@@ -677,5 +677,11 @@ func (s *Server) controlSnapshot(ctx context.Context, technicianID, role string)
 		}
 	}
 	rows.Close()
-	return map[string]any{"type": "snapshot", "organizations": orgs, "networks": nets, "subnetworks": subnets, "devices": devices}, nil
+	// Os chamados vão no snapshot de abertura pelo mesmo motivo que as redes:
+	// a tela se monta a partir do canal, nunca de uma busca própria. Sem isto
+	// a tela de Chamados consultava o servidor ao montar, e quem abrisse a
+	// aba antes de um chamado existir ficava sem ele até remontar a tela.
+	return map[string]any{"type": "snapshot", "organizations": orgs,
+		"networks": nets, "subnetworks": subnets, "devices": devices,
+		"tickets": s.ticketsForSnapshot(ctx, technicianID, role)}, nil
 }

@@ -42,7 +42,6 @@ class _SupportPageState extends State<SupportPage> {
   void initState() {
     super.initState();
     _control.addListener(_changed);
-    unawaited(_control.refreshSupport());
   }
 
   @override
@@ -377,7 +376,6 @@ class _SupportPageState extends State<SupportPage> {
                         await TgdeskApi.acceptSupportOfferSupervisor(
                             offer['ticket_id'].toString());
                         await _loadSupervisorQueue();
-                        await _control.refreshSupport();
                       }),
               child: const Text('Aceitar'),
             ),
@@ -489,7 +487,6 @@ class _SupportPageState extends State<SupportPage> {
                     : () => _action(() async {
                           await TgdeskApi.transitionSupportTicket(
                               ticket['id'].toString(), 'in_progress');
-                          await _control.refreshSupport();
                         }),
                 icon: const Icon(Icons.play_arrow),
                 label: const Text('Iniciar atendimento'),
@@ -502,7 +499,6 @@ class _SupportPageState extends State<SupportPage> {
                     : () => _action(() async {
                           await TgdeskApi.transitionSupportTicket(
                               ticket['id'].toString(), 'closed');
-                          await _control.refreshSupport();
                         }),
                 icon: const Icon(Icons.check_circle_outline),
                 label: const Text('Concluir atendimento'),
@@ -756,7 +752,6 @@ class _SupportPageState extends State<SupportPage> {
                           description: description.text.trim(),
                           modality: mode.name,
                         );
-                        await _control.refreshSupport();
                       });
                     },
               child: const Text('Publicar'),
@@ -857,7 +852,6 @@ class _SupportPageState extends State<SupportPage> {
           'estimated': double.tryParse(value.text.replaceAll(',', '.')) ?? 0
         },
       );
-      await _control.refreshSupport();
     });
   }
 

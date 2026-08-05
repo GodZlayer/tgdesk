@@ -151,6 +151,13 @@ class TgdeskControlChannel extends ChangeNotifier {
       subnetworks =
           List<dynamic>.from(event['subnetworks'] as List? ?? const []);
       devices = List<dynamic>.from(event['devices'] as List? ?? const []);
+      // Os chamados vêm na abertura da sessão, como as redes. Antes a tela
+      // buscava sozinha ao montar, e quem abrisse a aba com a lista já em
+      // memória não via chamado nenhum até remontar.
+      tickets = (event['tickets'] as List? ?? const [])
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList(growable: false);
       error = null;
       notifyListeners();
       return;
