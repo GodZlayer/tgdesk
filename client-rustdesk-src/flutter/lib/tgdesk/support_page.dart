@@ -138,7 +138,8 @@ class _SupportPageState extends State<SupportPage> {
               if (_tab == 'queue') unawaited(_loadSupervisorQueue());
             },
           ),
-          if (canManage && _tab == 'active') ...[
+          // Abrir atendimento não depende de onde a pessoa está olhando.
+          if (canManage) ...[
             const SizedBox(width: 12),
             FilledButton.icon(
               onPressed: _loading ? null : _showDispatchDialog,
@@ -279,6 +280,72 @@ class _SupportPageState extends State<SupportPage> {
         return 'Cliente respondeu ao pedido de acesso.';
     }
     return evento['type']?.toString() ?? '';
+  }
+
+  Future<void> _showStepDialog(Map<String, dynamic> ticket) async {
+    final etapa = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Registrar etapa'),
+        content: SizedBox(
+          width: 420,
+          child: TextField(
+            controller: etapa,
+            autofocus: true,
+            decoration: const InputDecoration(
+              labelText: 'O que foi feito',
+              border: OutlineInputBorder(),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancelar')),
+          FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Registrar')),
+        ],
+      ),
+    );
+    if (ok != true || etapa.text.trim().isEmpty) return;
+    await _action(() => TgdeskApi.recordServiceOrderStep(
+        ticket['id'].toString(), etapa: etapa.text.trim()));
+  }
+
+  Future<void> _showFinishDialog(Map<String, dynamic> ticket) async {
+    final notas = TextEditingController();
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Encerrar ordem de serviço'),
+        content: SizedBox(
+          width: 420,
+          child: TextField(
+            controller: notas,
+            autofocus: true,
+            maxLines: 3,
+            decoration: const InputDecoration(
+              labelText: 'Notas de encerramento',
+              helperText: 'O cliente confirma depois disto.',
+              border: OutlineInputBorder(),
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('Cancelar')),
+          FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('Encerrar')),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    await _action(() => TgdeskApi.finishServiceOrder(
+        ticket['id'].toString(), notas: notas.text.trim()));
   }
 
   Widget _supervisorQueueList() {
@@ -500,6 +567,29 @@ class _SupportPageState extends State<SupportPage> {
                         .startServiceOrderExecution(ticket['id'].toString())),
                 icon: const Icon(Icons.play_circle_outline),
                 label: const Text('Iniciar OS'),
+              ),
+            if (state == TgdeskTicketState.inProgress && mine)
+              OutlinedButton.icon(
+                onPressed: _loading ? null : () => _showStepDialog(ticket),
+                icon: const Icon(Icons.checklist_rtl),
+                label: const Text('Registrar etapa'),
+              ),
+            if (state == TgdeskTicketState.inProgress && mine)
+              OutlinedButton.icon(
+                onPressed: _loading ? null : () => _showFinishDialog(ticket),
+                icon: const Icon(Icons.task_alt),
+                label: const Text('Encerrar OS'),
+              ),
+            // O chamado só encerra quando as partes confirmam — é o que
+            // impede fechar por cima de quem não concordou.
+            if (state == TgdeskTicketState.awaitingConfirmation)
+              FilledButton.tonalIcon(
+                onPressed: _loading
+                    ? null
+                    : () => _action(() => TgdeskApi
+                        .confirmTicketClosure(ticket['id'].toString())),
+                icon: const Icon(Icons.how_to_reg_outlined),
+                label: const Text('Confirmar fechamento'),
               ),
           ]),
           _ticketThread(ticket),
@@ -1142,6 +1232,7 @@ class _SupportPageState extends State<SupportPage> {
         TgdeskTicketState.offered => 'Ofertado',
         TgdeskTicketState.accepted => 'Atribuído',
         TgdeskTicketState.inProgress => 'Em atendimento',
+        TgdeskTicketState.awaitingConfirmation => 'Aguardando confirmação',
         TgdeskTicketState.closed => 'Encerrado',
         TgdeskTicketState.cancelled => 'Cancelado',
         TgdeskTicketState.expired => 'Expirado',

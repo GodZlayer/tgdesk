@@ -6,6 +6,7 @@ enum TgdeskTicketState {
   offered,
   accepted,
   inProgress,
+  awaitingConfirmation,
   closed,
   cancelled,
   expired,
@@ -34,6 +35,10 @@ const Map<String, TgdeskTicketState> _kServerTicketStates = {
   'offered': TgdeskTicketState.offered,
   'accepted': TgdeskTicketState.accepted,
   'in_progress': TgdeskTicketState.inProgress,
+  // A OS terminada espera confirmação das partes. Faltava aqui, e como
+  // ticketStateFromServer lança em estado desconhecido, um chamado nesse
+  // ponto derrubava a tela inteira de Chamados.
+  'awaiting_confirmation': TgdeskTicketState.awaitingConfirmation,
   'closed': TgdeskTicketState.closed,
   'cancelled': TgdeskTicketState.cancelled,
   'expired': TgdeskTicketState.expired,
