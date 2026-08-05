@@ -7,6 +7,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import 'api_client.dart';
+import 'health_text.dart';
 import 'control_channel.dart';
 import 'diagnostics_dialog.dart';
 import 'remote_session_page.dart';
@@ -499,23 +500,56 @@ class _SupportPageState extends State<SupportPage> {
     return const Color(0xff45c95a);
   }
 
-  /// Painel do chamado: cabeçalho com quem e em que pé, o relato, a linha do
-  /// tempo e a conversa. As ações ficam no topo, junto do estado que as
-  /// habilita, em vez de numa fileira de botões iguais no rodapé.
+  /// Painel do chamado: um dossiê, não uma conversa.
+  ///
+  /// A versão anterior era cabeçalho magro mais chat ocupando o resto, e por
+  /// isso parecia janela de mensageiro. Quem atende precisa ver, sem sair
+  /// daqui, o que a máquina reportou e o que dá para fazer com ela — é o que
+  /// NinjaOne e Atera fazem colando dispositivo e chamado. A conversa é uma
+  /// coluna estreita ao lado, porque é complemento.
   Widget _ticketDetail(Map<String, dynamic> ticket) {
     final state = ticketStateFromServer(ticket['status']?.toString());
-    final relato = ticket['description']?.toString() ?? '';
+    return Column(children: [
+      _detailHeader(ticket, state),
+      const Divider(height: 1),
+      Expanded(
+        child: Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Expanded(
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(24, 18, 24, 24),
+              children: [
+                _relatoSection(ticket),
+                _diagnosisSection(ticket),
+                _timelineSection(ticket),
+              ],
+            ),
+          ),
+          const VerticalDivider(width: 1),
+          SizedBox(width: 330, child: _ticketThread(ticket)),
+        ]),
+      ),
+    ]);
+  }
+
+  Widget _detailHeader(Map<String, dynamic> ticket, TgdeskTicketState state) {
     final rede = _networkLabel(ticket);
-    return ListView(
-      padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
-      children: [
+    final acoes = _ticketActions(ticket, state);
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 18, 24, 14),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
+          Icon(
+              ticket['modality'] == 'onsite'
+                  ? Icons.location_on_outlined
+                  : Icons.desktop_windows_outlined,
+              size: 28),
+          const SizedBox(width: 12),
           Expanded(
             child:
                 Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Text(ticket['title']?.toString() ?? 'Computador',
                   style: Theme.of(context).textTheme.headlineSmall),
-              const SizedBox(height: 4),
+              const SizedBox(height: 2),
               Text(
                   [
                     ticket['protocol']?.toString() ?? '',
@@ -527,20 +561,152 @@ class _SupportPageState extends State<SupportPage> {
           ),
           _statusChip(state),
         ]),
-        if (relato.isNotEmpty) ...[
-          const SizedBox(height: 18),
-          Text('Relato do cliente',
-              style: Theme.of(context).textTheme.labelMedium),
-          const SizedBox(height: 4),
-          Text(relato),
+        if (acoes.isNotEmpty) ...[
+          const SizedBox(height: 14),
+          Wrap(spacing: 8, runSpacing: 8, children: acoes),
         ],
-        const SizedBox(height: 18),
-        Wrap(
-            spacing: 8, runSpacing: 8, children: _ticketActions(ticket, state)),
-        const SizedBox(height: 8),
-        _ticketThread(ticket),
-      ],
+      ]),
     );
+  }
+
+  Widget _sectionTitle(String texto) => Padding(
+        padding: const EdgeInsets.only(bottom: 8),
+        child: Text(texto.toUpperCase(),
+            style: Theme.of(context)
+                .textTheme
+                .labelSmall
+                ?.copyWith(letterSpacing: 1.1)),
+      );
+
+  Widget _relatoSection(Map<String, dynamic> ticket) {
+    final relato = ticket['description']?.toString().trim() ?? '';
+    if (relato.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 22),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        _sectionTitle('Relato do cliente'),
+        Text(relato, style: const TextStyle(fontSize: 15)),
+      ]),
+    );
+  }
+
+  /// O diagnóstico já chega estruturado no evento 'diagnosis' — código mais
+  /// números. A frase é montada aqui, como manda a regra do sistema.
+  Widget _diagnosisSection(Map<String, dynamic> ticket) {
+    final id = ticket['id']?.toString() ?? '';
+    final eventos = _control.ticketEvents[id] ?? const [];
+    Map<String, dynamic>? diagnosis;
+    for (final evento in eventos) {
+      if (evento['type'] == 'diagnosis' && evento['payload'] is Map) {
+        diagnosis = Map<String, dynamic>.from(evento['payload'] as Map);
+      }
+    }
+    if (diagnosis == null) return const SizedBox.shrink();
+    final issues = (diagnosis['issues'] as List? ?? const [])
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList(growable: false);
+    final level = diagnosis['level']?.toString();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 22),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        _sectionTitle('An\u00e1lise autom\u00e1tica'),
+        Text(TgdeskHealthText.technicalTitle(level),
+            style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600)),
+        const SizedBox(height: 2),
+        Text(TgdeskHealthText.technicalSummary(level),
+            style: Theme.of(context).textTheme.bodySmall),
+        if (issues.isNotEmpty) const SizedBox(height: 12),
+        ...issues.map((issue) => Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child:
+                  Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Container(
+                  margin: const EdgeInsets.only(top: 6, right: 10),
+                  width: 8,
+                  height: 8,
+                  decoration: BoxDecoration(
+                      shape: BoxShape.circle,
+                      color: _severityColor(issue['severity']?.toString())),
+                ),
+                Expanded(
+                  child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                            TgdeskHealthText.categoryLabel(
+                                issue['category']?.toString()),
+                            style:
+                                const TextStyle(fontWeight: FontWeight.w600)),
+                        Text(TgdeskHealthText.technical(issue),
+                            style: Theme.of(context).textTheme.bodySmall),
+                      ]),
+                ),
+              ]),
+            )),
+        if (diagnosis['samples'] != null)
+          Text(
+              'Baseado em ${diagnosis['samples']} verifica\u00e7\u00f5es '
+              'de ${diagnosis['window_minutes'] ?? '?'} minutos.',
+              style: Theme.of(context).textTheme.bodySmall),
+      ]),
+    );
+  }
+
+  Color _severityColor(String? severity) {
+    switch (severity) {
+      case 'maximum':
+      case 'critical':
+        return const Color(0xffe5484d);
+      case 'warning':
+        return const Color(0xffffb020);
+    }
+    return const Color(0xff45c95a);
+  }
+
+  /// Linha do tempo: cada acontecimento com seu \u00edcone. Antes era texto corrido
+  /// misturado com a conversa, e etapa de OS ficava igual a mensagem.
+  Widget _timelineSection(Map<String, dynamic> ticket) {
+    final id = ticket['id']?.toString() ?? '';
+    final eventos = (_control.ticketEvents[id] ?? const [])
+        .where((evento) =>
+            evento['type'] != 'message' && evento['type'] != 'client_message')
+        .toList(growable: false);
+    if (eventos.isEmpty) return const SizedBox.shrink();
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      _sectionTitle('Hist\u00f3rico'),
+      ...eventos.map((evento) => Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Icon(_eventIcon(evento['type']?.toString()),
+                  size: 18, color: Theme.of(context).colorScheme.outline),
+              const SizedBox(width: 10),
+              Expanded(child: Text(_eventLine(evento))),
+            ]),
+          )),
+    ]);
+  }
+
+  IconData _eventIcon(String? tipo) {
+    switch (tipo) {
+      case 'opened':
+        return Icons.flag_outlined;
+      case 'diagnosis':
+        return Icons.monitor_heart_outlined;
+      case 'os_started':
+        return Icons.play_circle_outline;
+      case 'os_step':
+        return Icons.checklist_rtl;
+      case 'os_finished':
+        return Icons.task_alt;
+      case 'closure_confirmed':
+        return Icons.how_to_reg_outlined;
+      case 'remote_access_requested':
+        return Icons.lock_open_outlined;
+      case 'remote_access_response':
+        return Icons.verified_user_outlined;
+    }
+    return Icons.circle_outlined;
   }
 
   /// Ações do chamado, na ordem do fluxo. Cada uma aparece só no estado
