@@ -203,6 +203,27 @@ func NewRouter(s *Server) http.Handler {
 	mux.Handle("POST /api/v1/support/tickets/{id}/rate", private(auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.RateTicket(w, r, r.PathValue("id"))
 	}))))
+	// Catálogo de tipos de chamado. A leitura é de qualquer autenticado —
+	// quem abre chamado precisa do esquema para montar o formulário; a
+	// edição é só do admin.
+	mux.Handle("GET /api/v1/support/ticket-types", private(auth(http.HandlerFunc(s.TicketCatalog))))
+	mux.Handle("POST /api/v1/admin/ticket-types", admin(s.SaveTicketType))
+	mux.Handle("DELETE /api/v1/admin/ticket-types/{key}", admin(func(w http.ResponseWriter, r *http.Request) {
+		s.DeleteTicketType(w, r, r.PathValue("key"))
+	}))
+	mux.Handle("POST /api/v1/admin/ticket-type-fields", admin(s.SaveTicketTypeField))
+	mux.Handle("DELETE /api/v1/admin/ticket-type-fields/{id}", admin(func(w http.ResponseWriter, r *http.Request) {
+		s.DeleteTicketTypeField(w, r, r.PathValue("id"))
+	}))
+
+	// Precificação: percentual por classe, taxa do admin, promoção, vigência
+	// e os limites entre os quais o valor dinâmico varia.
+	mux.Handle("GET /api/v1/admin/pricing-rules", admin(s.ListPricingRules))
+	mux.Handle("POST /api/v1/admin/pricing-rules", admin(s.SavePricingRule))
+	mux.Handle("DELETE /api/v1/admin/pricing-rules/{id}", admin(func(w http.ResponseWriter, r *http.Request) {
+		s.DeletePricingRule(w, r, r.PathValue("id"))
+	}))
+
 	mux.Handle("GET /api/v1/devices/{id}/diagnostics", private(auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.ListDiagnostics(w, r, r.PathValue("id"))
 	}))))

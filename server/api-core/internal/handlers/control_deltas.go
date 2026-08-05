@@ -23,29 +23,34 @@ import (
 // ticketDelta devolve o chamado que mudou, no mesmo formato de ListTickets,
 // para que a tela aplique a linha sem precisar reler a lista.
 func (s *Server) ticketDelta(ctx context.Context, ticketID string) map[string]any {
-	var id, title, desc, modality, status, org string
+	var id, title, desc, modality, status, org, typeKey string
 	var priority int
 	var standalone bool
 	var protocol *string
 	var net, dev, freelancer, supervisor *string
 	var created, updated time.Time
+	var structured []byte
 	err := s.Pool.QueryRow(ctx, `
 		SELECT id,title,description,modality,priority,status,standalone,
 		       protocol,organization_id,network_id,device_id,
-		       assigned_freelancer_id,supervisor_id,created_at,updated_at
+		       assigned_freelancer_id,supervisor_id,created_at,updated_at,
+		       type_key,structured_data
 		FROM support_tickets WHERE id=$1`, ticketID).
 		Scan(&id, &title, &desc, &modality, &priority, &status, &standalone,
 			&protocol, &org, &net, &dev, &freelancer, &supervisor,
-			&created, &updated)
+			&created, &updated, &typeKey, &structured)
 	if err != nil {
 		return nil
 	}
+	var dados any
+	_ = json.Unmarshal(structured, &dados)
 	return map[string]any{
 		"id": id, "title": title, "description": desc, "modality": modality,
 		"priority": priority, "status": status, "standalone": standalone,
 		"protocol": protocol, "organization_id": org, "network_id": net,
 		"device_id": dev, "assigned_freelancer_id": freelancer,
 		"supervisor_id": supervisor, "created_at": created, "updated_at": updated,
+		"type_key": typeKey, "structured_data": dados,
 	}
 }
 
@@ -168,16 +173,19 @@ func (s *Server) ticketsForSnapshot(ctx context.Context, technicianID, role stri
 	defer rows.Close()
 	out := []map[string]any{}
 	for rows.Next() {
-		var id, title, desc, modality, status, org string
+		var id, title, desc, modality, status, org, typeKey string
 		var priority int
 		var standalone bool
 		var net, dev, freelancer, supervisor *string
 		var created, updated time.Time
+		var structured []byte
 		if rows.Scan(&id, &title, &desc, &modality, &priority, &status,
 			&standalone, &org, &net, &dev, &freelancer, &supervisor,
-			&created, &updated) != nil {
+			&created, &updated, &typeKey, &structured) != nil {
 			continue
 		}
+		var dados any
+		_ = json.Unmarshal(structured, &dados)
 		out = append(out, map[string]any{
 			"id": id, "title": title, "description": desc,
 			"modality": modality, "priority": priority, "status": status,
@@ -185,6 +193,7 @@ func (s *Server) ticketsForSnapshot(ctx context.Context, technicianID, role stri
 			"network_id": net, "device_id": dev,
 			"assigned_freelancer_id": freelancer, "supervisor_id": supervisor,
 			"created_at": created, "updated_at": updated,
+			"type_key": typeKey, "structured_data": dados,
 		})
 	}
 	return out

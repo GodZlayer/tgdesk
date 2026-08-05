@@ -474,7 +474,7 @@ func (a *Authorizer) CanManageDiagnostics(ctx context.Context, claims *Claims, d
 // supervisor sees tickets in their organizations.
 // cliente / cliente_avulso see only their own tickets.
 func (a *Authorizer) CanListTickets(ctx context.Context, claims *Claims) (string, []interface{}, error) {
-	query := `SELECT t.id,t.title,t.description,t.modality,t.priority,t.status,t.standalone,t.organization_id,t.network_id,t.device_id,t.assigned_freelancer_id,t.supervisor_id,t.created_at,t.updated_at FROM support_tickets t`
+	query := `SELECT t.id,t.title,t.description,t.modality,t.priority,t.status,t.standalone,t.organization_id,t.network_id,t.device_id,t.assigned_freelancer_id,t.supervisor_id,t.created_at,t.updated_at,t.type_key,t.structured_data FROM support_tickets t`
 	args := []interface{}{}
 
 	switch claims.Role {

@@ -369,13 +369,16 @@ func (s *Server) ListTickets(w http.ResponseWriter, r *http.Request) {
 	defer rows.Close()
 	out := []map[string]any{}
 	for rows.Next() {
-		var id, title, desc, modality, status, org string
+		var id, title, desc, modality, status, org, typeKey string
 		var priority int
 		var standalone bool
 		var net, dev, freelancer, supervisor *string
 		var created, updated time.Time
-		if rows.Scan(&id, &title, &desc, &modality, &priority, &status, &standalone, &org, &net, &dev, &freelancer, &supervisor, &created, &updated) == nil {
-			out = append(out, map[string]any{"id": id, "title": title, "description": desc, "modality": modality, "priority": priority, "status": status, "standalone": standalone, "organization_id": org, "network_id": net, "device_id": dev, "assigned_freelancer_id": freelancer, "supervisor_id": supervisor, "created_at": created, "updated_at": updated})
+		var structured []byte
+		if rows.Scan(&id, &title, &desc, &modality, &priority, &status, &standalone, &org, &net, &dev, &freelancer, &supervisor, &created, &updated, &typeKey, &structured) == nil {
+			var dados any
+			_ = json.Unmarshal(structured, &dados)
+			out = append(out, map[string]any{"id": id, "title": title, "description": desc, "modality": modality, "priority": priority, "status": status, "standalone": standalone, "organization_id": org, "network_id": net, "device_id": dev, "assigned_freelancer_id": freelancer, "supervisor_id": supervisor, "created_at": created, "updated_at": updated, "type_key": typeKey, "structured_data": dados})
 		}
 	}
 	writeJSON(w, 200, out)
@@ -704,26 +707,42 @@ func (s *Server) FreelancerQueue(w http.ResponseWriter, r *http.Request) {
 	if c.Role == models.RoleSuperAdmin && r.URL.Query().Get("freelancer_id") != "" {
 		fid = r.URL.Query().Get("freelancer_id")
 	}
-	rows, err := s.Pool.Query(r.Context(), `SELECT o.ticket_id,o.rank,o.available_at,o.expires_at,t.title,t.modality,t.location,t.structured_data FROM dispatch_offers o JOIN support_tickets t ON t.id=o.ticket_id WHERE o.freelancer_id=$1 AND o.available_at<=now() AND o.expires_at>now() AND t.status='offered' ORDER BY o.rank,o.available_at`, fid)
+	writeJSON(w, 200, s.freelancerOffers(r.Context(), fid))
+}
+
+// freelancerOffers é a fila do técnico. Vive separada do handler porque a tela
+// não a busca: ela chega no snapshot de abertura e volta a cada evento de
+// despacho, como todo o resto. A rota HTTP continua existindo para o
+// super_admin inspecionar a fila de outro técnico.
+func (s *Server) freelancerOffers(ctx context.Context, freelancerID string) []map[string]any {
+	out := []map[string]any{}
+	rows, err := s.Pool.Query(ctx, `
+		SELECT o.ticket_id,o.rank,o.available_at,o.expires_at,
+		       t.title,t.modality,t.location,t.structured_data,t.type_key
+		FROM dispatch_offers o JOIN support_tickets t ON t.id=o.ticket_id
+		WHERE o.freelancer_id=$1 AND o.available_at<=now() AND o.expires_at>now()
+		  AND t.status='offered'
+		ORDER BY o.rank,o.available_at`, freelancerID)
 	if err != nil {
-		writeErrCode(w, 500, "falha", "falha")
-		return
+		return out
 	}
 	defer rows.Close()
-	out := []map[string]any{}
 	for rows.Next() {
-		var id, title, mod string
+		var id, title, mod, typeKey string
 		var rank int
 		var av, ex time.Time
 		var loc, sd []byte
-		if rows.Scan(&id, &rank, &av, &ex, &title, &mod, &loc, &sd) == nil {
+		if rows.Scan(&id, &rank, &av, &ex, &title, &mod, &loc, &sd, &typeKey) == nil {
 			var location, structuredData any
 			_ = json.Unmarshal(loc, &location)
 			_ = json.Unmarshal(sd, &structuredData)
-			out = append(out, map[string]any{"ticket_id": id, "rank": rank, "available_at": av, "expires_at": ex, "title": title, "modality": mod, "location": location, "structured_data": structuredData})
+			out = append(out, map[string]any{"ticket_id": id, "rank": rank,
+				"available_at": av, "expires_at": ex, "title": title,
+				"modality": mod, "location": location,
+				"structured_data": structuredData, "type_key": typeKey})
 		}
 	}
-	writeJSON(w, 200, out)
+	return out
 }
 
 func (s *Server) AcceptDispatch(w http.ResponseWriter, r *http.Request, id string) {
@@ -1206,9 +1225,12 @@ func (s *Server) SetFreelancerAvailability(w http.ResponseWriter, r *http.Reques
 }
 
 type supervisorTicketRequest struct {
-	DeviceID       string         `json:"device_id"`
-	Title          string         `json:"title"`
-	Modality       string         `json:"modality"`
+	DeviceID string `json:"device_id"`
+	Title    string `json:"title"`
+	Modality string `json:"modality"`
+	// Qual tipo de chamado é este. Vazio significa 'computador', que é o único
+	// tipo que existia antes de o tipo virar dado — o parque atual inteiro.
+	TypeKey        string         `json:"type_key"`
 	StructuredData map[string]any `json:"structured_data"`
 	// Chamado aberto pelo supervisor já nasce como OS: se ele está abrindo, é
 	// porque o caso precisa de um técnico em campo. Estes campos definem a OS
@@ -1242,6 +1264,16 @@ func (s *Server) SupervisorOpenTicket(w http.ResponseWriter, r *http.Request) {
 	if req.StructuredData == nil {
 		req.StructuredData = map[string]any{}
 	}
+	if strings.TrimSpace(req.TypeKey) == "" {
+		req.TypeKey = "computador"
+	}
+	// O esquema do tipo é o contrato: chave que ele não declara é recusada aqui,
+	// e não descoberta depois por quem lê o chamado e não acha o que procurava.
+	if err := s.validateStructuredData(r.Context(), req.TypeKey, req.StructuredData,
+		map[string]string{"modality": req.Modality, "standalone": "false"}); err != nil {
+		writeErrCode(w, 400, "dados_do_tipo_invalidos", err.Error())
+		return
+	}
 	allowed, err := s.Authorizer.CanAccessDevice(r.Context(), c, req.DeviceID)
 	if err != nil {
 		writeErrCode(w, 500, "falha_verificar_acesso_dispositivo", "falha ao verificar acesso ao dispositivo")
@@ -1258,9 +1290,10 @@ func (s *Server) SupervisorOpenTicket(w http.ResponseWriter, r *http.Request) {
 	}
 	var id string
 	err = s.Pool.QueryRow(r.Context(), `
-		INSERT INTO support_tickets(organization_id,network_id,device_id,supervisor_id,title,structured_data,modality,standalone,status)
-		VALUES($1,$2,$3,$4,$5,$6,$7,false,'accepted') RETURNING id`,
-		orgID, netID, req.DeviceID, c.TechnicianID, strings.TrimSpace(req.Title), req.StructuredData, req.Modality).Scan(&id)
+		INSERT INTO support_tickets(organization_id,network_id,device_id,supervisor_id,title,structured_data,modality,type_key,standalone,status)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,false,'accepted') RETURNING id`,
+		orgID, netID, req.DeviceID, c.TechnicianID, strings.TrimSpace(req.Title),
+		req.StructuredData, req.Modality, req.TypeKey).Scan(&id)
 	if err != nil {
 		writeErrCode(w, 500, "falha_abrir_chamado", "falha ao abrir chamado")
 		return

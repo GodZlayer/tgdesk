@@ -502,11 +502,15 @@ class TgdeskApi {
   static Future<List<dynamic>> supervisorQueue() async =>
       await _send('GET', '/api/v1/support/supervisor/queue') as List<dynamic>;
 
+  /// Abre um chamado como supervisor. Os dados vão no formato que o tipo
+  /// declara — o servidor recusa chave que o tipo não tem e obrigatório em
+  /// falta, então o que trafega aqui é contrato, não convenção.
   static Future<Map<String, dynamic>> createSupervisorSupportTicket({
     required String deviceId,
     required String title,
-    required String description,
     required String modality,
+    String? typeKey,
+    Map<String, dynamic> structuredData = const {},
   }) async =>
       Map<String, dynamic>.from(await _send(
         'POST',
@@ -514,10 +518,40 @@ class TgdeskApi {
         body: {
           'device_id': deviceId,
           'title': title,
-          'structured_data': {'description': description},
+          if (typeKey != null) 'type_key': typeKey,
+          'structured_data': structuredData,
           'modality': modality,
         },
       ) as Map);
+
+  // ---------------------------------------------------------------------
+  // Catálogo de tipos e precificação — edição pelo admin.
+  //
+  // A leitura do catálogo não está aqui de propósito: ele chega pelo canal,
+  // no snapshot e nos deltas — inclusive os tipos desativados, que só o
+  // admin recebe. Aqui só há escrita.
+  // ---------------------------------------------------------------------
+
+  static Future<void> saveTicketType(Map<String, dynamic> type) async =>
+      await _send('POST', '/api/v1/admin/ticket-types', body: type);
+
+  static Future<void> deleteTicketType(String key) async =>
+      await _send('DELETE', '/api/v1/admin/ticket-types/$key');
+
+  static Future<void> saveTicketTypeField(Map<String, dynamic> field) async =>
+      await _send('POST', '/api/v1/admin/ticket-type-fields', body: field);
+
+  static Future<void> deleteTicketTypeField(String id) async =>
+      await _send('DELETE', '/api/v1/admin/ticket-type-fields/$id');
+
+  static Future<List<dynamic>> pricingRules() async =>
+      await _send('GET', '/api/v1/admin/pricing-rules') as List<dynamic>;
+
+  static Future<void> savePricingRule(Map<String, dynamic> rule) async =>
+      await _send('POST', '/api/v1/admin/pricing-rules', body: rule);
+
+  static Future<void> deletePricingRule(String id) async =>
+      await _send('DELETE', '/api/v1/admin/pricing-rules/$id');
 
   static Future<void> acceptSupportOffer(String ticketId) async =>
       await _send('POST', '/api/v1/support/tickets/$ticketId/accept');

@@ -80,6 +80,16 @@ func (s *Server) eventVisibleTo(ctx context.Context, claims *tgauth.Claims, evt 
 	switch evt.Type {
 	case "branding_permission", "technician_renamed":
 		return evt.TargetID == claims.TechnicianID
+	case "pricing_rules":
+		// Quem monta a mensagem já só a escreve para o super_admin; a
+		// conexão dele nem passa por aqui.
+		return false
+	case "ticket_catalog":
+		// O catálogo de tipos é o esquema com que todo mundo abre e lê
+		// chamado, então ele vale para qualquer autenticado. O que o recorte
+		// por papel decide é outra coisa — se os tipos desativados aparecem —
+		// e isso é resolvido na hora de montar a mensagem, não aqui.
+		return true
 	case "ticket_created", "ticket_message", "ticket_state", "service_order", "dispatch_offered", "dispatch_accepted":
 		ok, err := s.Authorizer.CanManageTicket(ctx, claims, evt.TargetID)
 		return err == nil && ok

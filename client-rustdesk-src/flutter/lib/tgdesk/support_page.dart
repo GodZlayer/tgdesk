@@ -14,6 +14,7 @@ import 'diagnostics_dialog.dart';
 import 'remote_session_page.dart';
 import 'support_contract.dart';
 import 'theme.dart';
+import 'ticket_type_form.dart';
 
 /// Hash criptográfico (SHA-256) usado como content_hash nas comprovações de
 /// atendimento presencial, gerado a partir dos bytes reais do arquivo/texto
@@ -1153,7 +1154,6 @@ class _SupportPageState extends State<SupportPage> {
 
   Future<void> _showDispatchDialog() async {
     final title = TextEditingController();
-    final description = TextEditingController();
     var mode = TgdeskServiceMode.virtual;
     final devices = _control.devices
         .whereType<Map>()
@@ -1161,6 +1161,11 @@ class _SupportPageState extends State<SupportPage> {
         .where((item) => item['state'] == 'ativo')
         .toList(growable: false);
     String? deviceId = devices.isEmpty ? null : devices.first['id']?.toString();
+    // Os tipos vêm do canal, e o primeiro do catálogo é o padrão. O app não
+    // conhece tipo nenhum por dentro.
+    final tipos = _control.ticketTypes;
+    String? typeKey = tipos.isEmpty ? null : tipos.first['key']?.toString();
+    var dados = <String, dynamic>{};
     await showDialog<void>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
@@ -1187,14 +1192,28 @@ class _SupportPageState extends State<SupportPage> {
                     .toList(),
                 onChanged: (value) => setDialogState(() => deviceId = value),
               ),
+              DropdownButtonFormField<String>(
+                value: typeKey,
+                decoration:
+                    const InputDecoration(labelText: 'Tipo de chamado'),
+                items: tipos
+                    .map((tipo) => DropdownMenuItem(
+                          value: tipo['key']?.toString(),
+                          child: Text(tipo['label']?.toString() ??
+                              tipo['key']?.toString() ??
+                              ''),
+                        ))
+                    .toList(),
+                // Trocar o tipo troca o formulário inteiro, então os valores
+                // do tipo anterior não sobrevivem: eles não existem no novo.
+                onChanged: (value) => setDialogState(() {
+                  typeKey = value;
+                  dados = <String, dynamic>{};
+                }),
+              ),
               TextField(
                   controller: title,
                   decoration: const InputDecoration(labelText: 'Título')),
-              TextField(
-                  controller: description,
-                  maxLines: 3,
-                  decoration: const InputDecoration(
-                      labelText: 'Dados técnicos e localização')),
               const SizedBox(height: 12),
               SegmentedButton<TgdeskServiceMode>(
                 segments: const [
@@ -1208,6 +1227,15 @@ class _SupportPageState extends State<SupportPage> {
                 onSelectionChanged: (value) =>
                     setDialogState(() => mode = value.first),
               ),
+              // Daqui para baixo quem manda é o esquema do tipo. A modalidade
+              // vai como atributo do chamado para que campos condicionais —
+              // endereço só no presencial — saibam se devem aparecer.
+              TicketTypeForm(
+                typeKey: typeKey,
+                values: dados,
+                ambient: {'modality': mode.name},
+                onChanged: (value) => setDialogState(() => dados = value),
+              ),
             ]),
           ),
           actions: [
@@ -1219,12 +1247,22 @@ class _SupportPageState extends State<SupportPage> {
                   ? null
                   : () async {
                       final selectedDevice = deviceId!;
+                      // Avisa antes de enviar o que o servidor recusaria: a
+                      // verificação que vale continua sendo a de lá.
+                      final falta = ticketTypeFormPending(
+                          typeKey, dados, {'modality': mode.name});
+                      if (falta != null) {
+                        ScaffoldMessenger.of(context)
+                            .showSnackBar(SnackBar(content: Text(falta)));
+                        return;
+                      }
                       Navigator.pop(context);
                       await _action(() async {
                         await TgdeskApi.createSupervisorSupportTicket(
                           deviceId: selectedDevice,
                           title: title.text.trim(),
-                          description: description.text.trim(),
+                          typeKey: typeKey,
+                          structuredData: dados,
                           modality: mode.name,
                         );
                       });

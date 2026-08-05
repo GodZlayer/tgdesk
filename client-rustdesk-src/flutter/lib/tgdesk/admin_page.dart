@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'admin_catalog_page.dart';
 import 'api_client.dart';
 import 'theme.dart';
 
@@ -21,7 +22,7 @@ class _AdminPageState extends State<AdminPage>
   @override
   void initState() {
     super.initState();
-    _tabs = TabController(length: 2, vsync: this);
+    _tabs = TabController(length: 4, vsync: this);
     _load();
   }
 
@@ -220,13 +221,17 @@ class _AdminPageState extends State<AdminPage>
   Widget build(BuildContext context) {
     return Column(
       children: [
-        TabBar(controller: _tabs, tabs: const [
+        TabBar(controller: _tabs, isScrollable: true, tabs: const [
           Tab(text: 'Organizações & Redes'),
+          Tab(text: 'Tipos de chamado'),
+          Tab(text: 'Precificação'),
           Tab(text: 'Auditoria'),
         ]),
         Expanded(
           child: TabBarView(controller: _tabs, children: [
             _buildOrgsTab(),
+            const AdminTicketTypesTab(),
+            const AdminPricingTab(),
             _buildAuditTab(),
           ]),
         ),

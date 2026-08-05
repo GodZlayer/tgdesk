@@ -22,6 +22,40 @@ class TgdeskControlChannel extends ChangeNotifier {
   List<Map<String, dynamic>> tickets = const [];
   List<Map<String, dynamic>> offers = const [];
 
+  /// Catálogo de tipos de chamado, com os campos que cada um exige. É o
+  /// esquema a partir do qual o formulário se monta e o chamado se lê — o app
+  /// não conhece tipo nenhum por dentro, só o que chega aqui.
+  List<Map<String, dynamic>> ticketTypes = const [];
+
+  /// Regras de preço. Só o admin as recebe — preço é configuração do dono do
+  /// produto, e as demais telas não têm o que fazer com elas.
+  List<Map<String, dynamic>> pricingRules = const [];
+
+  Map<String, dynamic>? ticketTypeOf(String? key) {
+    if (key == null) return null;
+    for (final type in ticketTypes) {
+      if (type['key']?.toString() == key) return type;
+    }
+    return null;
+  }
+
+  /// Campos visíveis de um tipo, já com as condições resolvidas: um campo com
+  /// `depends_on` só aparece quando o campo (ou atributo do chamado) de que
+  /// depende está com o valor declarado.
+  List<Map<String, dynamic>> visibleFieldsOf(
+      String? typeKey, Map<String, dynamic> values) {
+    final type = ticketTypeOf(typeKey);
+    final fields = (type?['fields'] as List? ?? const [])
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item));
+    return fields.where((field) {
+      final dependsOn = field['depends_on']?.toString();
+      if (dependsOn == null || dependsOn.isEmpty) return true;
+      return values[dependsOn]?.toString() ==
+          field['depends_value']?.toString();
+    }).toList(growable: false);
+  }
+
   /// Conversa e histórico de cada chamado, por id. São a mesma lista de
   /// eventos vista de dois jeitos: mensagem é um tipo de evento entre outros.
   /// Chega empurrada, evento a evento — a tela nunca vai buscar.
@@ -158,6 +192,23 @@ class TgdeskControlChannel extends ChangeNotifier {
           .whereType<Map>()
           .map((item) => Map<String, dynamic>.from(item))
           .toList(growable: false);
+      // O catálogo de tipos vem na abertura pelo mesmo motivo: a tela que abre
+      // um chamado monta o formulário a partir do esquema, e ela se monta do
+      // canal.
+      ticketTypes = (event['ticket_types'] as List? ?? const [])
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList(growable: false);
+      // A fila do técnico também: era a última tela que ainda perguntava ao
+      // servidor de dez em dez segundos.
+      offers = (event['dispatch_offers'] as List? ?? const [])
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList(growable: false);
+      pricingRules = (event['pricing_rules'] as List? ?? const [])
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList(growable: false);
       // O histórico vem junto: sem ele a tela do chamado abria vazia,
       // porque os eventos só chegavam por delta e tudo que aconteceu
       // antes da sessão era invisível.
@@ -204,6 +255,34 @@ class TgdeskControlChannel extends ChangeNotifier {
           .map((item) => Map<String, dynamic>.from(item))
           .toList(growable: false);
       offers = (payload['offers'] as List? ?? const [])
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList(growable: false);
+      notifyListeners();
+      return;
+    }
+    // O catálogo chega inteiro quando o admin mexe nele: mudar um tipo costuma
+    // mexer em vários campos de uma vez, e ele é pequeno.
+    if (event['type'] == 'ticket_catalog' && event['payload'] is List) {
+      ticketTypes = (event['payload'] as List)
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList(growable: false);
+      notifyListeners();
+      return;
+    }
+    if (event['type'] == 'pricing_rules' && event['payload'] is List) {
+      pricingRules = (event['payload'] as List)
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList(growable: false);
+      notifyListeners();
+      return;
+    }
+    // A fila de ofertas chega inteira porque ela é a lista, não uma linha: uma
+    // oferta aceita por outro técnico sai da fila sem gerar evento próprio.
+    if (event['type'] == 'dispatch_offers' && event['payload'] is List) {
+      offers = (event['payload'] as List)
           .whereType<Map>()
           .map((item) => Map<String, dynamic>.from(item))
           .toList(growable: false);

@@ -495,6 +495,48 @@ func (s *Server) TechnicianControlWS(w http.ResponseWriter, r *http.Request) {
 			// inteiro era reconsultado e reenviado a cada evento — quatro
 			// consultas vezes o número de técnicos conectados para entregar
 			// uma mensagem de chat.
+			// O catálogo vai inteiro — ele é pequeno, e mexer num tipo
+			// costuma mexer em vários campos de uma vez. Vai daqui, e não
+			// de deltaFor, porque o recorte depende de quem está do outro
+			// lado: só o admin enxerga o que está desativado, que é o que
+			// permite a ele religar um tipo.
+			if evt.Type == "ticket_catalog" {
+				if write(map[string]any{"type": "ticket_catalog",
+					"payload": s.ticketCatalog(r.Context(),
+						claims.Role == models.RoleSuperAdmin)}) != nil {
+					return
+				}
+				continue
+			}
+			// Preço é configuração do dono do produto: só a tela dele
+			// recebe, e por isso não passa por deltaFor.
+			if evt.Type == "pricing_rules" {
+				if claims.Role == models.RoleSuperAdmin {
+					if write(map[string]any{"type": "pricing_rules",
+						"payload": s.pricingRules(r.Context())}) != nil {
+						return
+					}
+				}
+				continue
+			}
+			// A fila de ofertas depende de quem está do outro lado: a mesma
+			// oferta existe para um técnico e não para outro. deltaFor não
+			// conhece a conexão, então esta é a parte que se resolve aqui.
+			//
+			// É o que substitui o Timer de 10s que a aba Fila mantinha: a
+			// oferta chega quando acontece, e some quando expira — o próprio
+			// card sabe a hora pelo expires_at, sem perguntar ao servidor.
+			if claims.Role == models.RoleFreelancer {
+				switch evt.Type {
+				case "dispatch_offered", "dispatch_accepted", "ticket_created",
+					"ticket_state", "service_order":
+					if write(map[string]any{"type": "dispatch_offers",
+						"payload": s.freelancerOffers(r.Context(),
+							claims.TechnicianID)}) != nil {
+						return
+					}
+				}
+			}
 			eventPayload, _ := evt.Payload.(map[string]any)
 			if delta, ok := s.deltaFor(r.Context(), evt.Type, evt.TargetID,
 				eventPayload); ok {
@@ -688,7 +730,23 @@ func (s *Server) controlSnapshot(ctx context.Context, technicianID, role string)
 			ids = append(ids, id)
 		}
 	}
+	// O catálogo de tipos entra na abertura pela mesma razão dos chamados: a
+	// tela que abre um chamado monta o formulário a partir do esquema, e ela
+	// se monta do canal, nunca de uma busca própria.
+	// A fila de ofertas do técnico entra na abertura pelo mesmo motivo. Para
+	// quem não é freelancer ela é vazia, e a aba nem existe.
+	offers := []map[string]any{}
+	if role == models.RoleFreelancer {
+		offers = s.freelancerOffers(ctx, technicianID)
+	}
+	// As regras de preço vão só para o admin, que é quem as edita.
+	pricing := []map[string]any{}
+	if role == models.RoleSuperAdmin {
+		pricing = s.pricingRules(ctx)
+	}
 	return map[string]any{"type": "snapshot", "organizations": orgs,
 		"networks": nets, "subnetworks": subnets, "devices": devices,
-		"tickets": tickets, "ticket_events": s.ticketEventsForSnapshot(ctx, ids)}, nil
+		"tickets": tickets, "ticket_events": s.ticketEventsForSnapshot(ctx, ids),
+		"ticket_types": s.ticketCatalog(ctx, role == models.RoleSuperAdmin),
+		"dispatch_offers": offers, "pricing_rules": pricing}, nil
 }

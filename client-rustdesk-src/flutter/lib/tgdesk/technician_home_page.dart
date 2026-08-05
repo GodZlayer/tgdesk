@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 
 import 'api_client.dart';
 import 'client_home_page.dart';
+import 'control_channel.dart';
 import 'support_contract.dart';
 import 'support_page.dart';
 import 'theme.dart';
@@ -74,45 +75,41 @@ class _TechnicianQueueTab extends StatefulWidget {
 }
 
 class _TechnicianQueueTabState extends State<_TechnicianQueueTab> {
-  List<Map<String, dynamic>> _offers = [];
-  bool _loading = false;
+  final _channel = TgdeskControlChannel.instance;
   String? _error;
-  Timer? _poll;
 
+  /// A fila vem do canal: no snapshot de abertura e depois a cada evento de
+  /// despacho. Antes esta aba tinha um Timer de 10 segundos perguntando ao
+  /// servidor — a última tela do produto que ainda fazia isso.
   @override
   void initState() {
     super.initState();
-    unawaited(_load());
-    _poll = Timer.periodic(const Duration(seconds: 10), (_) => _load());
+    _channel.addListener(_onChannel);
   }
 
   @override
   void dispose() {
-    _poll?.cancel();
+    _channel.removeListener(_onChannel);
     super.dispose();
   }
 
-  Future<void> _load() async {
-    if (_loading) return;
-    setState(() => _loading = true);
-    try {
-      final result = await TgdeskApi.supportOffers();
-      final offers = result
-          .whereType<Map>()
-          .map((item) => Map<String, dynamic>.from(item))
-          .toList(growable: false);
-      if (mounted) setState(() => _offers = offers);
-    } catch (e) {
-      if (mounted) setState(() => _error = e.toString());
-    } finally {
-      if (mounted) setState(() => _loading = false);
-    }
+  void _onChannel() {
+    if (mounted) setState(() {});
+  }
+
+  /// Oferta expirada some sozinha: o prazo já veio no card, então o próprio
+  /// app sabe a hora sem perguntar de novo.
+  List<Map<String, dynamic>> get _offers {
+    final agora = DateTime.now();
+    return _channel.offers.where((offer) {
+      final prazo = DateTime.tryParse(offer['expires_at']?.toString() ?? '');
+      return prazo == null || prazo.isAfter(agora);
+    }).toList(growable: false);
   }
 
   Future<void> _accept(String ticketId) async {
     try {
       await TgdeskApi.acceptSupportOffer(ticketId);
-      await _load();
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
             const SnackBar(content: Text('Chamado aceito.')));
@@ -125,21 +122,45 @@ class _TechnicianQueueTabState extends State<_TechnicianQueueTab> {
     }
   }
 
+  /// O endereço é um campo declarado no tipo, então há uma grafia só. Antes
+  /// aqui se procurava por 'address', 'endereco', 'store_address' e
+  /// 'loja_endereco' até uma bater — o custo de o dado não ter contrato.
+  ///
+  /// 'location' continua sendo consultado porque é coluna do chamado, com
+  /// origem própria (geolocalização do dispositivo), e não campo do tipo.
   String? _addressFrom(Map<String, dynamic> offer) {
-    final location = offer['location'];
-    final structured = offer['structured_data'];
-    for (final source in [structured, location]) {
+    for (final source in [offer['structured_data'], offer['location']]) {
       if (source is Map) {
-        final address = source['address'] ??
-            source['endereco'] ??
-            source['store_address'] ??
-            source['loja_endereco'];
+        final address = source['address'];
         if (address != null && address.toString().trim().isNotEmpty) {
           return address.toString();
         }
       }
     }
     return null;
+  }
+
+  /// Os fatos do chamado, na ordem e com os rótulos que o tipo declara. Uma
+  /// leitura só para todos os tipos: nada aqui sabe o que é um computador.
+  List<Widget> _factsOf(BuildContext context, Map<String, dynamic> offer) {
+    final data = offer['structured_data'];
+    final values = <String, dynamic>{
+      if (data is Map) ...Map<String, dynamic>.from(data),
+      'modality': offer['modality'],
+    };
+    return _channel
+        .visibleFieldsOf(offer['type_key']?.toString(), values)
+        .where((field) {
+          if (field['field_key'] == 'address') return false; // já tem lugar
+          final raw = values[field['field_key']?.toString()];
+          return raw != null && raw.toString().trim().isNotEmpty;
+        })
+        .map((field) => Padding(
+              padding: const EdgeInsets.only(top: TgdeskSpacing.xs),
+              child: Text(
+                  '${field['label']}: ${values[field['field_key']?.toString()]}'),
+            ))
+        .toList(growable: false);
   }
 
   @override
@@ -157,11 +178,8 @@ class _TechnicianQueueTabState extends State<_TechnicianQueueTab> {
                   'Veja os dados liberados pelo supervisor antes de aceitar.'),
             ]),
           ),
-          IconButton(
-            onPressed: _loading ? null : _load,
-            icon: const Icon(Icons.refresh),
-            tooltip: 'Atualizar',
-          ),
+          // Sem botão de atualizar: não há o que atualizar. A fila chega pelo
+          // canal, e o que está na tela é o estado corrente.
         ]),
       ),
       const Divider(height: 1),
@@ -173,9 +191,9 @@ class _TechnicianQueueTabState extends State<_TechnicianQueueTab> {
       Expanded(
         child: _offers.isEmpty
             ? Center(
-                child: Text(_loading
-                    ? 'Carregando...'
-                    : 'Nenhum atendimento ofertado no momento.'))
+                child: Text(_channel.connected
+                    ? 'Nenhum atendimento ofertado no momento.'
+                    : 'Reconectando ao servidor...'))
             : ListView.separated(
                 padding: const EdgeInsets.all(20),
                 itemCount: _offers.length,
@@ -202,12 +220,27 @@ class _TechnicianQueueTabState extends State<_TechnicianQueueTab> {
                                       .textTheme
                                       .titleMedium),
                             ),
+                            // O rótulo do tipo vem do catálogo, não de uma
+                            // tradução escrita aqui: tipo novo aparece sem
+                            // release.
+                            if (_channel
+                                    .ticketTypeOf(offer['type_key']?.toString())
+                                    ?['label'] !=
+                                null) ...[
+                              Chip(
+                                  label: Text(_channel
+                                      .ticketTypeOf(
+                                          offer['type_key']?.toString())!['label']
+                                      .toString())),
+                              const SizedBox(width: TgdeskSpacing.xs),
+                            ],
                             Chip(
                                 label: Text(
                                     'Modalidade: ${offer['modality'] ?? '—'}')),
                           ]),
                           const SizedBox(height: TgdeskSpacing.sm),
                           Text('Rank na fila: ${offer['rank'] ?? '—'}'),
+                          ..._factsOf(context, offer),
                           if (address != null) ...[
                             const SizedBox(height: TgdeskSpacing.xs),
                             Row(children: [
