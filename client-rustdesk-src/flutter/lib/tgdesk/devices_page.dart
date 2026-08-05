@@ -1205,7 +1205,6 @@ class _DevicesPageState extends State<DevicesPage> {
       );
 
   Future<void> _openHealthDialog(String deviceId, String hostname) async {
-    final initial = TgdeskApi.deviceHealth(deviceId);
     showDialog(
       context: context,
       builder: (ctx) => AlertDialog(
@@ -1230,8 +1229,9 @@ class _DevicesPageState extends State<DevicesPage> {
           builder: (ctx, _) {
             final live = _control.deviceHealth[deviceId];
             if (live != null) return _technicalHealth(live);
+            // Fallback só se o canal ainda não tem o dado: busca HTTP uma vez.
             return FutureBuilder<Map<String, dynamic>>(
-              future: initial,
+              future: TgdeskApi.deviceHealth(deviceId),
               builder: (ctx, snap) {
                 if (snap.connectionState != ConnectionState.done) {
                   return const SizedBox(
@@ -1467,7 +1467,7 @@ class _DevicesPageState extends State<DevicesPage> {
               Text(subtitle,
                   maxLines: 2,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: Colors.grey)),
+                  style: TextStyle(color: TgdeskColors.offline)),
               const SizedBox(height: 12),
               ClipRRect(
                 borderRadius: BorderRadius.circular(4),
@@ -1562,7 +1562,7 @@ class _DevicesPageState extends State<DevicesPage> {
                   Text(network['description']?.toString() ?? '',
                       maxLines: 1,
                       overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(color: Colors.grey)),
+                      style: TextStyle(color: TgdeskColors.offline)),
                 ])),
             _alertBadge(online ? 0 : 1, online ? 'Ativa' : 'Indisponível'),
           ]),
@@ -1657,7 +1657,7 @@ class _DevicesPageState extends State<DevicesPage> {
   Widget _visualMetric(
       String title, double value, String suffix, IconData icon, int level) {
     final unavailable = suffix.isEmpty;
-    final color = unavailable ? Colors.blueGrey : _healthColor(level);
+    final color = unavailable ? TgdeskColors.guest : _healthColor(level);
     final progress = unavailable ? 0.0 : (value / 100).clamp(0, 1).toDouble();
     final state = unavailable
         ? 'Sem leitura'
@@ -1698,7 +1698,7 @@ class _DevicesPageState extends State<DevicesPage> {
           if (!unavailable)
             Padding(
               padding: const EdgeInsets.only(bottom: 4, left: 2),
-              child: Text(suffix, style: const TextStyle(color: Colors.grey)),
+              child: Text(suffix, style: TextStyle(color: TgdeskColors.offline)),
             ),
           const Spacer(),
           Text(state, style: TextStyle(color: color, fontSize: 12)),

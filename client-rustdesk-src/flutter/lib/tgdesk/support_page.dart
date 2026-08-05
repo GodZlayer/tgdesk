@@ -1297,44 +1297,56 @@ class _SupportPageState extends State<SupportPage> {
   }
 
   Future<void> _showServiceOrderDialog(Map<String, dynamic> ticket) async {
-    final scope = TextEditingController();
-    final item = TextEditingController();
-    final value = TextEditingController();
-    var osType = ticket['modality'] == 'onsite' ? 'onsite' : 'virtual';
+    // O tipo de OS vem do catálogo. O admin cadastra tipos "os_*" com os campos
+    // que a OS precisa: peças, serviços, local, instrução, manual, etc.
+    final osTypes = _control.ticketTypes
+        .where((t) => (t['key']?.toString() ?? '').startsWith('os_') && t['active'] == true)
+        .toList(growable: false);
+    if (osTypes.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Nenhum tipo de OS cadastrado. Peça ao admin para criar em Catálogo > Tipos.')));
+      }
+      return;
+    }
+
+    var selectedOsType = osTypes.first['key']?.toString() ?? '';
+    final osFormData = <String, dynamic>{};
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => StatefulBuilder(
         builder: (context, setDialogState) => AlertDialog(
           title: const Text('Transformar chamado em OS'),
           content: SizedBox(
-            width: 520,
+            width: 600,
             child: Column(mainAxisSize: MainAxisSize.min, children: [
-              TextField(
-                controller: scope,
-                maxLines: 4,
-                decoration: const InputDecoration(
-                    labelText: 'Escopo acordado',
-                    hintText: 'Descreva exatamente o que será executado'),
-              ),
-              TextField(
-                controller: item,
-                decoration: const InputDecoration(labelText: 'Item ou serviço'),
-              ),
-              TextField(
-                controller: value,
-                keyboardType:
-                    const TextInputType.numberWithOptions(decimal: true),
-                decoration: const InputDecoration(labelText: 'Valor estimado'),
+              DropdownButtonFormField<String>(
+                value: selectedOsType,
+                decoration: const InputDecoration(labelText: 'Tipo de OS'),
+                items: osTypes
+                    .map((tipo) => DropdownMenuItem(
+                          value: tipo['key']?.toString(),
+                          child: Text(tipo['label']?.toString() ?? ''),
+                        ))
+                    .toList(),
+                onChanged: (value) => setDialogState(() {
+                  selectedOsType = value ?? '';
+                  osFormData.clear();
+                }),
               ),
               const SizedBox(height: 12),
-              SegmentedButton<String>(
-                segments: const [
-                  ButtonSegment(value: 'virtual', label: Text('Virtual')),
-                  ButtonSegment(value: 'onsite', label: Text('Presencial')),
-                ],
-                selected: {osType},
-                onSelectionChanged: (selection) =>
-                    setDialogState(() => osType = selection.first),
+              // A modalidade do chamado define atributos ambientais para campos condicionais
+              TicketTypeForm(
+                typeKey: selectedOsType,
+                values: osFormData,
+                ambient: {
+                  'modality': ticket['modality'] ?? 'virtual',
+                  'standalone': (ticket['standalone'] == true).toString(),
+                  'priority': (ticket['priority'] as num? ?? 2).toString(),
+                },
+                onChanged: (value) => setDialogState(() => osFormData
+                  ..clear()
+                  ..addAll(value)),
               ),
             ]),
           ),
@@ -1343,28 +1355,85 @@ class _SupportPageState extends State<SupportPage> {
                 onPressed: () => Navigator.pop(context, false),
                 child: const Text('Cancelar')),
             FilledButton(
-                onPressed: () => Navigator.pop(context, true),
-                child: const Text('Criar OS')),
+              onPressed: () async {
+                final falta = ticketTypeFormPending(
+                    selectedOsType, osFormData, {
+                  'modality': ticket['modality'] ?? 'virtual',
+                  'standalone': (ticket['standalone'] == true).toString(),
+                  'priority': (ticket['priority'] as num? ?? 2).toString(),
+                });
+                if (falta != null) {
+                  ScaffoldMessenger.of(context)
+                      .showSnackBar(SnackBar(content: Text(falta)));
+                  return;
+                }
+                Navigator.pop(context, true);
+              },
+              child: const Text('Criar OS'),
+            ),
           ],
         ),
       ),
     );
-    if (confirmed != true || scope.text.trim().isEmpty) return;
+    if (confirmed != true) return;
+
+    // Mapear dados do formulário para os campos da OS
+    final scopeNotes = osFormData['escopo']?.toString() ??
+        osFormData['scope_notes']?.toString() ??
+        osFormData['instrucao']?.toString() ??
+        '';
+    final osType = osFormData['os_type']?.toString() ??
+        (ticket['modality'] == 'onsite' ? 'onsite' : 'virtual');
+    final items = _parseOsItems(osFormData);
+    final values = _parseOsValues(osFormData);
+    final scheduledAt = _parseDateTime(osFormData['agendada_para']);
+    final scheduledLocation = _parseLocation(osFormData['local'] ?? osFormData['location']);
+
     await _action(() async {
       await TgdeskApi.convertTicketToServiceOrder(
         ticket['id'].toString(),
-        scopeNotes: scope.text.trim(),
+        scopeNotes: scopeNotes,
         osType: osType,
-        items: item.text.trim().isEmpty
-            ? const []
-            : [
-                <String, dynamic>{'description': item.text.trim()}
-              ],
-        values: {
-          'estimated': double.tryParse(value.text.replaceAll(',', '.')) ?? 0
-        },
+        items: items,
+        values: values,
+        scheduledAt: scheduledAt,
+        scheduledLocation: scheduledLocation,
+        osTypeKey: selectedOsType,
+        osStructuredData: osFormData,
       );
     });
+  }
+
+  List<Map<String, dynamic>> _parseOsItems(Map<String, dynamic> data) {
+    final raw = data['pecas'] ?? data['servicos'] ?? data['items'];
+    if (raw == null) return const [];
+    if (raw is List) {
+      return raw.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+    }
+    if (raw is Map) return [Map<String, dynamic>.from(raw)];
+    return const [];
+  }
+
+  Map<String, dynamic> _parseOsValues(Map<String, dynamic> data) {
+    final out = <String, dynamic>{};
+    for (final key in ['valor', 'valor_estimado', 'estimated', 'preco', 'price']) {
+      if (data[key] != null) {
+        final v = num.tryParse(data[key].toString());
+        if (v != null) out['estimated'] = v.toDouble();
+      }
+    }
+    return out;
+  }
+
+  DateTime? _parseDateTime(dynamic v) {
+    if (v == null) return null;
+    return DateTime.tryParse(v.toString());
+  }
+
+  Map<String, dynamic>? _parseLocation(dynamic v) {
+    if (v == null) return null;
+    if (v is Map) return Map<String, dynamic>.from(v);
+    return {'address': v.toString()};
   }
 
   Future<void> _showEvidenceDialog(Map<String, dynamic> ticket) async {

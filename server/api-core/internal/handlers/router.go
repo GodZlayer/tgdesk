@@ -256,6 +256,17 @@ func NewRouter(s *Server) http.Handler {
 	}))
 	mux.Handle("GET /api/v1/technicians", admin(s.ListTechnicians))
 	mux.Handle("POST /api/v1/technicians", admin(s.CreateTechnician))
+	mux.Handle("GET /api/v1/technicians/name-styles", admin(s.ListTechnicianNameStyles))
+	mux.Handle("POST /api/v1/technicians/name-styles", admin(s.SaveTechnicianNameStyle))
+	mux.Handle("PUT /api/v1/technicians/{id}/name-style", admin(func(w http.ResponseWriter, r *http.Request) {
+		s.SetTechnicianNameStyle(w, r, r.PathValue("id"))
+	}))
+	mux.Handle("DELETE /api/v1/technicians/{id}/name-style", admin(func(w http.ResponseWriter, r *http.Request) {
+		s.ClearTechnicianNameStyle(w, r, r.PathValue("id"))
+	}))
+	mux.Handle("DELETE /api/v1/technicians/name-styles/{key}", admin(func(w http.ResponseWriter, r *http.Request) {
+		s.DeleteTechnicianNameStyle(w, r, r.PathValue("key"))
+	}))
 	mux.Handle("POST /api/v1/admin/freelancers", admin(s.CreateFreelancer))
 	mux.Handle("PUT /api/v1/technicians/{id}/branding-enabled", admin(func(w http.ResponseWriter, r *http.Request) {
 		s.SetTechnicianBrandingEnabled(w, r, r.PathValue("id"))

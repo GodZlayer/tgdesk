@@ -1,3 +1,4 @@
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import 'control_channel.dart';
@@ -117,8 +118,51 @@ class TicketTypeForm extends StatelessWidget {
           onChanged: (value) => _set(key, value),
         );
 
-      // 'date' e 'attachment' ainda não têm controle próprio: até terem, o
-      // campo aparece como texto em vez de sumir da tela sem explicação.
+      case 'date':
+        return TextFormField(
+          initialValue: atual?.toString() ?? '',
+          readOnly: true,
+          decoration: InputDecoration(
+              labelText: rotulo, helperText: help.isEmpty ? null : help),
+          onTap: () async {
+            final picked = await showDatePicker(
+              context: context,
+              initialDate: DateTime.tryParse(atual?.toString() ?? '') ?? DateTime.now(),
+              firstDate: DateTime(2020),
+              lastDate: DateTime(2100),
+            );
+            if (picked != null) {
+              _set(key, picked.toIso8601String().split('T').first);
+            }
+          },
+        );
+
+      case 'attachment':
+        return Row(
+          children: [
+            Expanded(
+              child: TextFormField(
+                initialValue: atual?.toString() ?? '',
+                readOnly: true,
+                decoration: InputDecoration(
+                    labelText: rotulo, helperText: help.isEmpty ? null : help),
+              ),
+            ),
+            const SizedBox(width: TgdeskSpacing.sm),
+            OutlinedButton.icon(
+              onPressed: () async {
+                final result = await FilePicker.platform.pickFiles();
+                if (result != null && result.files.isNotEmpty) {
+                  final file = result.files.first;
+                  _set(key, file.path);
+                }
+              },
+              icon: const Icon(Icons.attach_file),
+              label: const Text('Anexar'),
+            ),
+          ],
+        );
+
       default:
         return TextFormField(
           initialValue: atual?.toString() ?? '',

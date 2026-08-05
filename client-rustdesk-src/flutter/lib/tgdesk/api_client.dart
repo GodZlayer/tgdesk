@@ -375,6 +375,17 @@ class TgdeskApi {
   static Future<List<dynamic>> technicians() async =>
       await _send('GET', '/api/v1/technicians') as List<dynamic>;
 
+  static Future<List<dynamic>> technicianNameStyles() async =>
+      await _send('GET', '/api/v1/technicians/name-styles') as List<dynamic>;
+
+  static Future<void> setTechnicianNameStyle(
+          String technicianId, String styleKey) async =>
+      await _send('PUT', '/api/v1/technicians/$technicianId/name-style',
+          body: {'style': styleKey});
+
+  static Future<void> clearTechnicianNameStyle(String technicianId) async =>
+      await _send('DELETE', '/api/v1/technicians/$technicianId/name-style');
+
   static Future<Map<String, dynamic>> createTechnician(String name) async {
     final res =
         await _send('POST', '/api/v1/technicians', body: {'name': name});
@@ -589,6 +600,10 @@ class TgdeskApi {
     required String osType,
     List<Map<String, dynamic>> items = const [],
     Map<String, dynamic> values = const {},
+    DateTime? scheduledAt,
+    Map<String, dynamic>? scheduledLocation,
+    String? osTypeKey,
+    Map<String, dynamic>? osStructuredData,
   }) async =>
       await _send('POST', '/api/v1/support/tickets/$ticketId/service-order',
           body: {
@@ -596,6 +611,14 @@ class TgdeskApi {
             'os_type': osType,
             'items': items,
             'values': values,
+            if (scheduledAt != null)
+              'scheduled_at': scheduledAt.toUtc().toIso8601String(),
+            if (scheduledLocation != null)
+              'scheduled_location': scheduledLocation,
+            if (osTypeKey != null)
+              'os_type_key': osTypeKey,
+            if (osStructuredData != null)
+              'os_structured_data': osStructuredData,
           });
 
   /// Perfil resumido do próprio freelancer logado: nota, disponibilidade,

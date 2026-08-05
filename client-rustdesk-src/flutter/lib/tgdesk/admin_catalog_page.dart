@@ -86,7 +86,7 @@ class _AdminTicketTypesTabState extends State<AdminTicketTypesTab> {
       margin: const EdgeInsets.only(bottom: TgdeskSpacing.sm),
       child: ExpansionTile(
         leading: Icon(Icons.category_outlined,
-            color: ativo ? TgdeskColors.seed : Colors.grey),
+            color: ativo ? TgdeskColors.seed : TgdeskColors.offline),
         title: Text(tipo['label']?.toString() ?? ''),
         subtitle: Text(ativo
             ? '${tipo['key']} — ${campos.length} campo(s)'

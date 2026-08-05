@@ -8,6 +8,7 @@ import 'agent_deploy.dart';
 import 'api_client.dart';
 import 'branding_window_icon.dart';
 import 'health_text.dart';
+import 'theme.dart';
 import 'window_frame.dart';
 
 class TgdeskClientHomePage extends StatefulWidget {
@@ -125,18 +126,18 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
   // tela, então aparece como bloco próprio e destacado — nunca embutido no
   // meio das mensagens, onde passaria batido.
   Widget _remoteAccessRequest(Map<String, dynamic> pedido) => Container(
-        margin: const EdgeInsets.only(top: 10),
-        padding: const EdgeInsets.all(14),
+        margin: const EdgeInsets.only(top: TgdeskSpacing.sm),
+        padding: const EdgeInsets.all(TgdeskSpacing.md),
         decoration: BoxDecoration(
-          color: const Color(0xffffb020).withOpacity(.10),
-          border: Border.all(color: const Color(0xffffb020).withOpacity(.55)),
-          borderRadius: BorderRadius.circular(10),
+          color: TgdeskColors.warning.withOpacity(.10),
+          border: Border.all(color: TgdeskColors.warning.withOpacity(.55)),
+          borderRadius: BorderRadius.circular(TgdeskSpacing.sm),
         ),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Row(children: [
-            const Icon(Icons.lock_open_outlined,
-                color: Color(0xffffb020), size: 20),
-            const SizedBox(width: 8),
+            Icon(Icons.lock_open_outlined,
+                color: TgdeskColors.warning, size: 20),
+            const SizedBox(width: TgdeskSpacing.sm),
             Expanded(
               child: Text(
                   '${pedido['requested_by'] ?? 'O técnico'} pediu para acessar seu computador',
@@ -144,21 +145,21 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
             ),
           ]),
           if ((pedido['motivo']?.toString() ?? '').isNotEmpty) ...[
-            const SizedBox(height: 6),
+            const SizedBox(height: TgdeskSpacing.xs),
             Text('Motivo: ${pedido['motivo']}',
-                style: const TextStyle(color: Color(0xffb7c2d1), fontSize: 13)),
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(color: const Color(0xffb7c2d1))),
           ],
-          const SizedBox(height: 6),
-          const Text(
+          const SizedBox(height: TgdeskSpacing.xs),
+          Text(
               'Se você recusar, o técnico continua podendo fazer testes, mas não controla a máquina.',
-              style: TextStyle(color: Color(0xff9eacbf), fontSize: 12)),
-          const SizedBox(height: 10),
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: const Color(0xff9eacbf))),
+          const SizedBox(height: TgdeskSpacing.sm),
           Row(children: [
             FilledButton(
                 onPressed: () =>
                     _answerRemoteAccess(pedido['id'].toString(), true),
                 child: const Text('Autorizar')),
-            const SizedBox(width: 10),
+            const SizedBox(width: TgdeskSpacing.sm),
             TextButton(
                 onPressed: () =>
                     _answerRemoteAccess(pedido['id'].toString(), false),
@@ -172,21 +173,21 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
   // passa a supervisionar a organização de outro, vendo a mesma fila.
   Widget _supervisorInvitePanel() => Container(
         width: double.infinity,
-        margin: const EdgeInsets.only(top: 12),
-        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
+        margin: const EdgeInsets.only(top: TgdeskSpacing.md),
+        padding: const EdgeInsets.symmetric(horizontal: TgdeskSpacing.lg, vertical: TgdeskSpacing.md),
         decoration: BoxDecoration(
-          color: const Color(0xff111d29),
-          border: Border.all(color: const Color(0xff25384b)),
-          borderRadius: BorderRadius.circular(12),
+          color: TgdeskColors.seed.withOpacity(.05),
+          border: Border.all(color: TgdeskColors.seed.withOpacity(.3)),
+          borderRadius: BorderRadius.circular(TgdeskSpacing.sm),
         ),
         child: Row(children: [
-          const Icon(Icons.group_add_outlined, color: Color(0xff8db8ee)),
-          const SizedBox(width: 12),
-          const Expanded(
+          Icon(Icons.group_add_outlined, color: TgdeskColors.seed),
+          const SizedBox(width: TgdeskSpacing.sm),
+          Expanded(
             child: Text(
                 'Recebeu um código para supervisionar outra organização? '
                 'Resgate aqui para passar a ver os chamados dela.',
-                style: TextStyle(color: Color(0xffb7c2d1), fontSize: 13)),
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(color: const Color(0xffb7c2d1))),
           ),
           TextButton(
             onPressed: _resgatarConviteSupervisor,
@@ -286,67 +287,83 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
     final aguardaEle = os['aguarda_sua_confirmacao'] == true;
     final agendada = os['agendada_para']?.toString() ?? '';
     String texto;
+    Color accentColor;
+    IconData statusIcon;
     switch (status) {
       case 'offered':
         texto = 'Procurando um técnico disponível para o seu atendimento.';
+        accentColor = TgdeskColors.seed;
+        statusIcon = Icons.engineering_outlined;
         break;
       case 'assigned':
         texto = agendada.isEmpty
             ? 'Um técnico assumiu o atendimento.'
             : 'Atendimento agendado. Um técnico já está designado.';
+        accentColor = TgdeskColors.seed;
+        statusIcon = Icons.engineering_outlined;
         break;
       case 'in_progress':
         texto = 'O técnico está trabalhando no seu atendimento agora.';
+        accentColor = TgdeskColors.online;
+        statusIcon = Icons.engineering_outlined;
         break;
       case 'awaiting_confirmation':
-        texto = aguardaEle
-            ? 'O técnico concluiu. Confirme para encerrar o atendimento.'
-            : 'Concluído. Aguardando a confirmação dos responsáveis.';
+        if (aguardaEle) {
+          texto = 'O técnico concluiu. Confirme para encerrar o atendimento.';
+          accentColor = TgdeskColors.online;
+          statusIcon = Icons.task_alt;
+        } else {
+          texto = 'Concluído. Aguardando a confirmação dos responsáveis.';
+          accentColor = TgdeskColors.seed;
+          statusIcon = Icons.engineering_outlined;
+        }
         break;
       case 'completed':
         texto = 'Atendimento concluído.';
+        accentColor = TgdeskColors.online;
+        statusIcon = Icons.verified_outlined;
         break;
       default:
         texto = 'Seu pedido foi registrado.';
+        accentColor = TgdeskColors.seed;
+        statusIcon = Icons.flag_outlined;
     }
     return Container(
       width: double.infinity,
-      margin: const EdgeInsets.only(top: 12),
-      padding: const EdgeInsets.all(14),
+      margin: const EdgeInsets.only(top: TgdeskSpacing.md),
+      padding: const EdgeInsets.all(TgdeskSpacing.md),
       decoration: BoxDecoration(
         color: aguardaEle
-            ? const Color(0xff45c95a).withOpacity(.10)
-            : const Color(0xff0b1520),
+            ? TgdeskColors.online.withOpacity(.10)
+            : TgdeskColors.suspended.withOpacity(.05),
         border: Border.all(
             color: aguardaEle
-                ? const Color(0xff45c95a).withOpacity(.55)
-                : const Color(0xff25384b)),
-        borderRadius: BorderRadius.circular(10),
+                ? TgdeskColors.online.withOpacity(.55)
+                : TgdeskColors.seed.withOpacity(.3)),
+        borderRadius: BorderRadius.circular(TgdeskSpacing.sm),
       ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
-          Icon(aguardaEle ? Icons.task_alt : Icons.engineering_outlined,
+          Icon(statusIcon,
               size: 20,
-              color: aguardaEle
-                  ? const Color(0xff45c95a)
-                  : const Color(0xff8db8ee)),
-          const SizedBox(width: 8),
+              color: accentColor),
+          const SizedBox(width: TgdeskSpacing.sm),
           Expanded(
               child: Text(texto,
                   style: const TextStyle(fontWeight: FontWeight.w600))),
         ]),
         if ((os['escopo']?.toString() ?? '').isNotEmpty) ...[
-          const SizedBox(height: 6),
+          const SizedBox(height: TgdeskSpacing.xs),
           Text('Serviço: ${os['escopo']}',
-              style: const TextStyle(color: Color(0xff9eacbf), fontSize: 12)),
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: const Color(0xff9eacbf))),
         ],
         if (agendada.isNotEmpty) ...[
-          const SizedBox(height: 4),
+          const SizedBox(height: TgdeskSpacing.xs),
           Text('Agendado para ${_dataLegivel(agendada)}',
-              style: const TextStyle(color: Color(0xffb7c2d1), fontSize: 12)),
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: const Color(0xffb7c2d1))),
         ],
         if (aguardaEle) ...[
-          const SizedBox(height: 10),
+          const SizedBox(height: TgdeskSpacing.sm),
           FilledButton.icon(
             onPressed: _confirmarEncerramento,
             icon: const Icon(Icons.check),
@@ -370,24 +387,24 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
     final pedidos = _list(ticket['remote_access_requests']);
     return Container(
       width: double.infinity,
-      margin: const EdgeInsets.only(top: 14),
-      padding: const EdgeInsets.all(16),
+      margin: const EdgeInsets.only(top: TgdeskSpacing.lg),
+      padding: const EdgeInsets.all(TgdeskSpacing.md),
       decoration: BoxDecoration(
-        color: const Color(0xff111d29),
-        border: Border.all(color: const Color(0xff25384b)),
-        borderRadius: BorderRadius.circular(12),
+        color: TgdeskColors.seed.withOpacity(.05),
+        border: Border.all(color: TgdeskColors.seed.withOpacity(.3)),
+        borderRadius: BorderRadius.circular(TgdeskSpacing.sm),
       ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
-          const Icon(Icons.forum_outlined, color: Color(0xff8db8ee), size: 20),
-          const SizedBox(width: 8),
+          Icon(Icons.forum_outlined, color: TgdeskColors.seed, size: 20),
+          const SizedBox(width: TgdeskSpacing.sm),
           Text('Conversa • ${ticket['protocol'] ?? ''}',
               style: const TextStyle(fontWeight: FontWeight.w600)),
         ]),
-        const SizedBox(height: 10),
+        const SizedBox(height: TgdeskSpacing.sm),
         if (mensagens.isEmpty)
-          const Text('Assim que um técnico assumir, a conversa aparece aqui.',
-              style: TextStyle(color: Color(0xff9eacbf), fontSize: 13))
+          Text('Assim que um técnico assumir, a conversa aparece aqui.',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: const Color(0xff9eacbf)))
         else
           ConstrainedBox(
             constraints: const BoxConstraints(maxHeight: 150),
@@ -398,34 +415,46 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
                   final m = _map(raw);
                   final doCliente = m['from_client'] == true;
                   return Padding(
-                    padding: const EdgeInsets.only(bottom: 7),
-                    child: Text(
-                      '${doCliente ? "Você" : (m['author']?.toString().isNotEmpty == true ? m['author'] : "Técnico")}: ${m['message'] ?? ''}',
-                      style: TextStyle(
-                          fontSize: 13,
-                          color: doCliente
-                              ? const Color(0xff9eacbf)
-                              : Colors.white),
-                    ),
+                    padding: const EdgeInsets.only(bottom: TgdeskSpacing.xs),
+                    child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                      Icon(doCliente ? Icons.person_outline : Icons.support_agent_outlined,
+                          size: 16, color: TgdeskColors.seed),
+                      const SizedBox(width: TgdeskSpacing.xs),
+                      Expanded(
+                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                          Text(doCliente ? 'Você' : 'Técnico',
+                              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                                  fontWeight: FontWeight.w600, color: TgdeskColors.seed)),
+                          Text(m['message']?.toString() ?? '',
+                              style: Theme.of(context).textTheme.bodySmall),
+                        ]),
+                      ),
+                    ]),
                   );
                 }).toList(),
               ),
             ),
           ),
-        ...pedidos.map((p) => _remoteAccessRequest(_map(p))),
-        const SizedBox(height: 10),
+        if (pedidos.isNotEmpty) ...[
+          const SizedBox(height: TgdeskSpacing.sm),
+          for (final pedido in pedidos) _remoteAccessRequest(pedido),
+        ],
+        const SizedBox(height: TgdeskSpacing.sm),
         Row(children: [
           Expanded(
             child: TextField(
               controller: _chatController,
               style: const TextStyle(fontSize: 13),
-              decoration: const InputDecoration(
+              decoration: InputDecoration(
                 isDense: true,
                 hintText: 'Escreva para o técnico (opcional)',
-              ),
+                border: OutlineInputBorder(
+                    borderRadius: BorderRadius.circular(TgdeskSpacing.xs),
+                    borderSide: BorderSide(color: TgdeskColors.seed.withOpacity(.3)))),
               onSubmitted: (_) => _sendChat(),
             ),
           ),
+          const SizedBox(width: TgdeskSpacing.sm),
           IconButton(onPressed: _sendChat, icon: const Icon(Icons.send)),
         ]),
       ]),
@@ -648,17 +677,17 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
               width: 28,
               height: 28,
               child: CircularProgressIndicator(strokeWidth: 2)),
-          const SizedBox(height: 18),
+          const SizedBox(height: TgdeskSpacing.lg),
           const Text('Conectando este computador ao TGDesk',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
-          const SizedBox(height: 10),
+          const SizedBox(height: TgdeskSpacing.sm),
           const Text('Estamos aplicando a configuração escolhida na instalação.',
               style: TextStyle(color: Color(0xff9eacbf))),
           if (code.isNotEmpty) ...[
-            const SizedBox(height: 26),
+            const SizedBox(height: TgdeskSpacing.xl),
             const Text('Código deste computador',
                 style: TextStyle(fontSize: 12, color: Color(0xff75849a))),
-            const SizedBox(height: 6),
+            const SizedBox(height: TgdeskSpacing.xs),
             SelectableText(code,
                 style: const TextStyle(fontSize: 20, letterSpacing: 3)),
           ],

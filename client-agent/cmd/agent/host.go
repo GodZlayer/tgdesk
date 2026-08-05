@@ -449,6 +449,11 @@ func bringUpTunnel(cfg *agentConfig) error {
 		log.Printf("aviso: não foi possível configurar o IP da interface automaticamente: %v", err)
 		log.Printf("configure manualmente: netsh interface ip set address name=\"TGDesk\" static %s 255.255.0.0", hubCfg.VirtualIP)
 	}
+
+	// Hide the adapter from Cloudflare WARP and similar VPN/DNS interceptors
+	// so they don't react to the new network interface
+	hideAdapterFromWARP("TGDesk")
+
 	if err := waitForPrivateGateway(); err != nil {
 		return err
 	}

@@ -186,7 +186,7 @@ class _TechnicianQueueTabState extends State<_TechnicianQueueTab> {
       if (_error != null)
         Padding(
           padding: const EdgeInsets.all(TgdeskSpacing.md),
-          child: Text(_error!, style: const TextStyle(color: Colors.red)),
+          child: TgdeskErrorText(_error!),
         ),
       Expanded(
         child: _offers.isEmpty
@@ -330,7 +330,7 @@ class _TechnicianHistoryTabState extends State<_TechnicianHistoryTab> {
       if (_error != null)
         Padding(
           padding: const EdgeInsets.all(TgdeskSpacing.md),
-          child: Text(_error!, style: const TextStyle(color: Colors.red)),
+          child: TgdeskErrorText(_error!),
         ),
       Expanded(
         child: _tickets.isEmpty

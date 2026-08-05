@@ -487,11 +487,12 @@ func (s *Server) ConvertServiceOrder(w http.ResponseWriter, r *http.Request, id 
 		return
 	}
 	var req struct {
-		Items      any    `json:"items"`
-		Values     any    `json:"values"`
-		ScopeNotes string `json:"scope_notes"`
-		OsType     string `json:"os_type"`
-		// Execução é marcada: aceitar a OS não significa executá-la agora.
+		Items             any    `json:"items"`
+		Values            any    `json:"values"`
+		ScopeNotes        string `json:"scope_notes"`
+		OsType            string `json:"os_type"`
+		OsTypeKey         string `json:"os_type_key"`
+		OsStructuredData  map[string]any `json:"os_structured_data"`
 		ScheduledAt       *time.Time     `json:"scheduled_at"`
 		ScheduledLocation map[string]any `json:"scheduled_location"`
 	}
@@ -504,15 +505,22 @@ func (s *Server) ConvertServiceOrder(w http.ResponseWriter, r *http.Request, id 
 		writeErrCode(w, 400, "tipo_invalido", "tipo de OS inválido")
 		return
 	}
+	if req.OsTypeKey != "" && req.OsStructuredData != nil {
+		ambient := map[string]string{
+			"modality":  req.OsType,
+			"standalone": "false",
+			"priority":  "2",
+		}
+		if err := s.validateStructuredData(r.Context(), req.OsTypeKey, req.OsStructuredData, ambient); err != nil {
+			writeErrCode(w, 400, "dados_os_invalidos", err.Error())
+			return
+		}
+	}
 	var status string
 	if s.Pool.QueryRow(r.Context(), `SELECT status FROM support_tickets WHERE id=$1`, id).Scan(&status) != nil {
 		writeErrCode(w, 404, "chamado_encontrado", "chamado não encontrado")
 		return
 	}
-	// A OS nasce do chamado que o supervisor já assumiu. 'open' com dono é o
-	// estado em que o aceite da Fila A deixa o chamado, e o empresarial nasce
-	// assim — então ambos podem virar OS sem passar pela fila do técnico antes.
-	// É a OS que vai para a fila, não o chamado cru.
 	if status != "accepted" && status != "in_progress" && status != "open" {
 		writeErrCode(w, 409, "chamado_estado_permita_gerar", "chamado não está em estado que permita gerar OS")
 		return
@@ -541,11 +549,9 @@ func (s *Server) ConvertServiceOrder(w http.ResponseWriter, r *http.Request, id 
 		writeErrCode(w, 500, "falha_converter", "falha ao converter OS")
 		return
 	}
-	// Converter em OS já a coloca na fila dos técnicos: é a OS que é ofertada,
-	// e não faz sentido criar uma e esperar um segundo comando para despachar.
 	s.dispatchToFreelancers(r.Context(), id)
-	_, _ = s.Pool.Exec(r.Context(), `INSERT INTO ticket_events(ticket_id,actor_technician_id,event_type,payload) VALUES($1,$2,'service_order',$3)`, id, middleware.ClaimsFrom(r.Context()).TechnicianID, map[string]any{"service_order_id": osID})
-	s.publishTicket(r, id, "service_order", map[string]any{"id": osID})
+	_, _ = s.Pool.Exec(r.Context(), `INSERT INTO ticket_events(ticket_id,actor_technician_id,event_type,payload) VALUES($1,$2,'service_order',$3)`, id, middleware.ClaimsFrom(r.Context()).TechnicianID, map[string]any{"service_order_id": osID, "os_type_key": req.OsTypeKey})
+	s.publishTicket(r, id, "service_order", map[string]any{"id": osID, "os_type_key": req.OsTypeKey})
 	writeJSON(w, 201, map[string]any{"id": osID, "ticket_id": id, "history_preserved": true})
 }
 

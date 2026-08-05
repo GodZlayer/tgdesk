@@ -11,9 +11,12 @@ import (
 
 func (s *Server) ListTechnicians(w http.ResponseWriter, r *http.Request) {
 	rs, err := s.Pool.Query(r.Context(), `
-		SELECT id, username, role, created_via_env, status, created_at,
-		       branding_enabled,brand_name,brand_logo_file<>''
-		FROM technicians ORDER BY created_at`)
+		SELECT t.id, t.username, t.role, t.created_via_env, t.status, t.created_at,
+		       t.branding_enabled,t.brand_name,t.brand_logo_file<>'',
+		       t.name_style, tc.template, tc.active
+		FROM technicians t
+		LEFT JOIN technician_name_styles tc ON tc.key = t.name_style
+		ORDER BY t.created_at`)
 	if err != nil {
 		writeErrCode(w, http.StatusInternalServerError, "falha_listar_tecnicos", "falha ao listar técnicos")
 		return
@@ -25,8 +28,12 @@ func (s *Server) ListTechnicians(w http.ResponseWriter, r *http.Request) {
 		var t models.Technician
 		var brandingEnabled, hasBrandLogo bool
 		var brandName string
+		var nameStyle *string
+		var styleTemplate *string
+		var styleActive *bool
 		if err := rs.Scan(&t.ID, &t.Username, &t.Role, &t.CreatedViaEnv, &t.Status,
-			&t.CreatedAt, &brandingEnabled, &brandName, &hasBrandLogo); err != nil {
+			&t.CreatedAt, &brandingEnabled, &brandName, &hasBrandLogo,
+			&nameStyle, &styleTemplate, &styleActive); err != nil {
 			writeErrCode(w, http.StatusInternalServerError, "falha_ler_tecnicos", "falha ao ler técnicos")
 			return
 		}
@@ -36,6 +43,15 @@ func (s *Server) ListTechnicians(w http.ResponseWriter, r *http.Request) {
 		data["branding_enabled"] = brandingEnabled
 		data["brand_name"] = brandName
 		data["has_brand_logo"] = hasBrandLogo
+		// Nome de exibição montado em cima do username. Sem estilo, ou com um
+		// estilo que não está mais ativo, cai para "só o nome" — nunca quebra.
+		resolved := t.Username
+		if nameStyle != nil && styleTemplate != nil &&
+			(styleActive == nil || *styleActive) {
+			data["name_style"] = *nameStyle
+			resolved = strings.ReplaceAll(*styleTemplate, "{nome}", t.Username)
+		}
+		data["display_name"] = resolved
 		techs = append(techs, data)
 	}
 	writeJSON(w, http.StatusOK, techs)
