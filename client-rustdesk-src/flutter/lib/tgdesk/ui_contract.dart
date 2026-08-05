@@ -61,38 +61,6 @@ class TgdeskDeviceUiPolicy {
           );
 }
 
-class TgdeskUpdatePolicy {
-  const TgdeskUpdatePolicy._();
-
-  static bool shouldOffer({
-    required String currentVersion,
-    required String availableVersion,
-    required bool serverAdvertised,
-  }) =>
-      serverAdvertised &&
-      availableVersion.trim().isNotEmpty &&
-      compareVersions(availableVersion, currentVersion) > 0;
-
-  static int compareVersions(String left, String right) {
-    final a = _parts(left);
-    final b = _parts(right);
-    final length = a.length > b.length ? a.length : b.length;
-    for (var index = 0; index < length; index++) {
-      final av = index < a.length ? a[index] : 0;
-      final bv = index < b.length ? b[index] : 0;
-      if (av != bv) return av.compareTo(bv);
-    }
-    return 0;
-  }
-
-  static List<int> _parts(String version) => version
-      .trim()
-      .replaceFirst(RegExp(r'^[vV]'), '')
-      .split(RegExp(r'[.+-]'))
-      .map((part) => int.tryParse(part) ?? 0)
-      .toList(growable: false);
-}
-
 class TgdeskRemotePolicy {
   const TgdeskRemotePolicy._();
 

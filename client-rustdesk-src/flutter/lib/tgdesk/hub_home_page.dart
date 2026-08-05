@@ -13,7 +13,6 @@ import 'agent_deploy.dart';
 import 'branding_page.dart';
 import 'control_channel.dart';
 import 'support_page.dart';
-import 'ui_contract.dart';
 
 class HubHomePage extends StatefulWidget {
   const HubHomePage({super.key});
@@ -25,10 +24,13 @@ class _HubHomePageState extends State<HubHomePage> {
   final _control = TgdeskControlChannel.instance;
   int _index = 0;
   Timer? _updateTimer;
-  bool _updateAvailable = false;
-  bool _updating = false;
-  String _updateVersion = '';
   String _version = '';
+  TgdeskUpdateStatus? _updateStatus;
+
+  static String _text(dynamic map, String key) =>
+      map is Map ? (map[key]?.toString() ?? '') : '';
+  static int _int(dynamic map, String key) =>
+      map is Map ? ((map[key] as num?)?.toInt() ?? 0) : 0;
   bool _brandingEnabled = false;
 
   @override
@@ -74,35 +76,23 @@ class _HubHomePageState extends State<HubHomePage> {
       if (!mounted) return;
       setState(() {
         _version = status['current_version']?.toString() ?? '';
-        _updateVersion = status['update_version']?.toString() ?? '';
-        _updateAvailable = TgdeskUpdatePolicy.shouldOffer(
-          currentVersion: _version,
-          availableVersion: _updateVersion,
-          serverAdvertised: status['update_available'] == true,
-        );
+        // O computador do técnico também é um dispositivo, e a atualização
+        // dele é empurrada pelo servidor como a de qualquer outro. A barra só
+        // acompanha.
+        _updateStatus = status['updating'] != true
+            ? null
+            : TgdeskUpdateStatus(
+                updating: true,
+                version: _text(status['update_progress'], 'version'),
+                totalBytes: _int(status['update_progress'], 'total_bytes'),
+                downloadedBytes:
+                    _int(status['update_progress'], 'downloaded_bytes'),
+                bytesPerSecond:
+                    _int(status['update_progress'], 'bytes_per_second'),
+                throttleKbps: _int(status['update_progress'], 'throttle_kbps'),
+              );
       });
     } catch (_) {}
-  }
-
-  Future<void> _installUpdate() async {
-    if (_updating) return;
-    setState(() => _updating = true);
-    try {
-      final result = await Process.run(
-          Platform.resolvedExecutable, const ['--tgdesk-update'],
-          workingDirectory: File(Platform.resolvedExecutable).parent.path);
-      if (result.exitCode == 10) {
-        exit(0);
-      }
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text(result.stderr.toString().trim().isEmpty
-                ? 'Não foi possível instalar a atualização.'
-                : result.stderr.toString().trim())));
-      }
-    } finally {
-      if (mounted) setState(() => _updating = false);
-    }
   }
 
   @override
@@ -141,25 +131,12 @@ class _HubHomePageState extends State<HubHomePage> {
     if (_index >= pages.length) _index = 0;
 
     return TgdeskWindowScaffold(
+      updateStatus: _updateStatus,
       actions: [
         if (_version.isNotEmpty)
           Center(
               child: Text('v$_version',
                   style: Theme.of(context).textTheme.labelSmall)),
-        if (_updateAvailable)
-          Tooltip(
-            message: 'Atualizar para v$_updateVersion',
-            child: IconButton(
-              onPressed: _updating ? null : _installUpdate,
-              icon: _updating
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2))
-                  : const Icon(Icons.system_update_alt,
-                      color: Color(0xff35a7ff)),
-            ),
-          ),
       ],
       child: Row(
         children: [

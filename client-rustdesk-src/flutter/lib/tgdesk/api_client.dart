@@ -683,6 +683,26 @@ class TgdeskApi {
         },
       ) as Map);
 
+  /// Nome que o cliente dá ao próprio computador, pelo menu do TGDesk. É a
+  /// mesma coluna que o técnico enxerga na lista — quem nomeia a máquina é
+  /// quem senta nela.
+  static Future<Map<String, dynamic>> clientRenameDevice({
+    required String deviceId,
+    required String deviceToken,
+    required String displayName,
+  }) async =>
+      Map<String, dynamic>.from(await _send(
+        'POST',
+        '/api/v1/support/client/device-name',
+        auth: false,
+        privateControl: false,
+        body: {
+          'device_id': deviceId,
+          'device_token': deviceToken,
+          'display_name': displayName,
+        },
+      ) as Map);
+
   /// Decisão do cliente sobre um pedido de acesso remoto. Só a concessão dele
   /// libera o controle da máquina.
   static Future<void> clientRespondRemoteAccess({

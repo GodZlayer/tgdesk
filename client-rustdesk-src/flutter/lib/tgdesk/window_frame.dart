@@ -1,4 +1,3 @@
-import 'dart:io';
 
 import 'package:flutter/material.dart';
 import 'package:window_manager/window_manager.dart';
@@ -7,6 +6,49 @@ import 'package:desktop_multi_window/desktop_multi_window.dart';
 import '../main.dart' show kWindowId;
 import 'startup_settings.dart';
 import 'theme.dart';
+
+/// Andamento da atualização que o servidor mandou aplicar. Só leitura: a
+/// decisão de atualizar deixou de ser do cliente, então a barra de título
+/// informa em vez de oferecer.
+class TgdeskUpdateStatus {
+  const TgdeskUpdateStatus({
+    required this.updating,
+    this.version = '',
+    this.totalBytes = 0,
+    this.downloadedBytes = 0,
+    this.bytesPerSecond = 0,
+    this.throttleKbps = 0,
+  });
+
+  final bool updating;
+  final String version;
+  final int totalBytes;
+  final int downloadedBytes;
+  final int bytesPerSecond;
+
+  /// Teto imposto pelo servidor quando a fila está grande. Aparece na tela
+  /// porque "está lento" precisa ser explicável.
+  final int throttleKbps;
+
+  double? get fraction =>
+      totalBytes > 0 ? (downloadedBytes / totalBytes).clamp(0.0, 1.0) : null;
+
+  String get speedLabel {
+    if (bytesPerSecond <= 0) return '';
+    final mb = bytesPerSecond / (1024 * 1024);
+    if (mb >= 1) return '${mb.toStringAsFixed(1)} MB/s';
+    return '${(bytesPerSecond / 1024).toStringAsFixed(0)} KB/s';
+  }
+
+  String get label {
+    final parts = <String>[
+      version.isEmpty ? 'Atualizando' : 'Atualizando para $version',
+      if (speedLabel.isNotEmpty) speedLabel,
+      if (throttleKbps > 0) 'velocidade limitada pelo servidor',
+    ];
+    return parts.join(' — ');
+  }
+}
 
 /// A janela nativa do TGDesk roda com a barra de título do Windows escondida
 /// (`TitleBarStyle.hidden`, ver main.dart). Sem uma região de arrasto no lado
@@ -22,6 +64,9 @@ class TgdeskWindowScaffold extends StatefulWidget {
     this.title,
     this.actions,
     this.productName = 'TGDesk',
+    this.deviceName,
+    this.onRenameDevice,
+    this.updateStatus,
   });
 
   /// Conteúdo abaixo da barra de título.
@@ -34,6 +79,16 @@ class TgdeskWindowScaffold extends StatefulWidget {
   /// Ações extras (à esquerda dos botões de janela).
   final List<Widget>? actions;
   final String productName;
+
+  /// Nome atual do computador e como salvá-lo. Quando ausente, o menu não
+  /// oferece a edição — é o caso das sub-janelas do Hub, que não representam
+  /// um dispositivo.
+  final String? deviceName;
+  final Future<void> Function(String)? onRenameDevice;
+
+  /// Atualização em curso, empurrada pelo servidor. Só indicador: não há mais
+  /// nada para clicar.
+  final TgdeskUpdateStatus? updateStatus;
 
   @override
   State<TgdeskWindowScaffold> createState() => _TgdeskWindowScaffoldState();
@@ -105,107 +160,112 @@ class _TgdeskWindowScaffoldState extends State<TgdeskWindowScaffold>
     }
   }
 
-  Future<void> _showStartupSettings() async {
-    var enabled = _startWithWindows;
-    var updating = false;
-    String? updateMessage;
-    await showDialog<void>(
+
+  Future<void> _promptRename() async {
+    final controller = TextEditingController(text: widget.deviceName ?? '');
+    final novo = await showDialog<String>(
       context: context,
-      builder: (dialogContext) => StatefulBuilder(
-        builder: (context, setDialogState) => AlertDialog(
-          title: Text('Configurações do ${widget.productName}'),
-          content: SizedBox(
-            width: 460,
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                SwitchListTile(
-                  contentPadding: EdgeInsets.zero,
-                  title: const Text('Iniciar com o Windows'),
-                  subtitle: Text(
-                      'Abre a interface do ${widget.productName} automaticamente após entrar no Windows.'),
-                  value: enabled,
-                  onChanged: (value) async {
-                    await setTgdeskStartsWithWindows(value);
-                    enabled = value;
-                    if (mounted) setState(() => _startWithWindows = value);
-                    setDialogState(() {});
-                  },
-                ),
-                const Divider(),
-                const Text('Recuperação de atualização',
-                    style: TextStyle(fontWeight: FontWeight.w600)),
-                const SizedBox(height: TgdeskSpacing.xs),
-                Text(
-                    'Use quando uma versão não receber o aviso automático. O ${widget.productName} consultará diretamente o servidor e instalará a versão mais recente.'),
-                const SizedBox(height: TgdeskSpacing.md),
-                OutlinedButton.icon(
-                  onPressed: updating
-                      ? null
-                      : () async {
-                          setDialogState(() {
-                            updating = true;
-                            updateMessage = 'Consultando o servidor...';
-                          });
-                          try {
-                            final result = await Process.run(
-                              Platform.resolvedExecutable,
-                              const ['--tgdesk-update'],
-                              workingDirectory:
-                                  File(Platform.resolvedExecutable).parent.path,
-                            );
-                            if (result.exitCode == 10) {
-                              setDialogState(() => updateMessage =
-                                  'Atualização iniciada. O ${widget.productName} será reiniciado.');
-                              await Future<void>.delayed(
-                                  const Duration(milliseconds: 500));
-                              exit(0);
-                            }
-                            final output = [
-                              result.stdout.toString().trim(),
-                              result.stderr.toString().trim()
-                            ].where((value) => value.isNotEmpty).join('\n');
-                            setDialogState(() {
-                              updateMessage = output.isEmpty
-                                  ? 'O ${widget.productName} já está atualizado.'
-                                  : output;
-                              updating = false;
-                            });
-                          } catch (e) {
-                            setDialogState(() {
-                              updateMessage =
-                                  'Não foi possível executar a atualização: $e';
-                              updating = false;
-                            });
-                          }
-                        },
-                  icon: updating
-                      ? const SizedBox(
-                          width: 18,
-                          height: 18,
-                          child: CircularProgressIndicator(strokeWidth: 2))
-                      : const Icon(Icons.system_update_alt),
-                  label: Text(updating
-                      ? 'Verificando...'
-                      : 'Buscar e forçar atualização'),
-                ),
-                if (updateMessage != null) ...[
-                  const SizedBox(height: TgdeskSpacing.sm),
-                  Text(updateMessage!,
-                      style: Theme.of(context).textTheme.bodySmall),
-                ],
-              ],
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Nome deste computador'),
+        content: SizedBox(
+          width: 380,
+          child: TextField(
+            controller: controller,
+            autofocus: true,
+            maxLength: 80,
+            decoration: const InputDecoration(
+              labelText: 'Nome',
+              helperText: 'É como o técnico identifica este computador.',
+            ),
+            onSubmitted: (value) => Navigator.of(dialogContext).pop(value),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: const Text('Cancelar'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dialogContext).pop(controller.text),
+            child: const Text('Salvar'),
+          ),
+        ],
+      ),
+    );
+    if (novo == null || widget.onRenameDevice == null) return;
+    try {
+      await widget.onRenameDevice!(novo.trim());
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+    }
+  }
+
+  /// O menu substitui a janela de configuração: o que sobrou depois de a
+  /// atualização virar decisão do servidor cabe em duas linhas, e uma janela
+  /// inteira para isso era peso sem função.
+  Widget _buildMenu(BuildContext context) {
+    return PopupMenuButton<String>(
+      tooltip: 'Menu',
+      icon: Icon(Icons.menu,
+          size: 18, color: Theme.of(context).colorScheme.onSurface),
+      position: PopupMenuPosition.under,
+      onSelected: (value) async {
+        if (value == 'startup') {
+          final novo = !_startWithWindows;
+          await setTgdeskStartsWithWindows(novo);
+          if (mounted) setState(() => _startWithWindows = novo);
+        } else if (value == 'rename') {
+          await _promptRename();
+        }
+      },
+      itemBuilder: (context) => [
+        CheckedPopupMenuItem<String>(
+          value: 'startup',
+          checked: _startWithWindows,
+          child: const Text('Iniciar com o Windows'),
+        ),
+        if (widget.onRenameDevice != null)
+          const PopupMenuItem<String>(
+            value: 'rename',
+            child: ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(Icons.badge_outlined),
+              title: Text('Editar nome'),
             ),
           ),
-          actions: [
-            TextButton(
-              onPressed:
-                  updating ? null : () => Navigator.of(dialogContext).pop(),
-              child: const Text('Fechar'),
-            ),
+      ],
+    );
+  }
+
+  /// Indicador, não botão. A atualização é empurrada pelo servidor e não há o
+  /// que clicar — o que a tela deve é explicar o que está acontecendo,
+  /// inclusive por que está devagar quando a fila está grande.
+  Widget _buildUpdateIndicator(BuildContext context, TgdeskUpdateStatus status) {
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: TgdeskSpacing.sm),
+      child: Tooltip(
+        message: status.label,
+        child: Row(mainAxisSize: MainAxisSize.min, children: [
+          SizedBox(
+            width: 14,
+            height: 14,
+            child: CircularProgressIndicator(
+                strokeWidth: 2, value: status.fraction),
+          ),
+          if (status.speedLabel.isNotEmpty) ...[
+            const SizedBox(width: TgdeskSpacing.xs),
+            Text(status.speedLabel,
+                style: Theme.of(context).textTheme.bodySmall),
           ],
-        ),
+          if (status.throttleKbps > 0) ...[
+            const SizedBox(width: 4),
+            Icon(Icons.speed,
+                size: 14, color: Theme.of(context).colorScheme.outline),
+          ],
+        ]),
       ),
     );
   }
@@ -238,12 +298,9 @@ class _TgdeskWindowScaffoldState extends State<TgdeskWindowScaffold>
                 Image.asset('assets/tgdesk_logo_horizontal.png', height: 22),
             const Spacer(),
             if (widget.actions != null) ...widget.actions!,
-            if (_isMainWindow)
-              _WindowButton(
-                icon: Icons.settings_outlined,
-                onTap: _showStartupSettings,
-                tooltip: 'Configurações',
-              ),
+            if (widget.updateStatus?.updating == true)
+              _buildUpdateIndicator(context, widget.updateStatus!),
+            if (_isMainWindow) _buildMenu(context),
             _WindowButton(
                 icon: Icons.remove, onTap: _minimize, tooltip: 'Minimizar'),
             _WindowButton(

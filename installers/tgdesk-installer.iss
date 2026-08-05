@@ -3,7 +3,7 @@
 ; uso único validada pelo servidor dentro do próprio TGDesk.
 
 #define MyAppName "TGDesk"
-#define MyAppVersion "1.1.37"
+#define MyAppVersion "1.1.38"
 #define MyAppPublisher "TGDesk"
 #ifndef TGDeskServerHost
   #define TGDeskServerHost "127.0.0.1"
@@ -15,15 +15,20 @@ AppName={#MyAppName}
 AppVersion={#MyAppVersion}
 AppPublisher={#MyAppPublisher}
 DefaultDirName={autopf}\TGDesk
-DefaultGroupName=TGDesk
+; AppName fica fixo de proposito: ele nomeia as janelas do proprio wizard, que
+; sao montadas antes de o tecnico ter sido escolhido. O que o usuario ve depois
+; de instalar — grupo do menu, atalhos, icones e Programas e Recursos — usa
+; {code:} e resolve com a marca ja baixada.
+DefaultGroupName={code:BrandDisplayName}
 DisableProgramGroupPage=yes
 PrivilegesRequired=admin
 OutputDir=.\output
-OutputBaseFilename=tgdesk-installer-1.1.37
+OutputBaseFilename=tgdesk-installer-1.1.38
 Compression=lzma2
 SolidCompression=yes
 ArchitecturesInstallIn64BitMode=x64compatible
-UninstallDisplayIcon={app}\tgdesk.exe
+UninstallDisplayIcon={code:BrandIconFile}
+UninstallDisplayName={code:BrandDisplayName}
 SetupIconFile=..\branding\app_icon.ico
 WizardSmallImageFile=..\branding\wizard_small.bmp
 CloseApplications=no
@@ -64,9 +69,9 @@ Type: files; Name: "{userstartup}\TGDesk Tray.lnk"
 Source: "stage-unified\*"; DestDir: "{app}"; Flags: recursesubdirs ignoreversion
 
 [Icons]
-Name: "{group}\TGDesk"; Filename: "{app}\tgdesk.exe"
-Name: "{group}\Desinstalar TGDesk"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\TGDesk"; Filename: "{app}\tgdesk.exe"
+Name: "{group}\{code:BrandDisplayName}"; Filename: "{app}\tgdesk.exe"; IconFilename: "{code:BrandIconFile}"
+Name: "{group}\Desinstalar {code:BrandDisplayName}"; Filename: "{uninstallexe}"
+Name: "{autodesktop}\{code:BrandDisplayName}"; Filename: "{app}\tgdesk.exe"; IconFilename: "{code:BrandIconFile}"
 
 [Registry]
 ; Remove autostarts usados pelas arquiteturas 0.1/0.2.
@@ -105,11 +110,53 @@ var
   TechnicianList: TNewListBox;
   TechnicianIDs: TStringList;
   SelectedTechnicianID: string;
+  SelectedTechnicianName: string;
   BrandingPayload: string;
+  BrandIconWritten: Boolean;
   EnrollmentResponse: string;
   ExistingControlIdentity: Boolean;
   ControlKeyParam: string;
   CleanupProgressPage: TOutputProgressWizardPage;
+
+{ O icone da marca mora no mesmo arquivo que o agente mantem atualizado
+  depois (syncBrandFavicon, em client-agent/cmd/agent/status.go). Assim o
+  atalho e a bandeja nunca divergem: quem instala escreve, quem roda renova. }
+function BrandIconPath: string;
+begin
+  Result := ExpandConstant('{commonappdata}\TGDesk\branding\favicon.ico');
+end;
+
+{ Chamadas pelo motor do Inno, inclusive antes de o wizard existir — dai as
+  guardas contra pagina nula. Sem marca escolhida, tudo cai no padrao TGDesk. }
+function BrandDisplayName(Param: string): string;
+var
+  Index: Integer;
+  Clean: string;
+begin
+  Result := 'TGDesk';
+  if SelectedTechnicianName = '' then
+    exit;
+  { O nome vira arquivo .lnk e nome de pasta do menu Iniciar. Caractere
+    proibido em caminho faria a criacao do atalho falhar e derrubaria a
+    instalacao inteira por causa de um nome cadastrado no servidor. }
+  Clean := '';
+  for Index := 1 to Length(SelectedTechnicianName) do
+    if Pos(SelectedTechnicianName[Index], '\/:*?"<>|') = 0 then
+      Clean := Clean + SelectedTechnicianName[Index];
+  Clean := Trim(Clean);
+  if Length(Clean) > 60 then
+    Clean := Trim(Copy(Clean, 1, 60));
+  if Clean <> '' then
+    Result := Clean;
+end;
+
+function BrandIconFile(Param: string): string;
+begin
+  if BrandIconWritten then
+    Result := BrandIconPath
+  else
+    Result := ExpandConstant('{app}\tgdesk.exe');
+end;
 
 function IsTechnicianInstall: Boolean;
 begin
@@ -448,7 +495,8 @@ end;
 
 function NextButtonClick(CurPageID: Integer): Boolean;
 var
-  Body: string;
+  Body, BrandName: string;
+  Cursor: Integer;
 begin
   Result := True;
   if (CurPageID = ControlKeyFilePage.ID) and IsTechnicianInstall and
@@ -472,13 +520,22 @@ begin
       exit;
     end;
     SelectedTechnicianID := TechnicianIDs.Strings[TechnicianList.ItemIndex];
+    SelectedTechnicianName := TechnicianList.Items[TechnicianList.ItemIndex];
     { O branding vem do servidor porque o instalador é um binário único e
       assinado: recompilar por cliente criaria variantes sem reputação no
       SmartScreen. Falhar aqui não impede a instalação — o TGDesk busca o
       mesmo branding em runtime. }
     if HttpGetText(ServerBaseUrl + '/api/v1/public/technicians/' +
         SelectedTechnicianID + '/branding', Body) then
+    begin
       BrandingPayload := Body;
+      { O nome da marca ganha do nome do tecnico quando existe: e como o
+        cliente conhece quem atende ele. }
+      Cursor := 1;
+      BrandName := JsonStringAfter(Body, Cursor, 'name');
+      if Trim(BrandName) <> '' then
+        SelectedTechnicianName := BrandName;
+    end;
   end;
 end;
 
@@ -667,6 +724,37 @@ begin
   end;
 end;
 
+{ Grava o icone da marca. O Pascal do Inno nao decodifica base64, e o PowerShell
+  ja e usado aqui para impressao digital da maquina e para a DPAPI — reusa o
+  mesmo caminho em vez de trazer mais uma dependencia.
+
+  Falhar aqui nao interrompe nada: BrandIconWritten continua falso e os atalhos
+  caem no icone do proprio tgdesk.exe. }
+procedure WriteBrandIcon;
+var
+  Encoded, IconPath, Command: string;
+  Cursor, ResultCode: Integer;
+begin
+  BrandIconWritten := False;
+  if BrandingPayload = '' then
+    exit;
+  Cursor := 1;
+  Encoded := JsonStringAfter(BrandingPayload, Cursor, 'favicon_base64');
+  if Encoded = '' then
+    exit;
+  IconPath := BrandIconPath;
+  ForceDirectories(ExtractFileDir(IconPath));
+  Command :=
+    '-NoProfile -NonInteractive -ExecutionPolicy Bypass -Command "' +
+    '$ErrorActionPreference=''Stop'';' +
+    '[IO.File]::WriteAllBytes(''' + IconPath + ''',' +
+    '[Convert]::FromBase64String(''' + Encoded + '''))"';
+  if Exec(ExpandConstant('{sys}\WindowsPowerShell\v1.0\powershell.exe'),
+      Command, '', SW_HIDE, ewWaitUntilTerminated, ResultCode) and
+      (ResultCode = 0) and FileExists(IconPath) then
+    BrandIconWritten := True;
+end;
+
 procedure CurStepChanged(CurStep: TSetupStep);
 var
   ResultCode: Integer;
@@ -674,6 +762,9 @@ var
 begin
   if CurStep = ssInstall then
   begin
+    { Antes dos arquivos e dos atalhos, porque [Icons] ja precisa do .ico
+      existindo em disco para apontar para ele. }
+    WriteBrandIcon;
     WizardForm.StatusLabel.Caption :=
       'Validando e vinculando a chave ao servidor...';
     if IsTechnicianInstall and ReplacesIdentity and

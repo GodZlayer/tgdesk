@@ -82,38 +82,6 @@ void main() {
     });
   });
 
-  group('modular update policy', () {
-    test('never offers the installed or an older version', () {
-      expect(
-          TgdeskUpdatePolicy.shouldOffer(
-              currentVersion: '0.3.48',
-              availableVersion: '0.3.48',
-              serverAdvertised: true),
-          isFalse);
-      expect(
-          TgdeskUpdatePolicy.shouldOffer(
-              currentVersion: '1.1.0',
-              availableVersion: '1.0.9',
-              serverAdvertised: true),
-          isFalse);
-    });
-
-    test('offers only a newer server-advertised version', () {
-      expect(
-          TgdeskUpdatePolicy.shouldOffer(
-              currentVersion: '0.3.48',
-              availableVersion: '0.4.0',
-              serverAdvertised: true),
-          isTrue);
-      expect(
-          TgdeskUpdatePolicy.shouldOffer(
-              currentVersion: '0.3.48',
-              availableVersion: '1.1.0',
-              serverAdvertised: false),
-          isFalse);
-    });
-  });
-
   group('remote safety policy', () {
     test('clipboard and file transfer default to off', () {
       expect(TgdeskRemotePolicy.clipboardEnabledByDefault, isFalse);

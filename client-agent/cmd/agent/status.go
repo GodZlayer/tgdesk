@@ -29,6 +29,10 @@ type tgdeskStatus struct {
 	CurrentVersion  string           `json:"current_version"`
 	UpdateAvailable bool             `json:"update_available"`
 	UpdateVersion   string           `json:"update_version,omitempty"`
+	// Atualização em curso. Existe porque o cliente não clica mais em nada:
+	// a tela só acompanha o que o servidor mandou fazer.
+	Updating       bool                 `json:"updating"`
+	UpdateProgress *updatecore.Progress `json:"update_progress,omitempty"`
 	Branding        BrandingState    `json:"branding"`
 }
 
@@ -87,6 +91,10 @@ func writeStatus(s tgdeskStatus) {
 	s.UpdateAvailable = updateState.available
 	s.UpdateVersion = updateState.version
 	updateState.RUnlock()
+	if s.Updating = updateInProgress(); s.Updating {
+		progress := updateProgressSnapshot()
+		s.UpdateProgress = &progress
+	}
 	b, err := json.MarshalIndent(s, "", "  ")
 	if err == nil {
 		_ = os.WriteFile(statusPath(), b, 0644)

@@ -260,6 +260,11 @@ func stageModularUpdate() (updating bool, requireInstaller bool, err error) {
 	if err := os.RemoveAll(staging); err != nil {
 		return false, false, err
 	}
+	var totalBytes int64
+	for _, item := range changed {
+		totalBytes += item.Size
+	}
+	BeginTransfer(manifest.Version, totalBytes)
 	for _, item := range changed {
 		target := filepath.Join(staging, filepath.FromSlash(item.Path))
 		if err := os.MkdirAll(filepath.Dir(target), 0700); err != nil {
@@ -939,7 +944,9 @@ func downloadVerified(client *http.Client, url, target string, info updateInfo) 
 		return err
 	}
 	hash := sha256.New()
-	written, copyErr := io.Copy(io.MultiWriter(f, hash), resp.Body)
+	// A leitura passa pelo limitador: é ela que consome a banda do servidor,
+	// e é dali que sai o progresso mostrado na tela.
+	written, copyErr := io.Copy(io.MultiWriter(f, hash), newThrottledReader(resp.Body))
 	closeErr := f.Close()
 	if copyErr != nil {
 		_ = os.Remove(target)

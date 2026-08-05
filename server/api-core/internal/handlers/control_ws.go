@@ -186,6 +186,19 @@ func (s *Server) DeviceControlWS(w http.ResponseWriter, r *http.Request) {
 				"type": "heartbeat_ack", "state": state,
 				"version": os.Getenv("CLIENT_VERSION"),
 			})
+			// Atualização é decisão do servidor. O dispositivo informa a
+			// versão que roda e recebe a ordem quando chegar a vez dele — um
+			// por vez, porque a banda é do próprio servidor.
+			s.enqueueDeviceUpdate(r.Context(), deviceID, capabilities.ClientVersion)
+			if claimed, throttle, target := s.claimUpdateSlot(r.Context(), deviceID); claimed {
+				_ = pushWrite(map[string]any{
+					"type": "update_now", "version": target,
+					"payload": map[string]any{
+						"version":       target,
+						"throttle_kbps": throttle,
+					},
+				})
+			}
 			if latestBranding, latestSignature := s.deviceBranding(r.Context(), deviceID); brandingChanged(brandSignature, latestSignature) {
 				brandSignature = latestSignature
 				_ = pushWrite(map[string]any{
@@ -239,6 +252,16 @@ func (s *Server) DeviceControlWS(w http.ResponseWriter, r *http.Request) {
 			if state != models.DeviceStateAtivo {
 				return
 			}
+		case "update_result":
+			// Fecha a vez deste dispositivo. Enquanto esta linha não sair de
+			// 'em_andamento', ninguém mais na fila anda — por isso o
+			// resultado vem por aqui e não é inferido de silêncio.
+			var payload struct {
+				OK    bool   `json:"ok"`
+				Error string `json:"error"`
+			}
+			_ = json.Unmarshal(msg.Payload, &payload)
+			s.finishUpdate(r.Context(), deviceID, payload.OK, payload.Error)
 		case "telemetry":
 			var payload struct {
 				Hardware any `json:"hardware"`

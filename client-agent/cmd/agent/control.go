@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/gorilla/websocket"
+
+	"tgdesk/agent/internal/updatecore"
 )
 
 type deviceControlMessage struct {
@@ -53,6 +55,9 @@ func runDeviceControlLoop(cfg *agentConfig, remoteReady bool) error {
 	}, 2)
 	diagnosticProgressCh := make(chan diagnosticProgress, 8)
 	diagnosticResultCh := make(chan diagnosticResult, 1)
+	updateOrderCh := make(chan updateOrder, 1)
+	updateProgressCh := make(chan updatecore.Progress, 8)
+	updateResultCh := make(chan updateOutcome, 1)
 	go func() {
 		for {
 			var msg deviceControlMessage
@@ -133,6 +138,16 @@ func runDeviceControlLoop(cfg *agentConfig, remoteReady bool) error {
 				default:
 				}
 			}
+			if msg.Type == "update_now" {
+				raw, _ := json.Marshal(msg.Payload)
+				var order updateOrder
+				if json.Unmarshal(raw, &order) == nil && order.Version != "" {
+					select {
+					case updateOrderCh <- order:
+					default:
+					}
+				}
+			}
 			if msg.Version != "" {
 				setServerUpdateVersion(msg.Version)
 			}
@@ -156,6 +171,9 @@ func runDeviceControlLoop(cfg *agentConfig, remoteReady bool) error {
 			Payload: map[string]any{
 				"remote_ready": remoteReady,
 				"files_ready":  remoteReady,
+				// A versão que roda de fato vai no heartbeat porque é o
+				// servidor quem decide quem atualiza — ele não pergunta.
+				"client_version": updatecore.CurrentClientVersion(),
 			},
 		})
 	}
@@ -207,6 +225,32 @@ func runDeviceControlLoop(cfg *agentConfig, remoteReady bool) error {
 			gate := newDiagnosticPauseGate()
 			activeDiagnostics[request.ID] = activeDiagnostic{cancel: cancel, pause: gate}
 			go runDiagnostic(ctx, request, gate, diagnosticProgressCh, diagnosticResultCh)
+		case order := <-updateOrderCh:
+			startForcedUpdate(order,
+				func(progress updatecore.Progress) {
+					select {
+					case updateProgressCh <- progress:
+					default:
+					}
+				},
+				func(outcome updateOutcome) {
+					select {
+					case updateResultCh <- outcome:
+					default:
+					}
+				})
+			writeCurrentStatus()
+		case <-updateProgressCh:
+			// O andamento vai para a tela pelo status; o servidor só precisa
+			// saber quando terminou, para liberar o próximo da fila.
+			writeCurrentStatus()
+		case outcome := <-updateResultCh:
+			writeCurrentStatus()
+			if err := conn.WriteJSON(deviceControlMessage{
+				Type: "update_result", Payload: outcome,
+			}); err != nil {
+				return err
+			}
 		case id := <-diagnosticCancelCh:
 			if active, exists := activeDiagnostics[id]; exists {
 				active.cancel()

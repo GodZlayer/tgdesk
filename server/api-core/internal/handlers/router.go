@@ -41,6 +41,10 @@ func NewRouter(s *Server) http.Handler {
 	mux.HandleFunc("POST /api/v1/support/client/tickets/thread", s.ClientTicketThread)
 	mux.HandleFunc("POST /api/v1/support/client/tickets/remote-access", s.ClientRespondRemoteAccess)
 	mux.HandleFunc("POST /api/v1/support/client/tickets/confirm-closure", s.ClientConfirmClosure)
+	// O cliente nomeia o próprio computador pelo menu do TGDesk. Vive sob
+	// /support/client/ porque é o prefixo que trafega pelo canal do
+	// dispositivo — a credencial dele só alcança o que é dele.
+	mux.HandleFunc("POST /api/v1/support/client/device-name", s.ClientRenameDevice)
 	// Entrada do cliente particular. Público como os demais endpoints de
 	// dispositivo (autenticado por device_id + device_token no corpo): o device
 	// ainda é guest, logo não tem túnel e não pode passar por private().

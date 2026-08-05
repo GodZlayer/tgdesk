@@ -105,6 +105,54 @@ func (s *Server) intakeNetworkForTechnician(ctx context.Context, technicianID st
 	return orgID, netID, err
 }
 
+// ClientRenameDevice deixa o próprio cliente nomear o computador dele, pelo
+// menu do TGDesk. É a mesma coluna que o técnico edita, mas por outra porta:
+// aqui a credencial é a do dispositivo, e ela só alcança o próprio.
+//
+// Computador de técnico fica de fora: o nome dele é parte da identidade de
+// controle, e quem manda nisso é o técnico dono ou o Admin.
+func (s *Server) ClientRenameDevice(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		DeviceID    string `json:"device_id"`
+		DeviceToken string `json:"device_token"`
+		DisplayName string `json:"display_name"`
+	}
+	if json.NewDecoder(r.Body).Decode(&req) != nil ||
+		req.DeviceID == "" || req.DeviceToken == "" {
+		writeErr(w, http.StatusBadRequest, "dispositivo e token são obrigatórios")
+		return
+	}
+	name := strings.TrimSpace(req.DisplayName)
+	if len([]rune(name)) > 80 {
+		writeErr(w, http.StatusBadRequest, "o nome deve ter no máximo 80 caracteres")
+		return
+	}
+	var controlTechnicianID *string
+	if s.Pool.QueryRow(r.Context(),
+		`SELECT control_technician_id FROM devices WHERE id=$1 AND device_token=$2`,
+		req.DeviceID, req.DeviceToken).Scan(&controlTechnicianID) != nil {
+		writeErr(w, http.StatusUnauthorized, "dispositivo inválido")
+		return
+	}
+	if controlTechnicianID != nil {
+		writeErr(w, http.StatusForbidden,
+			"o nome do computador de técnico é alterado pelo próprio técnico")
+		return
+	}
+	if _, err := s.Pool.Exec(r.Context(),
+		`UPDATE devices SET display_name=NULLIF($2,''),updated_at=now() WHERE id=$1`,
+		req.DeviceID, name); err != nil {
+		writeErr(w, http.StatusInternalServerError, "falha ao salvar o nome")
+		return
+	}
+	// A lista do técnico é atualizada por push, como todo o resto.
+	_ = presence.Publish(r.Context(), s.RDB, presence.Event{
+		Type: "device_renamed", TargetID: req.DeviceID,
+		Payload: map[string]any{"display_name": name},
+	})
+	writeJSON(w, http.StatusOK, map[string]string{"display_name": name})
+}
+
 type orgIntakeBindRequest struct {
 	DeviceID     string `json:"device_id"`
 	DeviceToken  string `json:"device_token"`

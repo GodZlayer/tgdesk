@@ -23,6 +23,9 @@ type Event struct {
 type Capabilities struct {
 	RemoteReady bool `json:"remote_ready"`
 	FilesReady  bool `json:"files_ready"`
+	// Versão que o dispositivo roda de fato. É o que permite ao servidor
+	// decidir sozinho quem precisa atualizar, em vez de perguntar.
+	ClientVersion string `json:"client_version,omitempty"`
 }
 
 func presenceKey(deviceID string) string {

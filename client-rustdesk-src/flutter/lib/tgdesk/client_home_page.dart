@@ -8,7 +8,6 @@ import 'agent_deploy.dart';
 import 'api_client.dart';
 import 'branding_window_icon.dart';
 import 'window_frame.dart';
-import 'ui_contract.dart';
 
 class TgdeskClientHomePage extends StatefulWidget {
   const TgdeskClientHomePage(
@@ -23,15 +22,12 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
   Timer? _pollTimer;
   Map<String, dynamic>? _status;
   bool _agentMissing = false;
-  bool _checkingUpdate = false;
-  bool _updateAvailable = false;
   bool _serverOnline = false;
   bool _openingTicket = false;
   bool _selfBindAttempted = false;
   Map<String, dynamic>? _openTicket;
   final TextEditingController _chatController = TextEditingController();
   String _version = '';
-  String _newVersion = '';
 
   Map<String, dynamic> get _branding => _map(_status?['branding']);
 
@@ -442,25 +438,31 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
     await _refreshOpenTicket(send: texto);
   }
 
-  Future<void> _installUpdate() async {
-    if (_checkingUpdate) return;
-    setState(() => _checkingUpdate = true);
-    try {
-      final result = await Process.run(
-          Platform.resolvedExecutable, const ['--tgdesk-update'],
-          workingDirectory: File(Platform.resolvedExecutable).parent.path);
-      if (result.exitCode == 10) {
-        exit(0);
-      }
-      if (result.exitCode != 10 && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text(result.stderr.toString().trim().isEmpty
-                ? 'Não foi possível instalar a atualização.'
-                : result.stderr.toString().trim())));
-      }
-    } finally {
-      if (mounted) setState(() => _checkingUpdate = false);
-    }
+  // Instalar deixou de ser ação da tela: o servidor empurra a atualização
+  // pelo canal do dispositivo, um de cada vez, e o agente aplica. O que a tela
+  // faz é mostrar o andamento.
+  TgdeskUpdateStatus? _updateStatus() {
+    if (_status?['updating'] != true) return null;
+    final progress = _map(_status!['update_progress']);
+    return TgdeskUpdateStatus(
+      updating: true,
+      version: progress['version']?.toString() ?? '',
+      totalBytes: (progress['total_bytes'] as num?)?.toInt() ?? 0,
+      downloadedBytes: (progress['downloaded_bytes'] as num?)?.toInt() ?? 0,
+      bytesPerSecond: (progress['bytes_per_second'] as num?)?.toInt() ?? 0,
+      throttleKbps: (progress['throttle_kbps'] as num?)?.toInt() ?? 0,
+    );
+  }
+
+  Future<void> _renameDevice(String name) async {
+    final identity = await _deviceIdentity();
+    await TgdeskApi.clientRenameDevice(
+      deviceId: identity['device_id']?.toString() ??
+          _status?['device_id']?.toString() ??
+          '',
+      deviceToken: identity['device_token']?.toString() ?? '',
+      displayName: name,
+    );
   }
 
   Future<void> _ensureTrayRunning() async {
@@ -491,12 +493,6 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
           _agentMissing = false;
           _serverOnline = serverOnline;
           _version = parsed['current_version']?.toString() ?? '';
-          _newVersion = parsed['update_version']?.toString() ?? '';
-          _updateAvailable = TgdeskUpdatePolicy.shouldOffer(
-            currentVersion: _version,
-            availableVersion: _newVersion,
-            serverAdvertised: parsed['update_available'] == true,
-          );
         });
         unawaited(_maybeSelfBind(parsed));
       }
@@ -564,25 +560,16 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
     return TgdeskWindowScaffold(
       title: _clientBrandTitle(),
       productName: _productName,
+      deviceName: _status?['display_name']?.toString() ??
+          _status?['hostname']?.toString() ??
+          '',
+      onRenameDevice: _renameDevice,
+      updateStatus: _updateStatus(),
       actions: [
         if (_version.isNotEmpty)
           Center(
               child: Text('v$_version',
                   style: Theme.of(context).textTheme.labelSmall)),
-        if (_updateAvailable)
-          Tooltip(
-            message: 'Atualizar para v$_newVersion',
-            child: IconButton(
-              onPressed: _checkingUpdate ? null : _installUpdate,
-              icon: _checkingUpdate
-                  ? const SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(strokeWidth: 2))
-                  : const Icon(Icons.system_update_alt,
-                      color: Color(0xff35a7ff)),
-            ),
-          ),
       ],
       child: _buildBody(),
     );
