@@ -54,17 +54,17 @@ func (s *Server) finishDeviceUnlink(ctx context.Context, devices []unlinkedDevic
 func (s *Server) DeleteTechnician(w http.ResponseWriter, r *http.Request, id string) {
 	claims := middleware.ClaimsFrom(r.Context())
 	if claims.TechnicianID == id {
-		writeErr(w, http.StatusBadRequest, "não é possível apagar a própria conta")
+		writeErrCode(w, http.StatusBadRequest, "possivel_apagar_propria_conta", "não é possível apagar a própria conta")
 		return
 	}
 	s.dropTechnicianHubPeer(id)
 	tag, err := s.Pool.Exec(r.Context(), `DELETE FROM technicians WHERE id=$1`, id)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao apagar técnico")
+		writeErrCode(w, http.StatusInternalServerError, "falha_apagar_tecnico", "falha ao apagar técnico")
 		return
 	}
 	if tag.RowsAffected() == 0 {
-		writeErr(w, http.StatusNotFound, "técnico não encontrado")
+		writeErrCode(w, http.StatusNotFound, "tecnico_encontrado", "técnico não encontrado")
 		return
 	}
 	s.audit(r, "delete_supervisor", id)
@@ -78,12 +78,11 @@ func (s *Server) DeleteGuestDevice(w http.ResponseWriter, r *http.Request, id st
 	tag, err := s.Pool.Exec(r.Context(),
 		`DELETE FROM devices WHERE id=$1 AND state='guest'`, id)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao recusar dispositivo")
+		writeErrCode(w, http.StatusInternalServerError, "falha_recusar_dispositivo", "falha ao recusar dispositivo")
 		return
 	}
 	if tag.RowsAffected() == 0 {
-		writeErr(w, http.StatusConflict,
-			"dispositivo não encontrado ou já vinculado")
+		writeErrCode(w, http.StatusConflict, "dispositivo_encontrado_ja_vinculado", "dispositivo não encontrado ou já vinculado")
 		return
 	}
 	_ = presence.Clear(r.Context(), s.RDB, id)
@@ -98,18 +97,18 @@ func (s *Server) DeleteGuestDevice(w http.ResponseWriter, r *http.Request, id st
 // SET NULL) instead of being deleted along with the network.
 func (s *Server) DeleteNetwork(w http.ResponseWriter, r *http.Request, id string) {
 	if s.protectedSystemNetwork(r.Context(), id) {
-		writeErr(w, http.StatusConflict, "rede obrigatoria TGDevs nao pode ser excluida")
+		writeErrCode(w, http.StatusConflict, "rede_obrigatoria_tgdevs_pode_excluida", "rede obrigatoria TGDevs nao pode ser excluida")
 		return
 	}
 	claims := middleware.ClaimsFrom(r.Context())
 	allowed, err := s.Authorizer.CanManageNetwork(r.Context(), claims, id)
 	if err != nil || !allowed {
-		writeErr(w, http.StatusForbidden, "somente o criador da rede pode apaga-la")
+		writeErrCode(w, http.StatusForbidden, "somente_criador_rede_pode_apaga", "somente o criador da rede pode apaga-la")
 		return
 	}
 	tx, err := s.Pool.Begin(r.Context())
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao iniciar exclusão")
+		writeErrCode(w, http.StatusInternalServerError, "falha_iniciar_exclusao", "falha ao iniciar exclusão")
 		return
 	}
 	defer tx.Rollback(r.Context())
@@ -121,26 +120,26 @@ func (s *Server) DeleteNetwork(w http.ResponseWriter, r *http.Request, id string
 		WHERE d.network_id=$1 AND EXISTS (
 			SELECT 1 FROM device_networks dn
 			WHERE dn.device_id=d.id AND dn.network_id<>$1)`, id); err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao preservar vinculos alternativos")
+		writeErrCode(w, http.StatusInternalServerError, "falha_preservar_vinculos_alternativos", "falha ao preservar vinculos alternativos")
 		return
 	}
 	deviceIDs, err := s.resetDevicesForPairing(r.Context(), tx,
 		`SELECT id,wg_pubkey FROM devices WHERE network_id=$1 FOR UPDATE`, id)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao desvincular dispositivos")
+		writeErrCode(w, http.StatusInternalServerError, "falha_desvincular_dispositivos", "falha ao desvincular dispositivos")
 		return
 	}
 	tag, err := tx.Exec(r.Context(), `DELETE FROM networks WHERE id=$1`, id)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao apagar rede")
+		writeErrCode(w, http.StatusInternalServerError, "falha_apagar_rede", "falha ao apagar rede")
 		return
 	}
 	if tag.RowsAffected() == 0 {
-		writeErr(w, http.StatusNotFound, "rede não encontrada")
+		writeErrCode(w, http.StatusNotFound, "rede_encontrada", "rede não encontrada")
 		return
 	}
 	if err := tx.Commit(r.Context()); err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao concluir exclusão")
+		writeErrCode(w, http.StatusInternalServerError, "falha_concluir_exclusao", "falha ao concluir exclusão")
 		return
 	}
 	s.finishDeviceUnlink(r.Context(), deviceIDs)
@@ -155,12 +154,12 @@ func (s *Server) DeleteNetwork(w http.ResponseWriter, r *http.Request, id string
 // deleted, same as DeleteNetwork.
 func (s *Server) DeleteOrganization(w http.ResponseWriter, r *http.Request, id string) {
 	if s.protectedTGDevsOrganization(r.Context(), id) {
-		writeErr(w, http.StatusConflict, "organizacao TGDevs nao pode ser excluida")
+		writeErrCode(w, http.StatusConflict, "organizacao_tgdevs_pode_excluida", "organizacao TGDevs nao pode ser excluida")
 		return
 	}
 	tx, err := s.Pool.Begin(r.Context())
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao iniciar exclusão")
+		writeErrCode(w, http.StatusInternalServerError, "falha_iniciar_exclusao", "falha ao iniciar exclusão")
 		return
 	}
 	defer tx.Rollback(r.Context())
@@ -175,27 +174,27 @@ func (s *Server) DeleteOrganization(w http.ResponseWriter, r *http.Request, id s
 			SELECT 1 FROM device_networks dn
 			JOIN networks n ON n.id=dn.network_id
 			WHERE dn.device_id=d.id AND n.organization_id<>$1)`, id); err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao preservar vinculos alternativos")
+		writeErrCode(w, http.StatusInternalServerError, "falha_preservar_vinculos_alternativos", "falha ao preservar vinculos alternativos")
 		return
 	}
 	deviceIDs, err := s.resetDevicesForPairing(r.Context(), tx, `
 		SELECT id,wg_pubkey FROM devices WHERE network_id IN
 		(SELECT id FROM networks WHERE organization_id=$1) FOR UPDATE`, id)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao desvincular dispositivos")
+		writeErrCode(w, http.StatusInternalServerError, "falha_desvincular_dispositivos", "falha ao desvincular dispositivos")
 		return
 	}
 	tag, err := tx.Exec(r.Context(), `DELETE FROM organizations WHERE id=$1`, id)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao apagar organização")
+		writeErrCode(w, http.StatusInternalServerError, "falha_apagar_organizacao", "falha ao apagar organização")
 		return
 	}
 	if tag.RowsAffected() == 0 {
-		writeErr(w, http.StatusNotFound, "organização não encontrada")
+		writeErrCode(w, http.StatusNotFound, "organizacao_encontrada", "organização não encontrada")
 		return
 	}
 	if err := tx.Commit(r.Context()); err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao concluir exclusão")
+		writeErrCode(w, http.StatusInternalServerError, "falha_concluir_exclusao", "falha ao concluir exclusão")
 		return
 	}
 	s.finishDeviceUnlink(r.Context(), deviceIDs)

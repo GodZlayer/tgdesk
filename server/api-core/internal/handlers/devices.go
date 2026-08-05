@@ -49,7 +49,7 @@ type registerDeviceResponse struct {
 func (s *Server) RegisterDevice(w http.ResponseWriter, r *http.Request) {
 	var req registerDeviceRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Hostname == "" {
-		writeErr(w, http.StatusBadRequest, "hostname obrigatório")
+		writeErrCode(w, http.StatusBadRequest, "hostname_obrigatorio", "hostname obrigatório")
 		return
 	}
 	role := req.Role
@@ -68,8 +68,7 @@ func (s *Server) RegisterDevice(w http.ResponseWriter, r *http.Request) {
 				&existing.DeviceToken, &existing.State)
 		if err == nil {
 			if existing.State != models.DeviceStateGuest {
-				writeErr(w, http.StatusConflict,
-					"este computador já possui uma identidade TGDesk; restaure a identidade existente")
+				writeErrCode(w, http.StatusConflict, "computador_ja_possui_identidade_tgdesk", "este computador já possui uma identidade TGDesk; restaure a identidade existente")
 				return
 			}
 			_, _ = s.Pool.Exec(r.Context(),
@@ -79,7 +78,7 @@ func (s *Server) RegisterDevice(w http.ResponseWriter, r *http.Request) {
 			return
 		}
 		if !errors.Is(err, pgx.ErrNoRows) {
-			writeErr(w, http.StatusInternalServerError, "falha ao consultar identidade do dispositivo")
+			writeErrCode(w, http.StatusInternalServerError, "falha_consultar_identidade_dispositivo", "falha ao consultar identidade do dispositivo")
 			return
 		}
 	}
@@ -92,7 +91,7 @@ func (s *Server) RegisterDevice(w http.ResponseWriter, r *http.Request) {
 		RETURNING id, device_token`, req.Hostname, req.MAC, role, code,
 	).Scan(&id, &token)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao registrar dispositivo")
+		writeErrCode(w, http.StatusInternalServerError, "falha_registrar_dispositivo", "falha ao registrar dispositivo")
 		return
 	}
 
@@ -111,7 +110,7 @@ type heartbeatRequest struct {
 func (s *Server) Heartbeat(w http.ResponseWriter, r *http.Request) {
 	var req heartbeatRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, "corpo inválido")
+		writeErrCode(w, http.StatusBadRequest, "corpo_invalido", "corpo inválido")
 		return
 	}
 	var state string
@@ -121,7 +120,7 @@ func (s *Server) Heartbeat(w http.ResponseWriter, r *http.Request) {
 		req.DeviceID, req.DeviceToken,
 	).Scan(&state, &pairingCode)
 	if err != nil {
-		writeErr(w, http.StatusUnauthorized, "dispositivo/token inválido")
+		writeErrCode(w, http.StatusUnauthorized, "dispositivo_token_invalido", "dispositivo/token inválido")
 		return
 	}
 	_, _ = s.Pool.Exec(r.Context(), `UPDATE devices SET last_seen_at=now() WHERE id=$1`, req.DeviceID)
@@ -151,7 +150,7 @@ func (s *Server) Bind(w http.ResponseWriter, r *http.Request) {
 	claims := middleware.ClaimsFrom(r.Context())
 	var req bindRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.PairingCode == "" || req.NetworkID == "" {
-		writeErr(w, http.StatusBadRequest, "pairing_code e network_id são obrigatórios")
+		writeErrCode(w, http.StatusBadRequest, "pairing_code_network_id_sao", "pairing_code e network_id são obrigatórios")
 		return
 	}
 
@@ -160,18 +159,18 @@ func (s *Server) Bind(w http.ResponseWriter, r *http.Request) {
 		SELECT n.organization_id,n.status,o.status FROM networks n
 		JOIN organizations o ON o.id=n.organization_id WHERE n.id=$1`,
 		req.NetworkID).Scan(&netOrgID, &networkStatus, &organizationStatus); err != nil {
-		writeErr(w, http.StatusNotFound, "rede não encontrada")
+		writeErrCode(w, http.StatusNotFound, "rede_encontrada", "rede não encontrada")
 		return
 	}
 	if networkStatus != "ativa" || organizationStatus != "ativa" {
-		writeErr(w, http.StatusConflict, "organização ou rede suspensa")
+		writeErrCode(w, http.StatusConflict, "organizacao_rede_suspensa", "organização ou rede suspensa")
 		return
 	}
 
 	// Check authorization using centralized authorizer
 	allowed, err := s.Authorizer.CanAccessNetwork(r.Context(), claims, req.NetworkID)
 	if err != nil || !allowed {
-		writeErr(w, http.StatusForbidden, "sem permissão para essa rede")
+		writeErrCode(w, http.StatusForbidden, "permissao_rede", "sem permissão para essa rede")
 		return
 	}
 
@@ -184,7 +183,7 @@ func (s *Server) Bind(w http.ResponseWriter, r *http.Request) {
 		RETURNING id`, req.NetworkID, strings.ToUpper(req.PairingCode),
 	).Scan(&deviceID)
 	if err != nil {
-		writeErr(w, http.StatusNotFound, "código de pareamento inválido ou já usado")
+		writeErrCode(w, http.StatusNotFound, "codigo_pareamento_invalido_ja_usado", "código de pareamento inválido ou já usado")
 		return
 	}
 	_, _ = s.Pool.Exec(r.Context(), `
@@ -217,14 +216,14 @@ func (s *Server) Bind(w http.ResponseWriter, r *http.Request) {
 func (s *Server) SelfBindDevice(w http.ResponseWriter, r *http.Request) {
 	claims := middleware.ClaimsFrom(r.Context())
 	if claims.Role != models.RoleSupervisor && claims.Role != models.RoleSuperAdmin {
-		writeErr(w, http.StatusForbidden, "apenas supervisor ou admin")
+		writeErrCode(w, http.StatusForbidden, "apenas_supervisor_admin", "apenas supervisor ou admin")
 		return
 	}
 	var req struct {
 		PairingCode string `json:"pairing_code"`
 	}
 	if json.NewDecoder(r.Body).Decode(&req) != nil || req.PairingCode == "" {
-		writeErr(w, http.StatusBadRequest, "pairing_code é obrigatório")
+		writeErrCode(w, http.StatusBadRequest, "pairing_code_obrigatorio", "pairing_code é obrigatório")
 		return
 	}
 	var networkID string
@@ -234,7 +233,7 @@ func (s *Server) SelfBindDevice(w http.ResponseWriter, r *http.Request) {
 		ORDER BY (n.name='Principal') DESC, n.created_at LIMIT 1`,
 		claims.TechnicianID).Scan(&networkID)
 	if err != nil {
-		writeErr(w, http.StatusNotFound, "nenhuma rede própria encontrada para vincular automaticamente")
+		writeErrCode(w, http.StatusNotFound, "nenhuma_rede_propria_encontrada_vincular", "nenhuma rede própria encontrada para vincular automaticamente")
 		return
 	}
 	var deviceID string
@@ -246,7 +245,7 @@ func (s *Server) SelfBindDevice(w http.ResponseWriter, r *http.Request) {
 		RETURNING id`, networkID, strings.ToUpper(req.PairingCode),
 	).Scan(&deviceID)
 	if err != nil {
-		writeErr(w, http.StatusNotFound, "código de pareamento inválido ou já usado")
+		writeErrCode(w, http.StatusNotFound, "codigo_pareamento_invalido_ja_usado", "código de pareamento inválido ou já usado")
 		return
 	}
 	_, _ = s.Pool.Exec(r.Context(), `
@@ -300,7 +299,7 @@ func (s *Server) ListDevices(w http.ResponseWriter, r *http.Request) {
 
 	rs, err := s.Pool.Query(r.Context(), query, args...)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao listar dispositivos")
+		writeErrCode(w, http.StatusInternalServerError, "falha_listar_dispositivos", "falha ao listar dispositivos")
 		return
 	}
 	defer rs.Close()
@@ -312,7 +311,7 @@ func (s *Server) ListDevices(w http.ResponseWriter, r *http.Request) {
 			&d.SubnetworkIDs, &d.Hostname, &d.DisplayName, &d.MAC, &d.WGPubkey,
 			&d.Role, &d.State, &d.LastSeenAt, &d.CreatedAt, &d.UpdatedAt,
 			&d.RustdeskID); err != nil {
-			writeErr(w, http.StatusInternalServerError, "falha ao ler dispositivos")
+			writeErrCode(w, http.StatusInternalServerError, "falha_ler_dispositivos", "falha ao ler dispositivos")
 			return
 		}
 		if d.State == "ativo" && presence.IsOnline(r.Context(), s.RDB, d.ID) {
@@ -343,7 +342,7 @@ func (s *Server) ClaimControlMachine(w http.ResponseWriter, r *http.Request, dev
 		WHERE id=$2 AND state IN ('ativo','suspenso')`,
 		claims.TechnicianID, deviceID)
 	if err != nil || tag.RowsAffected() == 0 {
-		writeErr(w, http.StatusNotFound, "dispositivo de controle nao encontrado")
+		writeErrCode(w, http.StatusNotFound, "dispositivo_controle_encontrado", "dispositivo de controle nao encontrado")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"id": deviceID, "control_machine": true})
@@ -362,19 +361,19 @@ func (s *Server) UpdateDeviceSubnetwork(w http.ResponseWriter, r *http.Request, 
 	claims := middleware.ClaimsFrom(r.Context())
 	var req updateDeviceSubnetworkRequest
 	if json.NewDecoder(r.Body).Decode(&req) != nil {
-		writeErr(w, http.StatusBadRequest, "sub-redes inválidas")
+		writeErrCode(w, http.StatusBadRequest, "sub_redes_invalidas", "sub-redes inválidas")
 		return
 	}
 	if len(req.SubnetworkIDs) == 0 && req.SubnetworkID != "" {
 		req.SubnetworkIDs = []string{req.SubnetworkID}
 	}
 	if len(req.SubnetworkIDs) == 0 {
-		writeErr(w, http.StatusBadRequest, "selecione ao menos uma sub-rede")
+		writeErrCode(w, http.StatusBadRequest, "selecione_menos_sub_rede", "selecione ao menos uma sub-rede")
 		return
 	}
 	canManageDevice, err := s.Authorizer.CanManageDevice(r.Context(), claims, deviceID)
 	if err != nil || !canManageDevice {
-		writeErr(w, http.StatusForbidden, "sem permissão para alterar este dispositivo")
+		writeErrCode(w, http.StatusForbidden, "permissao_alterar_dispositivo", "sem permissão para alterar este dispositivo")
 		return
 	}
 	targetOrganizations := make([]string, 0, len(req.SubnetworkIDs))
@@ -387,16 +386,16 @@ func (s *Server) UpdateDeviceSubnetwork(w http.ResponseWriter, r *http.Request, 
 			JOIN device_networks dn ON dn.network_id=s.network_id
 			WHERE s.id=$1 AND dn.device_id=$2`, subnetworkID, deviceID).
 			Scan(&networkID, &organizationID); err != nil {
-			writeErr(w, http.StatusConflict, "uma sub-rede não pertence às redes do dispositivo")
+			writeErrCode(w, http.StatusConflict, "sub_rede_pertence_redes_dispositivo", "uma sub-rede não pertence às redes do dispositivo")
 			return
 		}
 		allowed, err := s.Authorizer.CanManageNetwork(r.Context(), claims, networkID)
 		if err != nil || !allowed {
-			writeErr(w, http.StatusForbidden, "sem permissão para uma das sub-redes")
+			writeErrCode(w, http.StatusForbidden, "permissao_sub_redes", "sem permissão para uma das sub-redes")
 			return
 		}
 		if seenOrganizations[organizationID] {
-			writeErr(w, http.StatusConflict, "selecione apenas uma sub-rede por organizacao")
+			writeErrCode(w, http.StatusConflict, "selecione_apenas_sub_rede_organizacao", "selecione apenas uma sub-rede por organizacao")
 			return
 		}
 		seenOrganizations[organizationID] = true
@@ -404,7 +403,7 @@ func (s *Server) UpdateDeviceSubnetwork(w http.ResponseWriter, r *http.Request, 
 	}
 	tx, err := s.Pool.Begin(r.Context())
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao atualizar sub-redes")
+		writeErrCode(w, http.StatusInternalServerError, "falha_atualizar_sub_redes", "falha ao atualizar sub-redes")
 		return
 	}
 	defer tx.Rollback(r.Context())
@@ -414,14 +413,14 @@ func (s *Server) UpdateDeviceSubnetwork(w http.ResponseWriter, r *http.Request, 
 		WHERE ds.device_id=$1 AND s.id=ds.subnetwork_id
 		  AND n.id=s.network_id AND n.organization_id=ANY($2::uuid[])`,
 		deviceID, targetOrganizations); err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao atualizar sub-redes")
+		writeErrCode(w, http.StatusInternalServerError, "falha_atualizar_sub_redes", "falha ao atualizar sub-redes")
 		return
 	}
 	for _, subnetworkID := range req.SubnetworkIDs {
 		if _, err = tx.Exec(r.Context(), `
 			INSERT INTO device_subnetworks(device_id,subnetwork_id) VALUES($1,$2)
 			ON CONFLICT (device_id,subnetwork_id) DO NOTHING`, deviceID, subnetworkID); err != nil {
-			writeErr(w, http.StatusInternalServerError, "falha ao vincular sub-rede")
+			writeErrCode(w, http.StatusInternalServerError, "falha_vincular_sub_rede", "falha ao vincular sub-rede")
 			return
 		}
 	}
@@ -432,11 +431,11 @@ func (s *Server) UpdateDeviceSubnetwork(w http.ResponseWriter, r *http.Request, 
 			WHERE ds.device_id=d.id AND s.network_id=d.network_id
 			ORDER BY ds.created_at LIMIT 1),updated_at=now()
 		WHERE d.id=$1`, deviceID); err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao definir sub-rede principal")
+		writeErrCode(w, http.StatusInternalServerError, "falha_definir_sub_rede_principal", "falha ao definir sub-rede principal")
 		return
 	}
 	if err = tx.Commit(r.Context()); err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao concluir sub-redes")
+		writeErrCode(w, http.StatusInternalServerError, "falha_concluir_sub_redes", "falha ao concluir sub-redes")
 		return
 	}
 	_ = presence.Publish(r.Context(), s.RDB, presence.Event{Type: "device_subnetwork_changed", TargetID: deviceID})
@@ -447,19 +446,19 @@ func (s *Server) UpdateDeviceNetworks(w http.ResponseWriter, r *http.Request, de
 	claims := middleware.ClaimsFrom(r.Context())
 	var req updateDeviceNetworksRequest
 	if json.NewDecoder(r.Body).Decode(&req) != nil || len(req.NetworkIDs) == 0 {
-		writeErr(w, http.StatusBadRequest, "selecione ao menos uma rede")
+		writeErrCode(w, http.StatusBadRequest, "selecione_menos_rede", "selecione ao menos uma rede")
 		return
 	}
 	var exists bool
 	if s.Pool.QueryRow(r.Context(),
 		`SELECT EXISTS(SELECT 1 FROM devices WHERE id=$1)`, deviceID).
 		Scan(&exists) != nil || !exists {
-		writeErr(w, http.StatusNotFound, "dispositivo nao encontrado")
+		writeErrCode(w, http.StatusNotFound, "dispositivo_encontrado_2", "dispositivo nao encontrado")
 		return
 	}
 	canManage, err := s.Authorizer.CanManageDevice(r.Context(), claims, deviceID)
 	if err != nil || !canManage {
-		writeErr(w, http.StatusForbidden, "sem permissao para alterar as redes deste dispositivo")
+		writeErrCode(w, http.StatusForbidden, "permissao_alterar_redes_deste_dispositivo", "sem permissao para alterar as redes deste dispositivo")
 		return
 	}
 	// A rede de entrada não conta como organização natal: estar nela é a
@@ -480,12 +479,11 @@ func (s *Server) UpdateDeviceNetworks(w http.ResponseWriter, r *http.Request, de
 		if s.Pool.QueryRow(r.Context(),
 			`SELECT organization_id,system_key FROM networks WHERE id=$1 AND status='ativa'`,
 			networkID).Scan(&organizationID, &systemKey) != nil {
-			writeErr(w, http.StatusBadRequest, "rede invalida ou suspensa")
+			writeErrCode(w, http.StatusBadRequest, "rede_invalida_suspensa", "rede invalida ou suspensa")
 			return
 		}
 		if systemKey == nil && homeOrganizationID != "" && organizationID != homeOrganizationID {
-			writeErr(w, http.StatusConflict,
-				"o dispositivo nao pode ser movido entre organizacoes")
+			writeErrCode(w, http.StatusConflict, "dispositivo_pode_movido_entre_organizacoes", "o dispositivo nao pode ser movido entre organizacoes")
 			return
 		}
 		if systemKey != nil {
@@ -494,12 +492,12 @@ func (s *Server) UpdateDeviceNetworks(w http.ResponseWriter, r *http.Request, de
 		// Check authorization using centralized authorizer
 		ok, err := s.Authorizer.CanManageNetwork(r.Context(), claims, networkID)
 		if err != nil || !ok {
-			writeErr(w, http.StatusForbidden, "sem permissao para uma das redes")
+			writeErrCode(w, http.StatusForbidden, "permissao_redes", "sem permissao para uma das redes")
 			return
 		}
 	}
 	if len(selectedSystemNetworks) > 1 {
-		writeErr(w, http.StatusConflict, "selecione apenas uma rede TGDevs para o dispositivo")
+		writeErrCode(w, http.StatusConflict, "selecione_apenas_rede_tgdevs_dispositivo", "selecione apenas uma rede TGDevs para o dispositivo")
 		return
 	}
 	var requiredTGDevsNetworkID string
@@ -513,7 +511,7 @@ func (s *Server) UpdateDeviceNetworks(w http.ResponseWriter, r *http.Request, de
 			WHEN t.role='supervisor' THEN 'tgdevs.supervisores'
 			WHEN t.role IN ('tecnico','freelancer') THEN 'tgdevs.tecnicos'
 			ELSE 'tgdevs.clientes' END`, deviceID).Scan(&requiredTGDevsNetworkID, &controlRole); err != nil {
-		writeErr(w, http.StatusInternalServerError, "rede obrigatoria TGDevs indisponivel")
+		writeErrCode(w, http.StatusInternalServerError, "rede_obrigatoria_tgdevs_indisponivel", "rede obrigatoria TGDevs indisponivel")
 		return
 	}
 	hasRequired := false
@@ -523,7 +521,7 @@ func (s *Server) UpdateDeviceNetworks(w http.ResponseWriter, r *http.Request, de
 			allowed = systemKey == "tgdevs.principal" || systemKey == "tgdevs.supervisores"
 		}
 		if !allowed {
-			writeErr(w, http.StatusConflict, "rede TGDevs incompativel com a funcao do dispositivo")
+			writeErrCode(w, http.StatusConflict, "rede_tgdevs_incompativel_funcao_dispositivo", "rede TGDevs incompativel com a funcao do dispositivo")
 			return
 		}
 		requiredTGDevsNetworkID = networkID
@@ -534,7 +532,7 @@ func (s *Server) UpdateDeviceNetworks(w http.ResponseWriter, r *http.Request, de
 	}
 	tx, err := s.Pool.Begin(r.Context())
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao atualizar redes")
+		writeErrCode(w, http.StatusInternalServerError, "falha_atualizar_redes", "falha ao atualizar redes")
 		return
 	}
 	defer tx.Rollback(r.Context())
@@ -543,7 +541,7 @@ func (s *Server) UpdateDeviceNetworks(w http.ResponseWriter, r *http.Request, de
 			INSERT INTO device_networks(device_id,network_id) VALUES ($1,$2)
 			ON CONFLICT (device_id,network_id) DO NOTHING`,
 			deviceID, networkID); err != nil {
-			writeErr(w, http.StatusInternalServerError, "falha ao vincular rede")
+			writeErrCode(w, http.StatusInternalServerError, "falha_vincular_rede", "falha ao vincular rede")
 			return
 		}
 	}
@@ -551,7 +549,7 @@ func (s *Server) UpdateDeviceNetworks(w http.ResponseWriter, r *http.Request, de
 		DELETE FROM device_networks
 		WHERE device_id=$1 AND NOT (network_id = ANY($2::uuid[]))`,
 		deviceID, req.NetworkIDs); err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao atualizar redes")
+		writeErrCode(w, http.StatusInternalServerError, "falha_atualizar_redes", "falha ao atualizar redes")
 		return
 	}
 	if _, err = tx.Exec(r.Context(), `
@@ -564,7 +562,7 @@ func (s *Server) UpdateDeviceNetworks(w http.ResponseWriter, r *http.Request, de
 			  ON dn.device_id=ds.device_id AND dn.network_id=s.network_id
 			WHERE s.id=ds.subnetwork_id
 		  )`, deviceID); err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao conciliar sub-redes")
+		writeErrCode(w, http.StatusInternalServerError, "falha_conciliar_sub_redes", "falha ao conciliar sub-redes")
 		return
 	}
 	// Entrar na rede é entrar na subrede Principal dela, como em Bind e nas
@@ -577,7 +575,7 @@ func (s *Server) UpdateDeviceNetworks(w http.ResponseWriter, r *http.Request, de
 			subnetwork_id=(SELECT id FROM subnetworks WHERE network_id=$1 ORDER BY (name='Principal') DESC,created_at LIMIT 1),
 			updated_at=now() WHERE id=$2`,
 		req.NetworkIDs[0], deviceID); err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao definir rede principal")
+		writeErrCode(w, http.StatusInternalServerError, "falha_definir_rede_principal", "falha ao definir rede principal")
 		return
 	}
 	if _, err = tx.Exec(r.Context(), `
@@ -585,11 +583,11 @@ func (s *Server) UpdateDeviceNetworks(w http.ResponseWriter, r *http.Request, de
 		SELECT $1,id FROM subnetworks WHERE network_id=$2
 		ORDER BY (name='Principal') DESC, created_at LIMIT 1
 		ON CONFLICT DO NOTHING`, deviceID, req.NetworkIDs[0]); err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao vincular sub-rede principal")
+		writeErrCode(w, http.StatusInternalServerError, "falha_vincular_sub_rede_principal", "falha ao vincular sub-rede principal")
 		return
 	}
 	if err = tx.Commit(r.Context()); err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao concluir redes")
+		writeErrCode(w, http.StatusInternalServerError, "falha_concluir_redes", "falha ao concluir redes")
 		return
 	}
 	_ = presence.Publish(r.Context(), s.RDB,
@@ -605,12 +603,12 @@ func (s *Server) UpdateDeviceDisplayName(w http.ResponseWriter, r *http.Request,
 	claims := middleware.ClaimsFrom(r.Context())
 	var req updateDeviceDisplayNameRequest
 	if json.NewDecoder(r.Body).Decode(&req) != nil {
-		writeErr(w, http.StatusBadRequest, "nome de exibição inválido")
+		writeErrCode(w, http.StatusBadRequest, "nome_exibicao_invalido", "nome de exibição inválido")
 		return
 	}
 	req.DisplayName = strings.TrimSpace(req.DisplayName)
 	if len([]rune(req.DisplayName)) > 80 {
-		writeErr(w, http.StatusBadRequest, "nome de exibição deve ter no máximo 80 caracteres")
+		writeErrCode(w, http.StatusBadRequest, "nome_exibicao_deve_ter_maximo", "nome de exibição deve ter no máximo 80 caracteres")
 		return
 	}
 	var orgID, netID, controlRole string
@@ -622,53 +620,53 @@ func (s *Server) UpdateDeviceDisplayName(w http.ResponseWriter, r *http.Request,
 		LEFT JOIN technicians t ON t.id=d.control_technician_id
 		WHERE d.id=$1`, deviceID).
 		Scan(&orgID, &netID, &controlTechnicianID, &controlRole); err != nil {
-		writeErr(w, http.StatusNotFound, "dispositivo não encontrado")
+		writeErrCode(w, http.StatusNotFound, "dispositivo_encontrado_1", "dispositivo não encontrado")
 		return
 	}
 	// Check authorization using centralized authorizer
 	if controlTechnicianID != nil && controlRole == models.RoleSupervisor &&
 		claims.Role != models.RoleSuperAdmin &&
 		*controlTechnicianID != claims.TechnicianID {
-		writeErr(w, http.StatusForbidden, "somente o próprio técnico ou o Admin pode alterar este nome")
+		writeErrCode(w, http.StatusForbidden, "somente_proprio_tecnico_admin_pode", "somente o próprio técnico ou o Admin pode alterar este nome")
 		return
 	}
 	ok, err := s.Authorizer.CanAccessDevice(r.Context(), claims, deviceID)
 	if err != nil || !ok {
-		writeErr(w, http.StatusForbidden, "sem permissão para esse dispositivo")
+		writeErrCode(w, http.StatusForbidden, "permissao_dispositivo", "sem permissão para esse dispositivo")
 		return
 	}
 	if controlTechnicianID != nil && controlRole == models.RoleSupervisor && req.DisplayName == "" {
-		writeErr(w, http.StatusBadRequest, "o nome do computador do técnico não pode ficar vazio")
+		writeErrCode(w, http.StatusBadRequest, "nome_computador_tecnico_pode_ficar", "o nome do computador do técnico não pode ficar vazio")
 		return
 	}
 	tx, err := s.Pool.Begin(r.Context())
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao alterar nome do dispositivo")
+		writeErrCode(w, http.StatusInternalServerError, "falha_alterar_nome_dispositivo", "falha ao alterar nome do dispositivo")
 		return
 	}
 	defer tx.Rollback(r.Context())
 	if _, err = tx.Exec(r.Context(), `
 		UPDATE devices SET display_name=nullif($1,''),updated_at=now() WHERE id=$2`,
 		req.DisplayName, deviceID); err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao alterar nome do dispositivo")
+		writeErrCode(w, http.StatusInternalServerError, "falha_alterar_nome_dispositivo", "falha ao alterar nome do dispositivo")
 		return
 	}
 	if controlTechnicianID != nil && controlRole == models.RoleSupervisor {
 		if _, err = tx.Exec(r.Context(),
 			`UPDATE technicians SET username=$1 WHERE id=$2`,
 			req.DisplayName, *controlTechnicianID); err != nil {
-			writeErr(w, http.StatusConflict, "nome de técnico já utilizado")
+			writeErrCode(w, http.StatusConflict, "nome_tecnico_ja_utilizado", "nome de técnico já utilizado")
 			return
 		}
 		if _, err = tx.Exec(r.Context(),
 			`UPDATE organizations SET name=$1 WHERE owner_technician_id=$2`,
 			req.DisplayName, *controlTechnicianID); err != nil {
-			writeErr(w, http.StatusConflict, "nome de organização já utilizado")
+			writeErrCode(w, http.StatusConflict, "nome_organizacao_ja_utilizado", "nome de organização já utilizado")
 			return
 		}
 	}
 	if err = tx.Commit(r.Context()); err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao concluir alteração do nome")
+		writeErrCode(w, http.StatusInternalServerError, "falha_concluir_alteracao_nome", "falha ao concluir alteração do nome")
 		return
 	}
 	_ = presence.Publish(r.Context(), s.RDB,
@@ -710,12 +708,12 @@ func (s *Server) remoteCredential(deviceID, deviceToken string) string {
 // full device-to-device mesh (rendezvous/relay) is Fase 2.
 func (s *Server) WGKey(w http.ResponseWriter, r *http.Request) {
 	if s.Hub == nil {
-		writeErr(w, http.StatusServiceUnavailable, "hub WireGuard indisponível neste servidor")
+		writeErrCode(w, http.StatusServiceUnavailable, "hub_wireguard_indisponivel_neste_servidor", "hub WireGuard indisponível neste servidor")
 		return
 	}
 	var req wgKeyRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.PublicKey == "" {
-		writeErr(w, http.StatusBadRequest, "public_key é obrigatório")
+		writeErrCode(w, http.StatusBadRequest, "public_key_obrigatorio", "public_key é obrigatório")
 		return
 	}
 
@@ -725,11 +723,11 @@ func (s *Server) WGKey(w http.ResponseWriter, r *http.Request) {
 		req.DeviceID, req.DeviceToken,
 	).Scan(&networkID, &state, &existingIP)
 	if err != nil {
-		writeErr(w, http.StatusUnauthorized, "dispositivo/token inválido")
+		writeErrCode(w, http.StatusUnauthorized, "dispositivo_token_invalido", "dispositivo/token inválido")
 		return
 	}
 	if state == nil || *state != models.DeviceStateAtivo || networkID == nil {
-		writeErr(w, http.StatusForbidden, "dispositivo precisa estar vinculado e ativo")
+		writeErrCode(w, http.StatusForbidden, "dispositivo_precisa_estar_vinculado_ativo", "dispositivo precisa estar vinculado e ativo")
 		return
 	}
 
@@ -742,7 +740,7 @@ func (s *Server) WGKey(w http.ResponseWriter, r *http.Request) {
 		// ser limitada a um único /24. Ver 0041_network_pools.sql.
 		if err := s.Pool.QueryRow(r.Context(),
 			`SELECT allocate_virtual_ip($1)`, *networkID).Scan(&virtualIP); err != nil {
-			writeErr(w, http.StatusInternalServerError, "falha ao alocar IP virtual")
+			writeErrCode(w, http.StatusInternalServerError, "falha_alocar_ip_virtual", "falha ao alocar IP virtual")
 			return
 		}
 	}
@@ -751,12 +749,12 @@ func (s *Server) WGKey(w http.ResponseWriter, r *http.Request) {
 		UPDATE devices SET wg_pubkey=$1, wg_virtual_ip=$2, updated_at=now() WHERE id=$3`,
 		req.PublicKey, virtualIP, req.DeviceID,
 	); err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao salvar chave WireGuard")
+		writeErrCode(w, http.StatusInternalServerError, "falha_salvar_chave_wireguard", "falha ao salvar chave WireGuard")
 		return
 	}
 
 	if err := s.Hub.AddPeer(req.PublicKey, virtualIP); err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao registrar peer no hub: "+err.Error())
+		writeErrCode(w, http.StatusInternalServerError, "falha_registrar_peer_hub", "falha ao registrar peer no hub: "+err.Error())
 		return
 	}
 
@@ -778,17 +776,17 @@ func (s *Server) DeviceRemoteCredential(w http.ResponseWriter, r *http.Request, 
 		SELECT state,device_token FROM devices WHERE id=$1`, deviceID).
 		Scan(&state, &deviceToken)
 	if err != nil {
-		writeErr(w, http.StatusNotFound, "dispositivo não encontrado")
+		writeErrCode(w, http.StatusNotFound, "dispositivo_encontrado_1", "dispositivo não encontrado")
 		return
 	}
 	if state != models.DeviceStateAtivo {
-		writeErr(w, http.StatusConflict, "dispositivo não está ativo")
+		writeErrCode(w, http.StatusConflict, "dispositivo_ativo", "dispositivo não está ativo")
 		return
 	}
 	// Check authorization using centralized authorizer
 	allowed, accessErr := s.Authorizer.CanAccessDevice(r.Context(), claims, deviceID)
 	if accessErr != nil || !allowed {
-		writeErr(w, http.StatusForbidden, "sem permissão para esse dispositivo")
+		writeErrCode(w, http.StatusForbidden, "permissao_dispositivo", "sem permissão para esse dispositivo")
 		return
 	}
 	s.audit(r, "acesso_remoto", deviceID)
@@ -819,19 +817,19 @@ type rustdeskIDRequest struct {
 // it without a separate manual pairing step (Seção 8.B).
 func (s *Server) ReportRustdeskID(w http.ResponseWriter, r *http.Request) {
 	if !requestFromVPN(r) {
-		writeErr(w, http.StatusForbidden, "estado RustDesk disponível somente pela VPN")
+		writeErrCode(w, http.StatusForbidden, "estado_rustdesk_disponivel_somente_vpn", "estado RustDesk disponível somente pela VPN")
 		return
 	}
 	var req rustdeskIDRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.RustdeskID == "" {
-		writeErr(w, http.StatusBadRequest, "rustdesk_id é obrigatório")
+		writeErrCode(w, http.StatusBadRequest, "rustdesk_id_obrigatorio", "rustdesk_id é obrigatório")
 		return
 	}
 	res, err := s.Pool.Exec(r.Context(), `
 		UPDATE devices SET rustdesk_id=$1, updated_at=now() WHERE id=$2 AND device_token=$3`,
 		req.RustdeskID, req.DeviceID, req.DeviceToken)
 	if err != nil || res.RowsAffected() == 0 {
-		writeErr(w, http.StatusUnauthorized, "dispositivo/token inválido")
+		writeErrCode(w, http.StatusUnauthorized, "dispositivo_token_invalido", "dispositivo/token inválido")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"rustdesk_id": req.RustdeskID})

@@ -34,7 +34,7 @@ const (
 func (s *Server) SearchPublicTechnicians(w http.ResponseWriter, r *http.Request) {
 	query := strings.TrimSpace(r.URL.Query().Get("q"))
 	if len([]rune(query)) < minTechnicianQueryLen {
-		writeErr(w, http.StatusBadRequest, "informe ao menos 3 caracteres do nome")
+		writeErrCode(w, http.StatusBadRequest, "informe_menos_3_caracteres_nome", "informe ao menos 3 caracteres do nome")
 		return
 	}
 	rows, err := s.Pool.Query(r.Context(), `
@@ -48,7 +48,7 @@ func (s *Server) SearchPublicTechnicians(w http.ResponseWriter, r *http.Request)
 		ORDER BY t.username
 		LIMIT $2`, query, maxTechnicianResults)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha na busca")
+		writeErrCode(w, http.StatusInternalServerError, "falha_busca", "falha na busca")
 		return
 	}
 	defer rows.Close()
@@ -71,12 +71,12 @@ func (s *Server) GetPublicTechnicianBranding(w http.ResponseWriter, r *http.Requ
 	if s.Pool.QueryRow(r.Context(),
 		`SELECT status='ativo' AND role IN ('supervisor','tecnico','freelancer')
 		 FROM technicians WHERE id=$1`, technicianID).Scan(&active) != nil || !active {
-		writeErr(w, http.StatusNotFound, "técnico não encontrado")
+		writeErrCode(w, http.StatusNotFound, "tecnico_encontrado", "técnico não encontrado")
 		return
 	}
 	record, err := s.technicianBrand(r.Context(), technicianID)
 	if err != nil {
-		writeErr(w, http.StatusNotFound, "técnico não encontrado")
+		writeErrCode(w, http.StatusNotFound, "tecnico_encontrado", "técnico não encontrado")
 		return
 	}
 	writeJSON(w, http.StatusOK, brandJSON(record, true))
@@ -119,30 +119,29 @@ func (s *Server) ClientRenameDevice(w http.ResponseWriter, r *http.Request) {
 	}
 	if json.NewDecoder(r.Body).Decode(&req) != nil ||
 		req.DeviceID == "" || req.DeviceToken == "" {
-		writeErr(w, http.StatusBadRequest, "dispositivo e token são obrigatórios")
+		writeErrCode(w, http.StatusBadRequest, "dispositivo_token_sao_obrigatorios", "dispositivo e token são obrigatórios")
 		return
 	}
 	name := strings.TrimSpace(req.DisplayName)
 	if len([]rune(name)) > 80 {
-		writeErr(w, http.StatusBadRequest, "o nome deve ter no máximo 80 caracteres")
+		writeErrCode(w, http.StatusBadRequest, "nome_deve_ter_maximo_80", "o nome deve ter no máximo 80 caracteres")
 		return
 	}
 	var controlTechnicianID *string
 	if s.Pool.QueryRow(r.Context(),
 		`SELECT control_technician_id FROM devices WHERE id=$1 AND device_token=$2`,
 		req.DeviceID, req.DeviceToken).Scan(&controlTechnicianID) != nil {
-		writeErr(w, http.StatusUnauthorized, "dispositivo inválido")
+		writeErrCode(w, http.StatusUnauthorized, "dispositivo_invalido", "dispositivo inválido")
 		return
 	}
 	if controlTechnicianID != nil {
-		writeErr(w, http.StatusForbidden,
-			"o nome do computador de técnico é alterado pelo próprio técnico")
+		writeErrCode(w, http.StatusForbidden, "nome_computador_tecnico_alterado_proprio", "o nome do computador de técnico é alterado pelo próprio técnico")
 		return
 	}
 	if _, err := s.Pool.Exec(r.Context(),
 		`UPDATE devices SET display_name=NULLIF($2,''),updated_at=now() WHERE id=$1`,
 		req.DeviceID, name); err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao salvar o nome")
+		writeErrCode(w, http.StatusInternalServerError, "falha_salvar_nome", "falha ao salvar o nome")
 		return
 	}
 	// A lista do técnico é atualizada por push, como todo o resto.
@@ -171,7 +170,7 @@ func (s *Server) OrgIntakeBindDevice(w http.ResponseWriter, r *http.Request) {
 	var req orgIntakeBindRequest
 	if json.NewDecoder(r.Body).Decode(&req) != nil ||
 		req.DeviceID == "" || req.DeviceToken == "" || req.TechnicianID == "" {
-		writeErr(w, http.StatusBadRequest, "dispositivo, token e técnico são obrigatórios")
+		writeErrCode(w, http.StatusBadRequest, "dispositivo_token_tecnico_sao_obrigatorios", "dispositivo, token e técnico são obrigatórios")
 		return
 	}
 	var state string
@@ -179,20 +178,20 @@ func (s *Server) OrgIntakeBindDevice(w http.ResponseWriter, r *http.Request) {
 	if s.Pool.QueryRow(r.Context(),
 		`SELECT state,network_id FROM devices WHERE id=$1 AND device_token=$2`,
 		req.DeviceID, req.DeviceToken).Scan(&state, &networkID) != nil {
-		writeErr(w, http.StatusUnauthorized, "dispositivo inválido")
+		writeErrCode(w, http.StatusUnauthorized, "dispositivo_invalido", "dispositivo inválido")
 		return
 	}
 	if state == "suspenso" {
-		writeErr(w, http.StatusForbidden, "dispositivo suspenso")
+		writeErrCode(w, http.StatusForbidden, "dispositivo_suspenso", "dispositivo suspenso")
 		return
 	}
 	orgID, netID, err := s.intakeNetworkForTechnician(r.Context(), req.TechnicianID)
 	if err != nil {
-		writeErr(w, http.StatusNotFound, "rede de entrada indisponível para esse técnico")
+		writeErrCode(w, http.StatusNotFound, "rede_entrada_indisponivel_tecnico", "rede de entrada indisponível para esse técnico")
 		return
 	}
 	if networkID != nil && *networkID != "" && *networkID != netID {
-		writeErr(w, http.StatusConflict, "dispositivo já vinculado a uma rede")
+		writeErrCode(w, http.StatusConflict, "dispositivo_ja_vinculado_rede", "dispositivo já vinculado a uma rede")
 		return
 	}
 	// Mesmo conjunto de efeitos de Bind e StandaloneBindDevice: rede, subrede
@@ -204,7 +203,7 @@ func (s *Server) OrgIntakeBindDevice(w http.ResponseWriter, r *http.Request) {
 			subnetwork_id=(SELECT id FROM subnetworks WHERE network_id=$2 ORDER BY (name='Principal') DESC,created_at LIMIT 1),
 			state='ativo', pairing_code=NULL, updated_at=now()
 		WHERE id=$1`, req.DeviceID, netID); err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao vincular dispositivo")
+		writeErrCode(w, http.StatusInternalServerError, "falha_vincular_dispositivo", "falha ao vincular dispositivo")
 		return
 	}
 	_, _ = s.Pool.Exec(r.Context(), `

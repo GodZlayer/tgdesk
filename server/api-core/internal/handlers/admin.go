@@ -69,14 +69,14 @@ func (s *Server) dropTechnicianHubPeer(technicianID string) {
 func (s *Server) SuspendTechnician(w http.ResponseWriter, r *http.Request, id string) {
 	tx, err := s.Pool.Begin(r.Context())
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao iniciar suspensão do técnico")
+		writeErrCode(w, http.StatusInternalServerError, "falha_iniciar_suspensao_tecnico", "falha ao iniciar suspensão do técnico")
 		return
 	}
 	defer tx.Rollback(r.Context())
 	tag, err := tx.Exec(r.Context(),
 		`UPDATE technicians SET status='suspenso' WHERE id=$1`, id)
 	if err != nil || tag.RowsAffected() == 0 {
-		writeErr(w, http.StatusNotFound, "técnico não encontrado")
+		writeErrCode(w, http.StatusNotFound, "tecnico_encontrado", "técnico não encontrado")
 		return
 	}
 	_, _ = tx.Exec(r.Context(),
@@ -102,7 +102,7 @@ func (s *Server) SuspendTechnician(w http.ResponseWriter, r *http.Request, id st
 			WHERE dn.device_id=devices.id AND o.owner_technician_id=$1)
 		RETURNING id`, id)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao suspender dispositivos do técnico")
+		writeErrCode(w, http.StatusInternalServerError, "falha_suspender_dispositivos_tecnico", "falha ao suspender dispositivos do técnico")
 		return
 	}
 	var deviceIDs []string
@@ -114,7 +114,7 @@ func (s *Server) SuspendTechnician(w http.ResponseWriter, r *http.Request, id st
 	}
 	rows.Close()
 	if err = tx.Commit(r.Context()); err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao concluir suspensão do técnico")
+		writeErrCode(w, http.StatusInternalServerError, "falha_concluir_suspensao_tecnico", "falha ao concluir suspensão do técnico")
 		return
 	}
 	for _, deviceID := range deviceIDs {
@@ -134,7 +134,7 @@ func (s *Server) SuspendTechnician(w http.ResponseWriter, r *http.Request, id st
 func (s *Server) SuspendDevice(w http.ResponseWriter, r *http.Request, id string) {
 	if _, err := s.Pool.Exec(r.Context(), `UPDATE devices SET state='suspenso',
 		suspension_scope='device', updated_at=now() WHERE id=$1`, id); err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao suspender dispositivo")
+		writeErrCode(w, http.StatusInternalServerError, "falha_suspender_dispositivo", "falha ao suspender dispositivo")
 		return
 	}
 	_ = presence.Clear(r.Context(), s.RDB, id)
@@ -147,18 +147,18 @@ func (s *Server) SuspendDevice(w http.ResponseWriter, r *http.Request, id string
 // SuspendNetwork suspends every active device belonging to the network.
 func (s *Server) SuspendNetwork(w http.ResponseWriter, r *http.Request, id string) {
 	if s.protectedSystemNetwork(r.Context(), id) {
-		writeErr(w, http.StatusConflict, "rede obrigatoria TGDevs permanece sempre ativa")
+		writeErrCode(w, http.StatusConflict, "rede_obrigatoria_tgdevs_permanece_sempre", "rede obrigatoria TGDevs permanece sempre ativa")
 		return
 	}
 	claims := middleware.ClaimsFrom(r.Context())
 	allowed, err := s.Authorizer.CanManageNetwork(r.Context(), claims, id)
 	if err != nil || !allowed {
-		writeErr(w, http.StatusForbidden, "somente o criador da rede pode suspende-la")
+		writeErrCode(w, http.StatusForbidden, "somente_criador_rede_pode_suspende", "somente o criador da rede pode suspende-la")
 		return
 	}
 	if _, err := s.Pool.Exec(r.Context(), `UPDATE networks SET status='suspensa',
 		suspension_scope='network' WHERE id=$1 AND status='ativa'`, id); err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao suspender rede")
+		writeErrCode(w, http.StatusInternalServerError, "falha_suspender_rede", "falha ao suspender rede")
 		return
 	}
 	rows, _ := s.Pool.Query(r.Context(), `UPDATE devices SET state='suspenso',
@@ -187,12 +187,12 @@ func (s *Server) SuspendNetwork(w http.ResponseWriter, r *http.Request, id strin
 // SuspendOrganization cascades suspension across its active networks and devices.
 func (s *Server) SuspendOrganization(w http.ResponseWriter, r *http.Request, id string) {
 	if s.protectedTGDevsOrganization(r.Context(), id) {
-		writeErr(w, http.StatusConflict, "organizacao TGDevs permanece sempre ativa")
+		writeErrCode(w, http.StatusConflict, "organizacao_tgdevs_permanece_sempre_ativa", "organizacao TGDevs permanece sempre ativa")
 		return
 	}
 	if _, err := s.Pool.Exec(r.Context(), `UPDATE organizations SET status='suspensa',
 		suspension_scope='organization' WHERE id=$1 AND status='ativa'`, id); err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao suspender organização")
+		writeErrCode(w, http.StatusInternalServerError, "falha_suspender_organizacao", "falha ao suspender organização")
 		return
 	}
 	_, _ = s.Pool.Exec(r.Context(), `UPDATE networks SET status='suspensa',
@@ -227,17 +227,17 @@ func (s *Server) ResumeDevice(w http.ResponseWriter, r *http.Request, id string)
 		SELECT n.status,o.status FROM devices d JOIN networks n ON n.id=d.network_id
 		JOIN organizations o ON o.id=n.organization_id WHERE d.id=$1`, id).
 		Scan(&networkStatus, &organizationStatus); err != nil {
-		writeErr(w, http.StatusNotFound, "dispositivo não encontrado")
+		writeErrCode(w, http.StatusNotFound, "dispositivo_encontrado_1", "dispositivo não encontrado")
 		return
 	}
 	if networkStatus != "ativa" || organizationStatus != "ativa" {
-		writeErr(w, http.StatusConflict, "reative primeiro a organização e a rede")
+		writeErrCode(w, http.StatusConflict, "reative_primeiro_organizacao_rede", "reative primeiro a organização e a rede")
 		return
 	}
 	_, err := s.Pool.Exec(r.Context(), `UPDATE devices SET state='ativo',
 		suspension_scope=NULL,updated_at=now() WHERE id=$1`, id)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao reativar dispositivo")
+		writeErrCode(w, http.StatusInternalServerError, "falha_reativar_dispositivo", "falha ao reativar dispositivo")
 		return
 	}
 	s.audit(r, "reativar_dispositivo", id)
@@ -248,14 +248,14 @@ func (s *Server) ResumeDevice(w http.ResponseWriter, r *http.Request, id string)
 func (s *Server) ResumeTechnician(w http.ResponseWriter, r *http.Request, id string) {
 	tx, err := s.Pool.Begin(r.Context())
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao iniciar reativação do técnico")
+		writeErrCode(w, http.StatusInternalServerError, "falha_iniciar_reativacao_tecnico", "falha ao iniciar reativação do técnico")
 		return
 	}
 	defer tx.Rollback(r.Context())
 	tag, err := tx.Exec(r.Context(),
 		`UPDATE technicians SET status='ativo' WHERE id=$1`, id)
 	if err != nil || tag.RowsAffected() == 0 {
-		writeErr(w, http.StatusNotFound, "técnico não encontrado")
+		writeErrCode(w, http.StatusNotFound, "tecnico_encontrado", "técnico não encontrado")
 		return
 	}
 	_, _ = tx.Exec(r.Context(), `
@@ -274,7 +274,7 @@ func (s *Server) ResumeTechnician(w http.ResponseWriter, r *http.Request, id str
 			JOIN organizations o ON o.id=n.organization_id
 			WHERE dn.device_id=devices.id AND o.owner_technician_id=$1)`, id)
 	if err = tx.Commit(r.Context()); err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao concluir reativação do técnico")
+		writeErrCode(w, http.StatusInternalServerError, "falha_concluir_reativacao_tecnico", "falha ao concluir reativação do técnico")
 		return
 	}
 	s.audit(r, "reativar_supervisor", id)
@@ -291,18 +291,18 @@ func (s *Server) ResumeNetwork(w http.ResponseWriter, r *http.Request, id string
 	claims := middleware.ClaimsFrom(r.Context())
 	allowed, err := s.Authorizer.CanManageNetwork(r.Context(), claims, id)
 	if err != nil || !allowed {
-		writeErr(w, http.StatusForbidden, "somente o criador da rede pode reativa-la")
+		writeErrCode(w, http.StatusForbidden, "somente_criador_rede_pode_reativa", "somente o criador da rede pode reativa-la")
 		return
 	}
 	var organizationStatus string
 	if err := s.Pool.QueryRow(r.Context(), `SELECT o.status FROM networks n
 		JOIN organizations o ON o.id=n.organization_id WHERE n.id=$1`, id).
 		Scan(&organizationStatus); err != nil {
-		writeErr(w, http.StatusNotFound, "rede não encontrada")
+		writeErrCode(w, http.StatusNotFound, "rede_encontrada", "rede não encontrada")
 		return
 	}
 	if organizationStatus != "ativa" {
-		writeErr(w, http.StatusConflict, "reative primeiro a organização")
+		writeErrCode(w, http.StatusConflict, "reative_primeiro_organizacao", "reative primeiro a organização")
 		return
 	}
 	_, _ = s.Pool.Exec(r.Context(), `UPDATE networks SET status='ativa',
@@ -327,11 +327,11 @@ func (s *Server) ResumeOrganization(w http.ResponseWriter, r *http.Request, id s
 		SELECT coalesce(t.status,'ativo') FROM organizations o
 		LEFT JOIN technicians t ON t.id=o.owner_technician_id
 		WHERE o.id=$1`, id).Scan(&ownerStatus); err != nil {
-		writeErr(w, http.StatusNotFound, "organização não encontrada")
+		writeErrCode(w, http.StatusNotFound, "organizacao_encontrada", "organização não encontrada")
 		return
 	}
 	if ownerStatus != "ativo" {
-		writeErr(w, http.StatusConflict, "reative primeiro o técnico responsável")
+		writeErrCode(w, http.StatusConflict, "reative_primeiro_tecnico_responsavel", "reative primeiro o técnico responsável")
 		return
 	}
 	_, _ = s.Pool.Exec(r.Context(), `UPDATE organizations SET status='ativa',
@@ -352,7 +352,7 @@ func (s *Server) ListAuditLog(w http.ResponseWriter, r *http.Request) {
 	rs, err := s.Pool.Query(r.Context(), `
 		SELECT id, actor_id, tipo, alvo_id, timestamp FROM admin_actions ORDER BY timestamp DESC LIMIT 500`)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao listar auditoria")
+		writeErrCode(w, http.StatusInternalServerError, "falha_listar_auditoria", "falha ao listar auditoria")
 		return
 	}
 	defer rs.Close()
@@ -361,7 +361,7 @@ func (s *Server) ListAuditLog(w http.ResponseWriter, r *http.Request) {
 	for rs.Next() {
 		var a models.AdminAction
 		if err := rs.Scan(&a.ID, &a.ActorID, &a.Tipo, &a.AlvoID, &a.Timestamp); err != nil {
-			writeErr(w, http.StatusInternalServerError, "falha ao ler auditoria")
+			writeErrCode(w, http.StatusInternalServerError, "falha_ler_auditoria", "falha ao ler auditoria")
 			return
 		}
 		actions = append(actions, a)

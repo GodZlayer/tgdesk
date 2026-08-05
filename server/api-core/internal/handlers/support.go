@@ -97,7 +97,7 @@ type standaloneBindRequest struct {
 func (s *Server) StandaloneBindDevice(w http.ResponseWriter, r *http.Request) {
 	var req standaloneBindRequest
 	if json.NewDecoder(r.Body).Decode(&req) != nil || req.DeviceID == "" || req.DeviceToken == "" {
-		writeErr(w, http.StatusBadRequest, "dispositivo e token são obrigatórios")
+		writeErrCode(w, http.StatusBadRequest, "dispositivo_token_sao_obrigatorios", "dispositivo e token são obrigatórios")
 		return
 	}
 	var state string
@@ -105,22 +105,22 @@ func (s *Server) StandaloneBindDevice(w http.ResponseWriter, r *http.Request) {
 	if s.Pool.QueryRow(r.Context(),
 		`SELECT state,network_id FROM devices WHERE id=$1 AND device_token=$2`,
 		req.DeviceID, req.DeviceToken).Scan(&state, &networkID) != nil {
-		writeErr(w, http.StatusUnauthorized, "dispositivo inválido")
+		writeErrCode(w, http.StatusUnauthorized, "dispositivo_invalido", "dispositivo inválido")
 		return
 	}
 	if state == "suspenso" {
-		writeErr(w, http.StatusForbidden, "dispositivo suspenso")
+		writeErrCode(w, http.StatusForbidden, "dispositivo_suspenso", "dispositivo suspenso")
 		return
 	}
 	orgID, netID, err := s.standaloneNetwork(r.Context())
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "rede de clientes avulsos indisponível")
+		writeErrCode(w, http.StatusInternalServerError, "rede_clientes_avulsos_indisponivel", "rede de clientes avulsos indisponível")
 		return
 	}
 	// Já vinculado a outra rede: é um dispositivo empresarial, e trocá-lo de
 	// escopo aqui apagaria silenciosamente o vínculo feito pelo técnico.
 	if networkID != nil && *networkID != "" && *networkID != netID {
-		writeErr(w, http.StatusConflict, "dispositivo já vinculado a uma rede")
+		writeErrCode(w, http.StatusConflict, "dispositivo_ja_vinculado_rede", "dispositivo já vinculado a uma rede")
 		return
 	}
 	// Mesmo conjunto de efeitos do pareamento por código (Bind): rede, subrede
@@ -131,7 +131,7 @@ func (s *Server) StandaloneBindDevice(w http.ResponseWriter, r *http.Request) {
 			subnetwork_id=(SELECT id FROM subnetworks WHERE network_id=$2 ORDER BY (name='Principal') DESC,created_at LIMIT 1),
 			state='ativo', pairing_code=NULL, updated_at=now()
 		WHERE id=$1`, req.DeviceID, netID); err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao vincular dispositivo")
+		writeErrCode(w, http.StatusInternalServerError, "falha_vincular_dispositivo", "falha ao vincular dispositivo")
 		return
 	}
 	_, _ = s.Pool.Exec(r.Context(), `
@@ -171,7 +171,7 @@ type clientTicketRequest struct {
 func (s *Server) ClientOpenTicket(w http.ResponseWriter, r *http.Request) {
 	var req clientTicketRequest
 	if json.NewDecoder(r.Body).Decode(&req) != nil || req.DeviceID == "" || req.DeviceToken == "" {
-		writeErr(w, http.StatusBadRequest, "dispositivo e token são obrigatórios")
+		writeErrCode(w, http.StatusBadRequest, "dispositivo_token_sao_obrigatorios", "dispositivo e token são obrigatórios")
 		return
 	}
 	if req.Location == nil {
@@ -179,11 +179,11 @@ func (s *Server) ClientOpenTicket(w http.ResponseWriter, r *http.Request) {
 	}
 	var state string
 	if s.Pool.QueryRow(r.Context(), `SELECT state FROM devices WHERE id=$1 AND device_token=$2`, req.DeviceID, req.DeviceToken).Scan(&state) != nil {
-		writeErr(w, 401, "dispositivo inválido")
+		writeErrCode(w, 401, "dispositivo_invalido", "dispositivo inválido")
 		return
 	}
 	if state != "ativo" {
-		writeErr(w, http.StatusConflict, "dispositivo precisa estar vinculado para pedir atendimento")
+		writeErrCode(w, http.StatusConflict, "dispositivo_precisa_estar_vinculado_pedir", "dispositivo precisa estar vinculado para pedir atendimento")
 		return
 	}
 	var orgID, netID string
@@ -192,7 +192,7 @@ func (s *Server) ClientOpenTicket(w http.ResponseWriter, r *http.Request) {
 		SELECT n.organization_id,n.id,n.system_key FROM devices d
 		JOIN networks n ON n.id=d.network_id WHERE d.id=$1`,
 		req.DeviceID).Scan(&orgID, &netID, &systemKey) != nil {
-		writeErr(w, 400, "dispositivo sem escopo autorizado")
+		writeErrCode(w, 400, "dispositivo_escopo_autorizado", "dispositivo sem escopo autorizado")
 		return
 	}
 	standalone := systemKey != nil && *systemKey == "tgdevs.clientes_avulsos"
@@ -228,7 +228,7 @@ func (s *Server) ClientOpenTicket(w http.ResponseWriter, r *http.Request) {
 		VALUES($1,$2,$3,$3,$4,$5,'virtual',$6,$7) RETURNING id,protocol`,
 		orgID, netID, req.DeviceID, title, description, standalone, req.Location).Scan(&id, &protocol)
 	if err != nil {
-		writeErr(w, 500, "falha ao abrir chamado")
+		writeErrCode(w, 500, "falha_abrir_chamado", "falha ao abrir chamado")
 		return
 	}
 	_, _ = s.Pool.Exec(r.Context(), `INSERT INTO ticket_events(ticket_id,actor_device_id,event_type,payload) VALUES($1,$2,'opened',$3)`, id, req.DeviceID, map[string]any{"standalone": standalone})
@@ -258,13 +258,13 @@ func (s *Server) ClientOpenTicket(w http.ResponseWriter, r *http.Request) {
 func (s *Server) ClientOpenTicketStatus(w http.ResponseWriter, r *http.Request) {
 	var req standaloneBindRequest
 	if json.NewDecoder(r.Body).Decode(&req) != nil || req.DeviceID == "" || req.DeviceToken == "" {
-		writeErr(w, http.StatusBadRequest, "dispositivo e token são obrigatórios")
+		writeErrCode(w, http.StatusBadRequest, "dispositivo_token_sao_obrigatorios", "dispositivo e token são obrigatórios")
 		return
 	}
 	var ok bool
 	if s.Pool.QueryRow(r.Context(), `SELECT true FROM devices WHERE id=$1 AND device_token=$2`,
 		req.DeviceID, req.DeviceToken).Scan(&ok) != nil {
-		writeErr(w, http.StatusUnauthorized, "dispositivo inválido")
+		writeErrCode(w, http.StatusUnauthorized, "dispositivo_invalido", "dispositivo inválido")
 		return
 	}
 	var id, protocol, status string
@@ -358,12 +358,12 @@ func (s *Server) ListTickets(w http.ResponseWriter, r *http.Request) {
 	// Get filtered query from authorizer
 	query, args, err := s.Authorizer.CanListTickets(r.Context(), c)
 	if err != nil {
-		writeErr(w, 500, "falha ao construir query de chamados")
+		writeErrCode(w, 500, "falha_construir_query_chamados", "falha ao construir query de chamados")
 		return
 	}
 	rows, err := s.Pool.Query(r.Context(), query, args...)
 	if err != nil {
-		writeErr(w, 500, "falha ao listar chamados")
+		writeErrCode(w, 500, "falha_listar_chamados", "falha ao listar chamados")
 		return
 	}
 	defer rows.Close()
@@ -383,7 +383,7 @@ func (s *Server) ListTickets(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) AddTicketMessage(w http.ResponseWriter, r *http.Request, id string) {
 	if !s.canManageTicket(r, id) {
-		writeErr(w, 403, "sem permissão")
+		writeErrCode(w, 403, "permissao", "sem permissão")
 		return
 	}
 	var req struct {
@@ -391,12 +391,12 @@ func (s *Server) AddTicketMessage(w http.ResponseWriter, r *http.Request, id str
 		Attachments []map[string]any `json:"attachments"`
 	}
 	if json.NewDecoder(r.Body).Decode(&req) != nil || strings.TrimSpace(req.Message) == "" {
-		writeErr(w, 400, "mensagem obrigatória")
+		writeErrCode(w, 400, "mensagem_obrigatoria", "mensagem obrigatória")
 		return
 	}
 	var status string
 	if s.Pool.QueryRow(r.Context(), `SELECT status FROM support_tickets WHERE id=$1`, id).Scan(&status) != nil {
-		writeErr(w, 404, "chamado não encontrado")
+		writeErrCode(w, 404, "chamado_encontrado", "chamado não encontrado")
 		return
 	}
 	// O chat existe a partir do momento em que o chamado tem dono. Antes disso
@@ -409,14 +409,14 @@ func (s *Server) AddTicketMessage(w http.ResponseWriter, r *http.Request, id str
 		`SELECT supervisor_id IS NOT NULL OR assigned_freelancer_id IS NOT NULL
 		 FROM support_tickets WHERE id=$1`, id).Scan(&temDono)
 	if !temDono {
-		writeErr(w, 403, "chat disponível apenas após alguém assumir o chamado")
+		writeErrCode(w, 403, "chat_disponivel_apenas_apos_alguem", "chat disponível apenas após alguém assumir o chamado")
 		return
 	}
 	c := middleware.ClaimsFrom(r.Context())
 	var eid string
 	err := s.Pool.QueryRow(r.Context(), `INSERT INTO ticket_events(ticket_id,actor_technician_id,event_type,payload) VALUES($1,$2,'message',$3) RETURNING id`, id, c.TechnicianID, map[string]any{"message": req.Message, "attachments": req.Attachments}).Scan(&eid)
 	if err != nil {
-		writeErr(w, 500, "falha ao registrar mensagem")
+		writeErrCode(w, 500, "falha_registrar_mensagem", "falha ao registrar mensagem")
 		return
 	}
 	s.publishTicket(r, id, "ticket_message", map[string]any{"event_id": eid})
@@ -425,30 +425,30 @@ func (s *Server) AddTicketMessage(w http.ResponseWriter, r *http.Request, id str
 
 func (s *Server) TransitionTicket(w http.ResponseWriter, r *http.Request, id string) {
 	if !s.canManageTicket(r, id) {
-		writeErr(w, 403, "sem permissão")
+		writeErrCode(w, 403, "permissao", "sem permissão")
 		return
 	}
 	var req struct {
 		Status string `json:"status"`
 	}
 	if json.NewDecoder(r.Body).Decode(&req) != nil {
-		writeErr(w, 400, "estado obrigatório")
+		writeErrCode(w, 400, "estado_obrigatorio", "estado obrigatório")
 		return
 	}
 	valid := map[string]map[string]bool{"open": {"closed": true, "cancelled": true, "offered": true, "offered_supervisor": true}, "offered_supervisor": {"open": true, "expired": true, "cancelled": true}, "offered": {"accepted": true, "cancelled": true, "expired": true}, "accepted": {"in_progress": true, "closed": true, "cancelled": true}, "in_progress": {"closed": true, "cancelled": true}, "closed": {"reopened": true}, "reopened": {"in_progress": true, "closed": true}}
 	tx, err := s.Pool.Begin(r.Context())
 	if err != nil {
-		writeErr(w, 500, "falha")
+		writeErrCode(w, 500, "falha", "falha")
 		return
 	}
 	defer tx.Rollback(r.Context())
 	var old string
 	if tx.QueryRow(r.Context(), `SELECT status FROM support_tickets WHERE id=$1 FOR UPDATE`, id).Scan(&old) != nil {
-		writeErr(w, 404, "chamado não encontrado")
+		writeErrCode(w, 404, "chamado_encontrado", "chamado não encontrado")
 		return
 	}
 	if !valid[old][req.Status] {
-		writeErr(w, 409, "transição inválida")
+		writeErrCode(w, 409, "transicao_invalida", "transição inválida")
 		return
 	}
 	closed := req.Status == "closed" || req.Status == "cancelled" || req.Status == "expired"
@@ -471,7 +471,7 @@ func (s *Server) TransitionTicket(w http.ResponseWriter, r *http.Request, id str
 		defer func() { _ = s.ReconcileSessionIsolation(context.Background()) }()
 	}
 	if err != nil || tx.Commit(r.Context()) != nil {
-		writeErr(w, 500, "falha ao alterar estado")
+		writeErrCode(w, 500, "falha_alterar_estado", "falha ao alterar estado")
 		return
 	}
 	s.publishTicket(r, id, "ticket_state", map[string]any{"from": old, "to": req.Status})
@@ -480,7 +480,7 @@ func (s *Server) TransitionTicket(w http.ResponseWriter, r *http.Request, id str
 
 func (s *Server) ConvertServiceOrder(w http.ResponseWriter, r *http.Request, id string) {
 	if !s.canManageTicket(r, id) {
-		writeErr(w, 403, "sem permissão")
+		writeErrCode(w, 403, "permissao", "sem permissão")
 		return
 	}
 	var req struct {
@@ -494,16 +494,16 @@ func (s *Server) ConvertServiceOrder(w http.ResponseWriter, r *http.Request, id 
 	}
 	_ = json.NewDecoder(r.Body).Decode(&req)
 	if strings.TrimSpace(req.ScopeNotes) == "" {
-		writeErr(w, 400, "escopo obrigatório")
+		writeErrCode(w, 400, "escopo_obrigatorio", "escopo obrigatório")
 		return
 	}
 	if req.OsType != "virtual" && req.OsType != "onsite" {
-		writeErr(w, 400, "tipo de OS inválido")
+		writeErrCode(w, 400, "tipo_invalido", "tipo de OS inválido")
 		return
 	}
 	var status string
 	if s.Pool.QueryRow(r.Context(), `SELECT status FROM support_tickets WHERE id=$1`, id).Scan(&status) != nil {
-		writeErr(w, 404, "chamado não encontrado")
+		writeErrCode(w, 404, "chamado_encontrado", "chamado não encontrado")
 		return
 	}
 	// A OS nasce do chamado que o supervisor já assumiu. 'open' com dono é o
@@ -511,14 +511,14 @@ func (s *Server) ConvertServiceOrder(w http.ResponseWriter, r *http.Request, id 
 	// assim — então ambos podem virar OS sem passar pela fila do técnico antes.
 	// É a OS que vai para a fila, não o chamado cru.
 	if status != "accepted" && status != "in_progress" && status != "open" {
-		writeErr(w, 409, "chamado não está em estado que permita gerar OS")
+		writeErrCode(w, 409, "chamado_estado_permita_gerar", "chamado não está em estado que permita gerar OS")
 		return
 	}
 	var temDono bool
 	_ = s.Pool.QueryRow(r.Context(),
 		`SELECT supervisor_id IS NOT NULL FROM support_tickets WHERE id=$1`, id).Scan(&temDono)
 	if !temDono {
-		writeErr(w, 409, "o chamado precisa ter um supervisor responsável antes de virar OS")
+		writeErrCode(w, 409, "chamado_precisa_ter_supervisor_responsavel", "o chamado precisa ter um supervisor responsável antes de virar OS")
 		return
 	}
 	if req.ScheduledLocation == nil {
@@ -535,7 +535,7 @@ func (s *Server) ConvertServiceOrder(w http.ResponseWriter, r *http.Request, id 
 		id, req.Items, req.Values, req.OsType, strings.TrimSpace(req.ScopeNotes),
 		req.ScheduledAt, req.ScheduledLocation).Scan(&osID)
 	if err != nil {
-		writeErr(w, 500, "falha ao converter OS")
+		writeErrCode(w, 500, "falha_converter", "falha ao converter OS")
 		return
 	}
 	// Converter em OS já a coloca na fila dos técnicos: é a OS que é ofertada,
@@ -548,12 +548,12 @@ func (s *Server) ConvertServiceOrder(w http.ResponseWriter, r *http.Request, id 
 
 func (s *Server) TicketAudit(w http.ResponseWriter, r *http.Request, id string) {
 	if !s.canManageTicket(r, id) {
-		writeErr(w, 403, "sem permissão")
+		writeErrCode(w, 403, "permissao", "sem permissão")
 		return
 	}
 	rows, err := s.Pool.Query(r.Context(), `SELECT id,event_type,payload,actor_technician_id,actor_device_id,created_at FROM ticket_events WHERE ticket_id=$1 ORDER BY created_at,id`, id)
 	if err != nil {
-		writeErr(w, 500, "falha")
+		writeErrCode(w, 500, "falha", "falha")
 		return
 	}
 	defer rows.Close()
@@ -582,7 +582,7 @@ func (s *Server) CreateFreelancer(w http.ResponseWriter, r *http.Request) {
 		Longitude      *float64 `json:"longitude"`
 	}
 	if json.NewDecoder(r.Body).Decode(&req) != nil || strings.TrimSpace(req.Name) == "" || req.SupervisorID == "" || req.OrganizationID == "" {
-		writeErr(w, 400, "dados obrigatórios")
+		writeErrCode(w, 400, "dados_obrigatorios", "dados obrigatórios")
 		return
 	}
 	if req.Quality == 0 {
@@ -590,7 +590,7 @@ func (s *Server) CreateFreelancer(w http.ResponseWriter, r *http.Request) {
 	}
 	tx, err := s.Pool.Begin(r.Context())
 	if err != nil {
-		writeErr(w, 500, "falha")
+		writeErrCode(w, 500, "falha", "falha")
 		return
 	}
 	defer tx.Rollback(r.Context())
@@ -600,7 +600,7 @@ func (s *Server) CreateFreelancer(w http.ResponseWriter, r *http.Request) {
 		_, err = tx.Exec(r.Context(), `INSERT INTO freelancer_profiles(technician_id,supervisor_id,organization_id,quality_score,latitude,longitude) VALUES($1,$2,$3,$4,$5,$6)`, id, req.SupervisorID, req.OrganizationID, req.Quality, req.Latitude, req.Longitude)
 	}
 	if err != nil || tx.Commit(r.Context()) != nil {
-		writeErr(w, 409, "falha ao criar freelancer")
+		writeErrCode(w, 409, "falha_criar_freelancer", "falha ao criar freelancer")
 		return
 	}
 	writeJSON(w, 201, map[string]any{"id": id, "role": "freelancer", "supervisor_id": req.SupervisorID, "organization_id": req.OrganizationID, "network_management": false, "client_tab": true})
@@ -616,7 +616,7 @@ func haversine(lat1, lon1, lat2, lon2 float64) float64 {
 
 func (s *Server) DispatchTicket(w http.ResponseWriter, r *http.Request, id string) {
 	if !s.canManageTicket(r, id) {
-		writeErr(w, 403, "sem permissão")
+		writeErrCode(w, 403, "permissao", "sem permissão")
 		return
 	}
 	var req struct {
@@ -629,18 +629,18 @@ func (s *Server) DispatchTicket(w http.ResponseWriter, r *http.Request, id strin
 	var standalone bool
 	var supervisorID *string
 	if s.Pool.QueryRow(r.Context(), `SELECT organization_id,standalone,supervisor_id FROM support_tickets WHERE id=$1`, id).Scan(&orgID, &standalone, &supervisorID) != nil {
-		writeErr(w, 404, "chamado não encontrado")
+		writeErrCode(w, 404, "chamado_encontrado", "chamado não encontrado")
 		return
 	}
 	if supervisorID == nil {
-		writeErr(w, 409, "chamado precisa de supervisor responsável antes de despachar pra técnico")
+		writeErrCode(w, 409, "chamado_precisa_supervisor_responsavel_antes", "chamado precisa de supervisor responsável antes de despachar pra técnico")
 		return
 	}
 	// O vínculo freelancer -> supervisor é metadado comercial. Ele não
 	// restringe a fila: todo freelancer disponível participa do ranking.
 	rows, err := s.Pool.Query(r.Context(), `SELECT technician_id,quality_score,coalesce(latitude,0),coalesce(longitude,0) FROM freelancer_profiles WHERE availability=true ORDER BY quality_score DESC,technician_id`)
 	if err != nil {
-		writeErr(w, 500, "falha")
+		writeErrCode(w, 500, "falha", "falha")
 		return
 	}
 	defer rows.Close()
@@ -666,7 +666,7 @@ func (s *Server) DispatchTicket(w http.ResponseWriter, r *http.Request, id strin
 	}
 	tx, err := s.Pool.Begin(r.Context())
 	if err != nil {
-		writeErr(w, 500, "falha")
+		writeErrCode(w, 500, "falha", "falha")
 		return
 	}
 	defer tx.Rollback(r.Context())
@@ -681,7 +681,7 @@ func (s *Server) DispatchTicket(w http.ResponseWriter, r *http.Request, id strin
 		_, err = tx.Exec(r.Context(), `UPDATE support_tickets SET status='offered',deadline_at=$2,updated_at=now() WHERE id=$1`, id, req.DeadlineAt)
 	}
 	if err != nil || tx.Commit(r.Context()) != nil {
-		writeErr(w, 500, "falha ao despachar")
+		writeErrCode(w, 500, "falha_despachar", "falha ao despachar")
 		return
 	}
 	s.publishTicket(r, id, "dispatch_offered", map[string]any{"offers": len(cs)})
@@ -697,7 +697,7 @@ func (s *Server) DispatchTicket(w http.ResponseWriter, r *http.Request, id strin
 func (s *Server) FreelancerQueue(w http.ResponseWriter, r *http.Request) {
 	c := middleware.ClaimsFrom(r.Context())
 	if c.Role != models.RoleFreelancer && c.Role != models.RoleSuperAdmin {
-		writeErr(w, 403, "fila exclusiva")
+		writeErrCode(w, 403, "fila_exclusiva", "fila exclusiva")
 		return
 	}
 	fid := c.TechnicianID
@@ -706,7 +706,7 @@ func (s *Server) FreelancerQueue(w http.ResponseWriter, r *http.Request) {
 	}
 	rows, err := s.Pool.Query(r.Context(), `SELECT o.ticket_id,o.rank,o.available_at,o.expires_at,t.title,t.modality,t.location,t.structured_data FROM dispatch_offers o JOIN support_tickets t ON t.id=o.ticket_id WHERE o.freelancer_id=$1 AND o.available_at<=now() AND o.expires_at>now() AND t.status='offered' ORDER BY o.rank,o.available_at`, fid)
 	if err != nil {
-		writeErr(w, 500, "falha")
+		writeErrCode(w, 500, "falha", "falha")
 		return
 	}
 	defer rows.Close()
@@ -729,12 +729,12 @@ func (s *Server) FreelancerQueue(w http.ResponseWriter, r *http.Request) {
 func (s *Server) AcceptDispatch(w http.ResponseWriter, r *http.Request, id string) {
 	c := middleware.ClaimsFrom(r.Context())
 	if c.Role != models.RoleFreelancer {
-		writeErr(w, 403, "apenas freelancer")
+		writeErrCode(w, 403, "apenas_freelancer", "apenas freelancer")
 		return
 	}
 	tx, err := s.Pool.Begin(r.Context())
 	if err != nil {
-		writeErr(w, 500, "falha")
+		writeErrCode(w, 500, "falha", "falha")
 		return
 	}
 	defer tx.Rollback(r.Context())
@@ -743,7 +743,7 @@ func (s *Server) AcceptDispatch(w http.ResponseWriter, r *http.Request, id strin
 	var standalone bool
 	err = tx.QueryRow(r.Context(), `UPDATE support_tickets SET assigned_freelancer_id=$2,status='accepted',accepted_at=now(),updated_at=now() WHERE id=$1 AND status='offered' AND EXISTS(SELECT 1 FROM dispatch_offers WHERE ticket_id=$1 AND freelancer_id=$2 AND available_at<=now() AND expires_at>now()) RETURNING modality,device_id,standalone`, id, c.TechnicianID).Scan(&modality, &deviceID, &standalone)
 	if err != nil {
-		writeErr(w, 409, "chamado já aceito ou oferta indisponível")
+		writeErrCode(w, 409, "chamado_ja_aceito_oferta_indisponivel", "chamado já aceito ou oferta indisponível")
 		return
 	}
 	// O aceite tira a OS da fila dos outros: quem pegou, pegou. Sem isso a
@@ -772,7 +772,7 @@ func (s *Server) AcceptDispatch(w http.ResponseWriter, r *http.Request, id strin
 		_, err = tx.Exec(r.Context(), `INSERT INTO temporary_ticket_permissions(ticket_id,freelancer_id,device_id,allow_remote,allow_analysis,exclusive,expires_at) VALUES($1,$2,$3,false,true,true,now()+interval '30 days') ON CONFLICT(ticket_id,freelancer_id,device_id) DO UPDATE SET status='active',allow_remote=false,allow_analysis=true,exclusive=true,expires_at=excluded.expires_at`, id, c.TechnicianID, *deviceID)
 	}
 	if err != nil || tx.Commit(r.Context()) != nil {
-		writeErr(w, 500, "falha ao aceitar")
+		writeErrCode(w, 500, "falha_aceitar", "falha ao aceitar")
 		return
 	}
 	if standalone && modality == "virtual" && deviceID != nil {
@@ -846,7 +846,7 @@ func (s *Server) TicketPermission(w http.ResponseWriter, r *http.Request, id str
 
 func (s *Server) AddOnsiteEvidence(w http.ResponseWriter, r *http.Request, id string) {
 	if !s.canManageTicket(r, id) {
-		writeErr(w, 403, "sem permissão")
+		writeErrCode(w, 403, "permissao", "sem permissão")
 		return
 	}
 	var req struct {
@@ -859,17 +859,17 @@ func (s *Server) AddOnsiteEvidence(w http.ResponseWriter, r *http.Request, id st
 	}
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 12<<20))
 	if decoder.Decode(&req) != nil || req.Type == "" || req.IdempotencyKey == "" || req.ContentHash == "" || req.ContentBase64 == "" || req.CapturedAt.IsZero() {
-		writeErr(w, 400, "evidência incompleta")
+		writeErrCode(w, 400, "evidencia_incompleta", "evidência incompleta")
 		return
 	}
 	content, err := base64.StdEncoding.DecodeString(req.ContentBase64)
 	if err != nil || len(content) == 0 || len(content) > 8<<20 {
-		writeErr(w, 400, "arquivo de evidência inválido ou maior que 8 MB")
+		writeErrCode(w, 400, "arquivo_evidencia_invalido_maior_8", "arquivo de evidência inválido ou maior que 8 MB")
 		return
 	}
 	digest := sha256.Sum256(content)
 	if !strings.EqualFold(hex.EncodeToString(digest[:]), req.ContentHash) {
-		writeErr(w, 400, "hash da evidência não confere")
+		writeErrCode(w, 400, "hash_evidencia_confere", "hash da evidência não confere")
 		return
 	}
 	allowedTypes := map[string]bool{
@@ -877,7 +877,7 @@ func (s *Server) AddOnsiteEvidence(w http.ResponseWriter, r *http.Request, id st
 		"completion_photo": true, "signature": true, "signed_document": true,
 	}
 	if !allowedTypes[req.Type] {
-		writeErr(w, 400, "tipo de evidência inválido")
+		writeErrCode(w, 400, "tipo_evidencia_invalido", "tipo de evidência inválido")
 		return
 	}
 	evidenceDir := strings.TrimSpace(os.Getenv("EVIDENCE_DIR"))
@@ -885,7 +885,7 @@ func (s *Server) AddOnsiteEvidence(w http.ResponseWriter, r *http.Request, id st
 		evidenceDir = "/evidence"
 	}
 	if err := os.MkdirAll(evidenceDir, 0750); err != nil {
-		writeErr(w, 500, "falha ao preparar armazenamento de evidências")
+		writeErrCode(w, 500, "falha_preparar_armazenamento_evidencias", "falha ao preparar armazenamento de evidências")
 		return
 	}
 	fileName := id + "-" + req.IdempotencyKey + "-" + strings.ToLower(req.ContentHash[:16]) + ".bin"
@@ -902,7 +902,7 @@ func (s *Server) AddOnsiteEvidence(w http.ResponseWriter, r *http.Request, id st
 	existingErr := s.Pool.QueryRow(r.Context(), `SELECT id,content_hash,storage_file FROM onsite_evidence WHERE ticket_id=$1 AND idempotency_key=$2`, id, req.IdempotencyKey).Scan(&existingID, &existingHash, &existingFile)
 	if existingErr == nil {
 		if !strings.EqualFold(existingHash, req.ContentHash) {
-			writeErr(w, 409, "chave de idempotência já usada com conteúdo diferente")
+			writeErrCode(w, 409, "chave_idempotencia_ja_usada_conteudo", "chave de idempotência já usada com conteúdo diferente")
 			return
 		}
 		if existingFile != "" {
@@ -911,12 +911,12 @@ func (s *Server) AddOnsiteEvidence(w http.ResponseWriter, r *http.Request, id st
 		}
 	}
 	if err := os.WriteFile(temporary, content, 0640); err != nil {
-		writeErr(w, 500, "falha ao salvar evidência")
+		writeErrCode(w, 500, "falha_salvar_evidencia", "falha ao salvar evidência")
 		return
 	}
 	if err := os.Rename(temporary, target); err != nil {
 		_ = os.Remove(temporary)
-		writeErr(w, 500, "falha ao concluir evidência")
+		writeErrCode(w, 500, "falha_concluir_evidencia", "falha ao concluir evidência")
 		return
 	}
 	var eid string
@@ -924,14 +924,14 @@ func (s *Server) AddOnsiteEvidence(w http.ResponseWriter, r *http.Request, id st
 	err = s.Pool.QueryRow(r.Context(), `WITH ins AS (INSERT INTO onsite_evidence(ticket_id,evidence_type,idempotency_key,content_hash,storage_file,metadata,captured_at) VALUES($1,$2,$3,$4,$5,$6,$7) ON CONFLICT(ticket_id,idempotency_key) DO NOTHING RETURNING id) SELECT id,true FROM ins UNION ALL SELECT id,false FROM onsite_evidence WHERE ticket_id=$1 AND idempotency_key=$3 LIMIT 1`, id, req.Type, req.IdempotencyKey, req.ContentHash, fileName, req.Metadata, req.CapturedAt).Scan(&eid, &created)
 	if err != nil {
 		_ = os.Remove(target)
-		writeErr(w, 400, "tipo ou metadados inválidos")
+		writeErrCode(w, 400, "tipo_metadados_invalidos", "tipo ou metadados inválidos")
 		return
 	}
 	if !created {
 		var storedHash string
 		if s.Pool.QueryRow(r.Context(), `SELECT content_hash FROM onsite_evidence WHERE id=$1`, eid).Scan(&storedHash) != nil || !strings.EqualFold(storedHash, req.ContentHash) {
 			_ = os.Remove(target)
-			writeErr(w, 409, "chave de idempotência já usada com conteúdo diferente")
+			writeErrCode(w, 409, "chave_idempotencia_ja_usada_conteudo", "chave de idempotência já usada com conteúdo diferente")
 			return
 		}
 	}
@@ -940,13 +940,13 @@ func (s *Server) AddOnsiteEvidence(w http.ResponseWriter, r *http.Request, id st
 
 func (s *Server) ExportServiceOrder(w http.ResponseWriter, r *http.Request, id string) {
 	if !s.canManageTicket(r, id) {
-		writeErr(w, 403, "sem permissão")
+		writeErrCode(w, 403, "permissao", "sem permissão")
 		return
 	}
 	var osID, status string
 	var items, values, acceptance []byte
 	if s.Pool.QueryRow(r.Context(), `SELECT id,status,items,values,customer_acceptance FROM service_orders WHERE ticket_id=$1`, id).Scan(&osID, &status, &items, &values, &acceptance) != nil {
-		writeErr(w, 404, "OS não encontrada")
+		writeErrCode(w, 404, "encontrada", "OS não encontrada")
 		return
 	}
 	rows, _ := s.Pool.Query(r.Context(), `SELECT evidence_type,content_hash,storage_file,metadata,captured_at FROM onsite_evidence WHERE ticket_id=$1 ORDER BY captured_at`, id)
@@ -972,7 +972,7 @@ func (s *Server) ExportServiceOrder(w http.ResponseWriter, r *http.Request, id s
 func (s *Server) SupervisorQueue(w http.ResponseWriter, r *http.Request) {
 	c := middleware.ClaimsFrom(r.Context())
 	if c.Role != models.RoleSupervisor && c.Role != models.RoleSuperAdmin {
-		writeErr(w, 403, "fila exclusiva")
+		writeErrCode(w, 403, "fila_exclusiva", "fila exclusiva")
 		return
 	}
 	sid := c.TechnicianID
@@ -981,7 +981,7 @@ func (s *Server) SupervisorQueue(w http.ResponseWriter, r *http.Request) {
 	}
 	rows, err := s.Pool.Query(r.Context(), `SELECT o.ticket_id,o.rank,o.available_at,o.expires_at,t.title,t.modality,t.location FROM supervisor_offers o JOIN support_tickets t ON t.id=o.ticket_id WHERE o.supervisor_id=$1 AND o.available_at<=now() AND o.expires_at>now() AND t.status='offered_supervisor' ORDER BY o.rank,o.available_at`, sid)
 	if err != nil {
-		writeErr(w, 500, "falha")
+		writeErrCode(w, 500, "falha", "falha")
 		return
 	}
 	defer rows.Close()
@@ -1005,19 +1005,19 @@ func (s *Server) SupervisorQueue(w http.ResponseWriter, r *http.Request) {
 func (s *Server) AcceptSupervisorOffer(w http.ResponseWriter, r *http.Request, id string) {
 	c := middleware.ClaimsFrom(r.Context())
 	if c.Role != models.RoleSupervisor {
-		writeErr(w, 403, "apenas supervisor")
+		writeErrCode(w, 403, "apenas_supervisor", "apenas supervisor")
 		return
 	}
 	tx, err := s.Pool.Begin(r.Context())
 	if err != nil {
-		writeErr(w, 500, "falha")
+		writeErrCode(w, 500, "falha", "falha")
 		return
 	}
 	defer tx.Rollback(r.Context())
 	var ticketID string
 	err = tx.QueryRow(r.Context(), `UPDATE support_tickets SET supervisor_id=$2,status='open',updated_at=now() WHERE id=$1 AND status='offered_supervisor' AND EXISTS(SELECT 1 FROM supervisor_offers WHERE ticket_id=$1 AND supervisor_id=$2 AND available_at<=now() AND expires_at>now()) RETURNING id`, id, c.TechnicianID).Scan(&ticketID)
 	if err != nil {
-		writeErr(w, 409, "chamado já aceito ou oferta indisponível")
+		writeErrCode(w, 409, "chamado_ja_aceito_oferta_indisponivel", "chamado já aceito ou oferta indisponível")
 		return
 	}
 	// Mesma regra da Fila B: aceito, sai da fila dos demais.
@@ -1026,7 +1026,7 @@ func (s *Server) AcceptSupervisorOffer(w http.ResponseWriter, r *http.Request, i
 		_, err = tx.Exec(r.Context(), `DELETE FROM supervisor_offers WHERE ticket_id=$1 AND supervisor_id<>$2`, id, c.TechnicianID)
 	}
 	if err != nil || tx.Commit(r.Context()) != nil {
-		writeErr(w, 500, "falha ao aceitar")
+		writeErrCode(w, 500, "falha_aceitar", "falha ao aceitar")
 		return
 	}
 	// O supervisor que adota o chamado ganha testes e diagnóstico para
@@ -1072,7 +1072,7 @@ func (s *Server) ratingParticipant(ctx context.Context, ticketID, role, id strin
 func (s *Server) RateTicket(w http.ResponseWriter, r *http.Request, id string) {
 	c := middleware.ClaimsFrom(r.Context())
 	if c == nil {
-		writeErr(w, 403, "sem permissão")
+		writeErrCode(w, 403, "permissao", "sem permissão")
 		return
 	}
 	var req struct {
@@ -1081,51 +1081,51 @@ func (s *Server) RateTicket(w http.ResponseWriter, r *http.Request, id string) {
 		Stars     float64 `json:"stars"`
 	}
 	if json.NewDecoder(r.Body).Decode(&req) != nil || req.RateeID == "" || req.Stars < 1 || req.Stars > 5 {
-		writeErr(w, 400, "avaliação inválida")
+		writeErrCode(w, 400, "avaliacao_invalida", "avaliação inválida")
 		return
 	}
 	switch req.RateeRole {
 	case "supervisor", "freelancer", "cliente", "cliente_avulso":
 	default:
-		writeErr(w, 400, "papel avaliado inválido")
+		writeErrCode(w, 400, "papel_avaliado_invalido", "papel avaliado inválido")
 		return
 	}
 	var status string
 	if s.Pool.QueryRow(r.Context(), `SELECT status FROM support_tickets WHERE id=$1`, id).Scan(&status) != nil {
-		writeErr(w, 404, "chamado não encontrado")
+		writeErrCode(w, 404, "chamado_encontrado", "chamado não encontrado")
 		return
 	}
 	if status != "closed" {
-		writeErr(w, 409, "avaliação disponível apenas após o encerramento do chamado")
+		writeErrCode(w, 409, "avaliacao_disponivel_apenas_apos_encerramento", "avaliação disponível apenas após o encerramento do chamado")
 		return
 	}
 	raterOK, err := s.ratingParticipant(r.Context(), id, c.Role, c.TechnicianID)
 	if err != nil {
-		writeErr(w, 500, "falha")
+		writeErrCode(w, 500, "falha", "falha")
 		return
 	}
 	if !raterOK {
-		writeErr(w, 403, "sem permissão")
+		writeErrCode(w, 403, "permissao", "sem permissão")
 		return
 	}
 	rateeOK, err := s.ratingParticipant(r.Context(), id, req.RateeRole, req.RateeID)
 	if err != nil {
-		writeErr(w, 500, "falha")
+		writeErrCode(w, 500, "falha", "falha")
 		return
 	}
 	if !rateeOK {
-		writeErr(w, 400, "avaliado não participa deste chamado")
+		writeErrCode(w, 400, "avaliado_participa_deste_chamado", "avaliado não participa deste chamado")
 		return
 	}
 	tx, err := s.Pool.Begin(r.Context())
 	if err != nil {
-		writeErr(w, 500, "falha")
+		writeErrCode(w, 500, "falha", "falha")
 		return
 	}
 	defer tx.Rollback(r.Context())
 	_, err = tx.Exec(r.Context(), `INSERT INTO ticket_ratings(ticket_id,rater_role,rater_id,ratee_role,ratee_id,stars) VALUES($1,$2,$3,$4,$5,$6) ON CONFLICT(ticket_id,rater_id,ratee_id) DO NOTHING`, id, c.Role, c.TechnicianID, req.RateeRole, req.RateeID, req.Stars)
 	if err != nil {
-		writeErr(w, 500, "falha ao registrar avaliação")
+		writeErrCode(w, 500, "falha_registrar_avaliacao", "falha ao registrar avaliação")
 		return
 	}
 	switch req.RateeRole {
@@ -1149,7 +1149,7 @@ func (s *Server) RateTicket(w http.ResponseWriter, r *http.Request, id string) {
 			WHERE id=$1`, req.RateeID)
 	}
 	if err != nil || tx.Commit(r.Context()) != nil {
-		writeErr(w, 500, "falha ao atualizar média")
+		writeErrCode(w, 500, "falha_atualizar_media", "falha ao atualizar média")
 		return
 	}
 	writeJSON(w, 201, map[string]any{"ticket_id": id, "ratee_role": req.RateeRole, "ratee_id": req.RateeID, "stars": req.Stars})
@@ -1160,14 +1160,14 @@ func (s *Server) RateTicket(w http.ResponseWriter, r *http.Request, id string) {
 func (s *Server) MyFreelancerProfile(w http.ResponseWriter, r *http.Request) {
 	c := middleware.ClaimsFrom(r.Context())
 	if c == nil || c.Role != models.RoleFreelancer {
-		writeErr(w, 403, "apenas freelancer")
+		writeErrCode(w, 403, "apenas_freelancer", "apenas freelancer")
 		return
 	}
 	var quality float64
 	var availability bool
 	var supervisorID string
 	if s.Pool.QueryRow(r.Context(), `SELECT quality_score,availability,supervisor_id FROM freelancer_profiles WHERE technician_id=$1`, c.TechnicianID).Scan(&quality, &availability, &supervisorID) != nil {
-		writeErr(w, 404, "perfil de freelancer não encontrado")
+		writeErrCode(w, 404, "perfil_freelancer_encontrado", "perfil de freelancer não encontrado")
 		return
 	}
 	var supervisorName string
@@ -1188,18 +1188,18 @@ func (s *Server) MyFreelancerProfile(w http.ResponseWriter, r *http.Request) {
 func (s *Server) SetFreelancerAvailability(w http.ResponseWriter, r *http.Request) {
 	c := middleware.ClaimsFrom(r.Context())
 	if c == nil || c.Role != models.RoleFreelancer {
-		writeErr(w, 403, "apenas freelancer")
+		writeErrCode(w, 403, "apenas_freelancer", "apenas freelancer")
 		return
 	}
 	var req struct {
 		Available bool `json:"available"`
 	}
 	if json.NewDecoder(r.Body).Decode(&req) != nil {
-		writeErr(w, 400, "dados inválidos")
+		writeErrCode(w, 400, "dados_invalidos", "dados inválidos")
 		return
 	}
 	if _, err := s.Pool.Exec(r.Context(), `UPDATE freelancer_profiles SET availability=$1 WHERE technician_id=$2`, req.Available, c.TechnicianID); err != nil {
-		writeErr(w, 500, "falha ao atualizar disponibilidade")
+		writeErrCode(w, 500, "falha_atualizar_disponibilidade", "falha ao atualizar disponibilidade")
 		return
 	}
 	writeJSON(w, 200, map[string]any{"availability": req.Available})
@@ -1224,19 +1224,19 @@ type supervisorTicketRequest struct {
 func (s *Server) SupervisorOpenTicket(w http.ResponseWriter, r *http.Request) {
 	c := middleware.ClaimsFrom(r.Context())
 	if c == nil || (c.Role != models.RoleSupervisor && c.Role != models.RoleSuperAdmin) {
-		writeErr(w, 403, "apenas supervisor")
+		writeErrCode(w, 403, "apenas_supervisor", "apenas supervisor")
 		return
 	}
 	var req supervisorTicketRequest
 	if json.NewDecoder(r.Body).Decode(&req) != nil || req.DeviceID == "" || strings.TrimSpace(req.Title) == "" {
-		writeErr(w, 400, "dispositivo e título são obrigatórios")
+		writeErrCode(w, 400, "dispositivo_titulo_sao_obrigatorios", "dispositivo e título são obrigatórios")
 		return
 	}
 	if req.Modality == "" {
 		req.Modality = "virtual"
 	}
 	if req.Modality != "virtual" && req.Modality != "onsite" {
-		writeErr(w, 400, "modalidade inválida")
+		writeErrCode(w, 400, "modalidade_invalida", "modalidade inválida")
 		return
 	}
 	if req.StructuredData == nil {
@@ -1244,16 +1244,16 @@ func (s *Server) SupervisorOpenTicket(w http.ResponseWriter, r *http.Request) {
 	}
 	allowed, err := s.Authorizer.CanAccessDevice(r.Context(), c, req.DeviceID)
 	if err != nil {
-		writeErr(w, 500, "falha ao verificar acesso ao dispositivo")
+		writeErrCode(w, 500, "falha_verificar_acesso_dispositivo", "falha ao verificar acesso ao dispositivo")
 		return
 	}
 	if !allowed {
-		writeErr(w, 403, "sem acesso ao dispositivo")
+		writeErrCode(w, 403, "acesso_dispositivo", "sem acesso ao dispositivo")
 		return
 	}
 	var orgID, netID string
 	if s.Pool.QueryRow(r.Context(), `SELECT n.organization_id,n.id FROM devices d JOIN networks n ON n.id=d.network_id WHERE d.id=$1`, req.DeviceID).Scan(&orgID, &netID) != nil {
-		writeErr(w, 400, "dispositivo sem escopo autorizado")
+		writeErrCode(w, 400, "dispositivo_escopo_autorizado", "dispositivo sem escopo autorizado")
 		return
 	}
 	var id string
@@ -1262,7 +1262,7 @@ func (s *Server) SupervisorOpenTicket(w http.ResponseWriter, r *http.Request) {
 		VALUES($1,$2,$3,$4,$5,$6,$7,false,'accepted') RETURNING id`,
 		orgID, netID, req.DeviceID, c.TechnicianID, strings.TrimSpace(req.Title), req.StructuredData, req.Modality).Scan(&id)
 	if err != nil {
-		writeErr(w, 500, "falha ao abrir chamado")
+		writeErrCode(w, 500, "falha_abrir_chamado", "falha ao abrir chamado")
 		return
 	}
 	_, _ = s.Pool.Exec(r.Context(), `INSERT INTO ticket_events(ticket_id,actor_technician_id,event_type,payload) VALUES($1,$2,'opened',$3)`, id, c.TechnicianID, map[string]any{"modality": req.Modality, "standalone": false, "origem": "supervisor"})

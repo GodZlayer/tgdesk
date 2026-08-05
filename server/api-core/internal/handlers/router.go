@@ -67,7 +67,7 @@ func NewRouter(s *Server) http.Handler {
 			if claims == nil || s.Pool.QueryRow(r.Context(),
 				`SELECT status FROM technicians WHERE id=$1`, claims.TechnicianID).
 				Scan(&status) != nil || status != "ativo" {
-				writeErr(w, http.StatusUnauthorized, "sessão revogada ou suspensa")
+				writeErrCode(w, http.StatusUnauthorized, "sessao_revogada_suspensa", "sessão revogada ou suspensa")
 				return
 			}
 			h.ServeHTTP(w, r)
@@ -76,7 +76,7 @@ func NewRouter(s *Server) http.Handler {
 	private := func(h http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if !requestFromVPN(r) {
-				writeErr(w, http.StatusForbidden, "operação disponível somente pela VPN")
+				writeErrCode(w, http.StatusForbidden, "operacao_disponivel_somente_vpn", "operação disponível somente pela VPN")
 				return
 			}
 			h.ServeHTTP(w, r)

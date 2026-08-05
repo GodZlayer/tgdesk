@@ -20,12 +20,12 @@ func (s *Server) CreateSubnetwork(w http.ResponseWriter, r *http.Request) {
 	claims := middleware.ClaimsFrom(r.Context())
 	var req createSubnetworkRequest
 	if json.NewDecoder(r.Body).Decode(&req) != nil {
-		writeErr(w, http.StatusBadRequest, "network_id e name são obrigatórios")
+		writeErrCode(w, http.StatusBadRequest, "network_id_name_sao_obrigatorios", "network_id e name são obrigatórios")
 		return
 	}
 	req.Name = strings.TrimSpace(req.Name)
 	if req.NetworkID == "" || req.Name == "" || len([]rune(req.Name)) > 80 {
-		writeErr(w, http.StatusBadRequest, "dados da sub-rede inválidos")
+		writeErrCode(w, http.StatusBadRequest, "dados_sub_rede_invalidos", "dados da sub-rede inválidos")
 		return
 	}
 	if claims.Role != models.RoleSuperAdmin {
@@ -36,7 +36,7 @@ func (s *Server) CreateSubnetwork(w http.ResponseWriter, r *http.Request) {
 				WHERE n.id=$1 AND o.owner_technician_id=$2
 			)`, req.NetworkID, claims.TechnicianID).Scan(&allowed)
 		if err != nil || !allowed {
-			writeErr(w, http.StatusForbidden, "sub-redes só podem ser criadas na sua organização")
+			writeErrCode(w, http.StatusForbidden, "sub_redes_so_podem_criadas", "sub-redes só podem ser criadas na sua organização")
 			return
 		}
 	}
@@ -48,7 +48,7 @@ func (s *Server) CreateSubnetwork(w http.ResponseWriter, r *http.Request) {
 		req.NetworkID, req.Name, claims.TechnicianID).
 		Scan(&sn.ID, &sn.NetworkID, &sn.Name, &sn.Status, &sn.CreatedBy, &sn.CreatedAt)
 	if err != nil {
-		writeErr(w, http.StatusConflict, "sub-rede já existe ou dados inválidos")
+		writeErrCode(w, http.StatusConflict, "sub_rede_ja_existe_dados", "sub-rede já existe ou dados inválidos")
 		return
 	}
 	sn.CanManage = true
@@ -85,7 +85,7 @@ func (s *Server) ListSubnetworks(w http.ResponseWriter, r *http.Request) {
 	}
 	rows, err := s.Pool.Query(r.Context(), query, args...)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao listar sub-redes")
+		writeErrCode(w, http.StatusInternalServerError, "falha_listar_sub_redes", "falha ao listar sub-redes")
 		return
 	}
 	defer rows.Close()
@@ -93,7 +93,7 @@ func (s *Server) ListSubnetworks(w http.ResponseWriter, r *http.Request) {
 	for rows.Next() {
 		var sn models.Subnetwork
 		if rows.Scan(&sn.ID, &sn.NetworkID, &sn.Name, &sn.Status, &sn.CreatedBy, &sn.CreatedAt) != nil {
-			writeErr(w, http.StatusInternalServerError, "falha ao ler sub-redes")
+			writeErrCode(w, http.StatusInternalServerError, "falha_ler_sub_redes", "falha ao ler sub-redes")
 			return
 		}
 		sn.CanManage = claims.Role == models.RoleSuperAdmin
@@ -114,7 +114,7 @@ func (s *Server) RenameSubnetwork(w http.ResponseWriter, r *http.Request, id str
 	claims := middleware.ClaimsFrom(r.Context())
 	var req renameRequest
 	if json.NewDecoder(r.Body).Decode(&req) != nil {
-		writeErr(w, http.StatusBadRequest, "nome inválido")
+		writeErrCode(w, http.StatusBadRequest, "nome_invalido", "nome inválido")
 		return
 	}
 	req.Name = strings.TrimSpace(req.Name)
@@ -124,21 +124,21 @@ func (s *Server) RenameSubnetwork(w http.ResponseWriter, r *http.Request, id str
 		JOIN networks n ON n.id=s.network_id
 		JOIN organizations o ON o.id=n.organization_id WHERE s.id=$1`, id).Scan(&ownerID)
 	if err != nil {
-		writeErr(w, http.StatusNotFound, "sub-rede não encontrada")
+		writeErrCode(w, http.StatusNotFound, "sub_rede_encontrada", "sub-rede não encontrada")
 		return
 	}
 	if claims.Role != models.RoleSuperAdmin &&
 		(ownerID == nil || *ownerID != claims.TechnicianID) {
-		writeErr(w, http.StatusForbidden, "sem permissão para alterar esta sub-rede")
+		writeErrCode(w, http.StatusForbidden, "permissao_alterar_sub_rede", "sem permissão para alterar esta sub-rede")
 		return
 	}
 	if req.Name == "" || len([]rune(req.Name)) > 80 {
-		writeErr(w, http.StatusBadRequest, "nome inválido")
+		writeErrCode(w, http.StatusBadRequest, "nome_invalido", "nome inválido")
 		return
 	}
 	if _, err := s.Pool.Exec(r.Context(),
 		`UPDATE subnetworks SET name=$1 WHERE id=$2`, req.Name, id); err != nil {
-		writeErr(w, http.StatusConflict, "nome de sub-rede já utilizado")
+		writeErrCode(w, http.StatusConflict, "nome_sub_rede_ja_utilizado", "nome de sub-rede já utilizado")
 		return
 	}
 	_ = presence.Publish(r.Context(), s.RDB, presence.Event{Type: "subnetwork_renamed", TargetID: id})
@@ -155,19 +155,19 @@ func (s *Server) subnetworkNetworkID(ctx context.Context, id string) (string, er
 func (s *Server) SuspendSubnetwork(w http.ResponseWriter, r *http.Request, id string) {
 	networkID, err := s.subnetworkNetworkID(r.Context(), id)
 	if err != nil {
-		writeErr(w, http.StatusNotFound, "sub-rede não encontrada")
+		writeErrCode(w, http.StatusNotFound, "sub_rede_encontrada", "sub-rede não encontrada")
 		return
 	}
 	claims := middleware.ClaimsFrom(r.Context())
 	allowed, err := s.Authorizer.CanManageNetwork(r.Context(), claims, networkID)
 	if err != nil || !allowed {
-		writeErr(w, http.StatusForbidden, "sem permissão para suspender esta sub-rede")
+		writeErrCode(w, http.StatusForbidden, "permissao_suspender_sub_rede", "sem permissão para suspender esta sub-rede")
 		return
 	}
 
 	tx, err := s.Pool.Begin(r.Context())
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao iniciar suspensão")
+		writeErrCode(w, http.StatusInternalServerError, "falha_iniciar_suspensao", "falha ao iniciar suspensão")
 		return
 	}
 	defer tx.Rollback(r.Context())
@@ -175,11 +175,11 @@ func (s *Server) SuspendSubnetwork(w http.ResponseWriter, r *http.Request, id st
 		UPDATE subnetworks SET status='suspensa',suspension_scope='subnetwork'
 		WHERE id=$1 AND status='ativa'`, id)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao suspender sub-rede")
+		writeErrCode(w, http.StatusInternalServerError, "falha_suspender_sub_rede", "falha ao suspender sub-rede")
 		return
 	}
 	if tag.RowsAffected() == 0 {
-		writeErr(w, http.StatusConflict, "sub-rede já está suspensa")
+		writeErrCode(w, http.StatusConflict, "sub_rede_ja_suspensa", "sub-rede já está suspensa")
 		return
 	}
 	rows, err := tx.Query(r.Context(), `
@@ -187,7 +187,7 @@ func (s *Server) SuspendSubnetwork(w http.ResponseWriter, r *http.Request, id st
 		WHERE subnetwork_id=$1 AND state='ativo'
 		RETURNING id`, id)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao suspender dispositivos")
+		writeErrCode(w, http.StatusInternalServerError, "falha_suspender_dispositivos", "falha ao suspender dispositivos")
 		return
 	}
 	var deviceIDs []string
@@ -199,12 +199,12 @@ func (s *Server) SuspendSubnetwork(w http.ResponseWriter, r *http.Request, id st
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
-		writeErr(w, http.StatusInternalServerError, "falha ao suspender dispositivos")
+		writeErrCode(w, http.StatusInternalServerError, "falha_suspender_dispositivos", "falha ao suspender dispositivos")
 		return
 	}
 	rows.Close()
 	if err := tx.Commit(r.Context()); err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao concluir suspensão")
+		writeErrCode(w, http.StatusInternalServerError, "falha_concluir_suspensao", "falha ao concluir suspensão")
 		return
 	}
 	for _, deviceID := range deviceIDs {
@@ -222,13 +222,13 @@ func (s *Server) SuspendSubnetwork(w http.ResponseWriter, r *http.Request, id st
 func (s *Server) ResumeSubnetwork(w http.ResponseWriter, r *http.Request, id string) {
 	networkID, err := s.subnetworkNetworkID(r.Context(), id)
 	if err != nil {
-		writeErr(w, http.StatusNotFound, "sub-rede não encontrada")
+		writeErrCode(w, http.StatusNotFound, "sub_rede_encontrada", "sub-rede não encontrada")
 		return
 	}
 	claims := middleware.ClaimsFrom(r.Context())
 	allowed, err := s.Authorizer.CanManageNetwork(r.Context(), claims, networkID)
 	if err != nil || !allowed {
-		writeErr(w, http.StatusForbidden, "sem permissão para reativar esta sub-rede")
+		writeErrCode(w, http.StatusForbidden, "permissao_reativar_sub_rede", "sem permissão para reativar esta sub-rede")
 		return
 	}
 	var networkStatus, organizationStatus string
@@ -236,35 +236,35 @@ func (s *Server) ResumeSubnetwork(w http.ResponseWriter, r *http.Request, id str
 		SELECT n.status,o.status FROM networks n
 		JOIN organizations o ON o.id=n.organization_id WHERE n.id=$1`,
 		networkID).Scan(&networkStatus, &organizationStatus); err != nil {
-		writeErr(w, http.StatusNotFound, "rede da sub-rede não encontrada")
+		writeErrCode(w, http.StatusNotFound, "rede_sub_rede_encontrada", "rede da sub-rede não encontrada")
 		return
 	}
 	if networkStatus != models.StatusAtiva || organizationStatus != models.StatusAtiva {
-		writeErr(w, http.StatusConflict, "reative primeiro a organização e a rede")
+		writeErrCode(w, http.StatusConflict, "reative_primeiro_organizacao_rede", "reative primeiro a organização e a rede")
 		return
 	}
 
 	tx, err := s.Pool.Begin(r.Context())
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao iniciar reativação")
+		writeErrCode(w, http.StatusInternalServerError, "falha_iniciar_reativacao", "falha ao iniciar reativação")
 		return
 	}
 	defer tx.Rollback(r.Context())
 	_, err = tx.Exec(r.Context(), `
 		UPDATE subnetworks SET status='ativa',suspension_scope=NULL WHERE id=$1`, id)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao reativar sub-rede")
+		writeErrCode(w, http.StatusInternalServerError, "falha_reativar_sub_rede", "falha ao reativar sub-rede")
 		return
 	}
 	tag, err := tx.Exec(r.Context(), `
 		UPDATE devices SET state='ativo',suspension_scope=NULL,updated_at=now()
 		WHERE subnetwork_id=$1 AND suspension_scope='subnetwork'`, id)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao reativar dispositivos")
+		writeErrCode(w, http.StatusInternalServerError, "falha_reativar_dispositivos", "falha ao reativar dispositivos")
 		return
 	}
 	if err := tx.Commit(r.Context()); err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao concluir reativação")
+		writeErrCode(w, http.StatusInternalServerError, "falha_concluir_reativacao", "falha ao concluir reativação")
 		return
 	}
 	s.audit(r, "reativar_subrede", id)
@@ -280,23 +280,23 @@ func (s *Server) DeleteSubnetwork(w http.ResponseWriter, r *http.Request, id str
 	if err := s.Pool.QueryRow(r.Context(),
 		`SELECT network_id,name FROM subnetworks WHERE id=$1`, id).
 		Scan(&networkID, &name); err != nil {
-		writeErr(w, http.StatusNotFound, "sub-rede não encontrada")
+		writeErrCode(w, http.StatusNotFound, "sub_rede_encontrada", "sub-rede não encontrada")
 		return
 	}
 	claims := middleware.ClaimsFrom(r.Context())
 	allowed, err := s.Authorizer.CanManageNetwork(r.Context(), claims, networkID)
 	if err != nil || !allowed {
-		writeErr(w, http.StatusForbidden, "sem permissão para excluir esta sub-rede")
+		writeErrCode(w, http.StatusForbidden, "permissao_excluir_sub_rede", "sem permissão para excluir esta sub-rede")
 		return
 	}
 	if strings.EqualFold(strings.TrimSpace(name), "Principal") {
-		writeErr(w, http.StatusConflict, "a sub-rede Principal não pode ser excluída")
+		writeErrCode(w, http.StatusConflict, "sub_rede_principal_pode_excluida", "a sub-rede Principal não pode ser excluída")
 		return
 	}
 
 	tx, err := s.Pool.Begin(r.Context())
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao iniciar exclusão")
+		writeErrCode(w, http.StatusInternalServerError, "falha_iniciar_exclusao", "falha ao iniciar exclusão")
 		return
 	}
 	defer tx.Rollback(r.Context())
@@ -305,22 +305,22 @@ func (s *Server) DeleteSubnetwork(w http.ResponseWriter, r *http.Request, id str
 		SELECT id FROM subnetworks
 		WHERE network_id=$1 AND lower(name)=lower('Principal')`, networkID).
 		Scan(&principalID); err != nil {
-		writeErr(w, http.StatusConflict, "sub-rede Principal não encontrada")
+		writeErrCode(w, http.StatusConflict, "sub_rede_principal_encontrada", "sub-rede Principal não encontrada")
 		return
 	}
 	tag, err := tx.Exec(r.Context(), `
 		UPDATE devices SET subnetwork_id=$1,updated_at=now()
 		WHERE subnetwork_id=$2`, principalID, id)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao transferir dispositivos")
+		writeErrCode(w, http.StatusInternalServerError, "falha_transferir_dispositivos", "falha ao transferir dispositivos")
 		return
 	}
 	if _, err := tx.Exec(r.Context(), `DELETE FROM subnetworks WHERE id=$1`, id); err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao excluir sub-rede")
+		writeErrCode(w, http.StatusInternalServerError, "falha_excluir_sub_rede", "falha ao excluir sub-rede")
 		return
 	}
 	if err := tx.Commit(r.Context()); err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao concluir exclusão")
+		writeErrCode(w, http.StatusInternalServerError, "falha_concluir_exclusao", "falha ao concluir exclusão")
 		return
 	}
 	s.audit(r, "excluir_subrede", id)

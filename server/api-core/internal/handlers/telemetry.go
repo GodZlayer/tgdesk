@@ -17,25 +17,25 @@ type telemetryRequest struct {
 // instantâneo físico; todo valor histórico é calculado após a persistência.
 func (s *Server) ReportTelemetry(w http.ResponseWriter, r *http.Request) {
 	if !requestFromVPN(r) {
-		writeErr(w, http.StatusForbidden, "telemetria disponível somente pela VPN")
+		writeErrCode(w, http.StatusForbidden, "telemetria_disponivel_somente_vpn", "telemetria disponível somente pela VPN")
 		return
 	}
 	var req telemetryRequest
 	if json.NewDecoder(r.Body).Decode(&req) != nil || len(req.Hardware) == 0 {
-		writeErr(w, http.StatusBadRequest, "snapshot de hardware inválido")
+		writeErrCode(w, http.StatusBadRequest, "snapshot_hardware_invalido", "snapshot de hardware inválido")
 		return
 	}
 	var deviceOK bool
 	if err := s.Pool.QueryRow(r.Context(),
 		`SELECT true FROM devices WHERE id=$1 AND device_token=$2`,
 		req.DeviceID, req.DeviceToken).Scan(&deviceOK); err != nil {
-		writeErr(w, http.StatusUnauthorized, "dispositivo/token inválido")
+		writeErrCode(w, http.StatusUnauthorized, "dispositivo_token_invalido", "dispositivo/token inválido")
 		return
 	}
 	if _, err := s.Pool.Exec(r.Context(),
 		`INSERT INTO telemetry_snapshots (device_id,hardware) VALUES ($1,$2)`,
 		req.DeviceID, req.Hardware); err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao gravar telemetria")
+		writeErrCode(w, http.StatusInternalServerError, "falha_gravar_telemetria", "falha ao gravar telemetria")
 		return
 	}
 	s.rollHardwareJSON(r.Context(), req.DeviceID, req.Hardware)
@@ -58,13 +58,13 @@ func (s *Server) DeviceHealth(w http.ResponseWriter, r *http.Request, deviceID s
 	if err := s.Pool.QueryRow(r.Context(), `
 		SELECT n.organization_id,n.id FROM devices d JOIN networks n ON d.network_id=n.id
 		WHERE d.id=$1`, deviceID).Scan(&orgID, &netID); err != nil {
-		writeErr(w, http.StatusNotFound, "dispositivo não encontrado ou não vinculado")
+		writeErrCode(w, http.StatusNotFound, "dispositivo_encontrado_vinculado", "dispositivo não encontrado ou não vinculado")
 		return
 	}
 	// Check authorization using centralized authorizer
 	ok, err := s.Authorizer.CanAccessDevice(r.Context(), claims, deviceID)
 	if err != nil || !ok {
-		writeErr(w, http.StatusForbidden, "sem permissão para esse dispositivo")
+		writeErrCode(w, http.StatusForbidden, "permissao_dispositivo", "sem permissão para esse dispositivo")
 		return
 	}
 	var raw []byte

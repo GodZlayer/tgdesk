@@ -78,13 +78,13 @@ func (s *Server) CreateTechnicianEnrollmentKey(w http.ResponseWriter, r *http.Re
 		req.ExpiresInHours = 72
 	}
 	if req.ExpiresInHours > 24*30 {
-		writeErr(w, http.StatusBadRequest, "validade máxima é 30 dias")
+		writeErrCode(w, http.StatusBadRequest, "validade_maxima_30_dias", "validade máxima é 30 dias")
 		return
 	}
 
 	secret, err := randomURLSecret()
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao gerar chave")
+		writeErrCode(w, http.StatusInternalServerError, "falha_gerar_chave", "falha ao gerar chave")
 		return
 	}
 	var keyID string
@@ -98,7 +98,7 @@ func (s *Server) CreateTechnicianEnrollmentKey(w http.ResponseWriter, r *http.Re
 		technicianID, secretDigest(secret), req.ExpiresInHours, claims.TechnicianID,
 	).Scan(&keyID)
 	if err != nil {
-		writeErr(w, http.StatusNotFound, "técnico ativo não encontrado")
+		writeErrCode(w, http.StatusNotFound, "tecnico_ativo_encontrado", "técnico ativo não encontrado")
 		return
 	}
 
@@ -122,7 +122,7 @@ func (s *Server) ValidateTechnicianEnrollment(w http.ResponseWriter, r *http.Req
 		req.Key.KeyID == "" ||
 		req.Key.Secret == "" ||
 		req.Key.ServerID != enrollmentServerID(s.Cfg.JWTSecret) {
-		writeErr(w, http.StatusBadRequest, "arquivo-chave inválido")
+		writeErrCode(w, http.StatusBadRequest, "arquivo_chave_invalido", "arquivo-chave inválido")
 		return
 	}
 	var username, role, status string
@@ -137,15 +137,15 @@ func (s *Server) ValidateTechnicianEnrollment(w http.ResponseWriter, r *http.Req
 	).Scan(&username, &role, &status, &storedHash, &expiresAt, &consumedAt)
 	if err != nil || status != "ativo" ||
 		!equalDigest(storedHash, secretDigest(req.Key.Secret)) {
-		writeErr(w, http.StatusUnauthorized, "chave inválida")
+		writeErrCode(w, http.StatusUnauthorized, "chave_invalida", "chave inválida")
 		return
 	}
 	if consumedAt != nil {
-		writeErr(w, http.StatusConflict, "chave já utilizada")
+		writeErrCode(w, http.StatusConflict, "chave_ja_utilizada", "chave já utilizada")
 		return
 	}
 	if expiresAt != nil && time.Now().After(*expiresAt) {
-		writeErr(w, http.StatusGone, "chave expirada")
+		writeErrCode(w, http.StatusGone, "chave_expirada", "chave expirada")
 		return
 	}
 	// A marca vai junto: o servidor já sabe de quem é a chave, então o
@@ -173,13 +173,13 @@ func (s *Server) RedeemTechnicianEnrollment(w http.ResponseWriter, r *http.Reque
 		req.Key.Secret == "" ||
 		req.Key.ServerID != enrollmentServerID(s.Cfg.JWTSecret) ||
 		strings.TrimSpace(req.MachineID) == "" {
-		writeErr(w, http.StatusBadRequest, "arquivo-chave inválido")
+		writeErrCode(w, http.StatusBadRequest, "arquivo_chave_invalido", "arquivo-chave inválido")
 		return
 	}
 
 	tx, err := s.Pool.BeginTx(r.Context(), pgx.TxOptions{})
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao iniciar ativação")
+		writeErrCode(w, http.StatusInternalServerError, "falha_iniciar_ativacao", "falha ao iniciar ativação")
 		return
 	}
 	defer tx.Rollback(r.Context())
@@ -198,21 +198,21 @@ func (s *Server) RedeemTechnicianEnrollment(w http.ResponseWriter, r *http.Reque
 	).Scan(&technicianID, &username, &role, &status, &storedHash, &expiresAt, &consumedAt)
 	if err != nil || status != "ativo" ||
 		!equalDigest(storedHash, secretDigest(req.Key.Secret)) {
-		writeErr(w, http.StatusUnauthorized, "chave inválida")
+		writeErrCode(w, http.StatusUnauthorized, "chave_invalida", "chave inválida")
 		return
 	}
 	if consumedAt != nil {
-		writeErr(w, http.StatusConflict, "chave já utilizada")
+		writeErrCode(w, http.StatusConflict, "chave_ja_utilizada", "chave já utilizada")
 		return
 	}
 	if expiresAt != nil && time.Now().After(*expiresAt) {
-		writeErr(w, http.StatusGone, "chave expirada")
+		writeErrCode(w, http.StatusGone, "chave_expirada", "chave expirada")
 		return
 	}
 
 	machineSecret, err := randomURLSecret()
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao emitir credencial")
+		writeErrCode(w, http.StatusInternalServerError, "falha_emitir_credencial", "falha ao emitir credencial")
 		return
 	}
 	var credentialID string
@@ -230,27 +230,27 @@ func (s *Server) RedeemTechnicianEnrollment(w http.ResponseWriter, r *http.Reque
 	).Scan(&credentialID)
 	if err != nil {
 		if role == "super_admin" {
-			writeErr(w, http.StatusConflict, "já existe um computador Admin ativo")
+			writeErrCode(w, http.StatusConflict, "ja_existe_computador_admin_ativo", "já existe um computador Admin ativo")
 			return
 		}
-		writeErr(w, http.StatusInternalServerError, "falha ao vincular computador")
+		writeErrCode(w, http.StatusInternalServerError, "falha_vincular_computador", "falha ao vincular computador")
 		return
 	}
 	if _, err = tx.Exec(r.Context(), `
 		UPDATE technician_enrollment_keys
 		SET consumed_at=now(), consumed_machine_id=$2 WHERE id=$1`,
 		req.Key.KeyID, machineID); err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao consumir chave")
+		writeErrCode(w, http.StatusInternalServerError, "falha_consumir_chave", "falha ao consumir chave")
 		return
 	}
 	if err = tx.Commit(r.Context()); err != nil {
-		writeErr(w, http.StatusConflict, "chave utilizada simultaneamente")
+		writeErrCode(w, http.StatusConflict, "chave_utilizada_simultaneamente", "chave utilizada simultaneamente")
 		return
 	}
 
 	token, err := tgauth.IssueToken(s.Cfg.JWTSecret, technicianID, username, role)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao emitir sessão")
+		writeErrCode(w, http.StatusInternalServerError, "falha_emitir_sessao", "falha ao emitir sessão")
 		return
 	}
 	writeJSON(w, http.StatusOK, machineAuthResponse{
@@ -263,7 +263,7 @@ func (s *Server) RefreshTechnicianMachine(w http.ResponseWriter, r *http.Request
 	var req refreshMachineRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil ||
 		req.CredentialID == "" || req.Secret == "" || strings.TrimSpace(req.MachineID) == "" {
-		writeErr(w, http.StatusBadRequest, "credencial inválida")
+		writeErrCode(w, http.StatusBadRequest, "credencial_invalida", "credencial inválida")
 		return
 	}
 	var technicianID, username, role, status, machineID string
@@ -276,7 +276,7 @@ func (s *Server) RefreshTechnicianMachine(w http.ResponseWriter, r *http.Request
 	).Scan(&technicianID, &username, &role, &status, &machineID, &storedHash)
 	if err != nil || status != "ativo" || machineID != strings.TrimSpace(req.MachineID) ||
 		!equalDigest(storedHash, secretDigest(req.Secret)) {
-		writeErr(w, http.StatusUnauthorized, "credencial revogada ou inválida")
+		writeErrCode(w, http.StatusUnauthorized, "credencial_revogada_invalida", "credencial revogada ou inválida")
 		return
 	}
 	_, _ = s.Pool.Exec(r.Context(),
@@ -284,7 +284,7 @@ func (s *Server) RefreshTechnicianMachine(w http.ResponseWriter, r *http.Request
 		req.CredentialID)
 	token, err := tgauth.IssueToken(s.Cfg.JWTSecret, technicianID, username, role)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao emitir sessão")
+		writeErrCode(w, http.StatusInternalServerError, "falha_emitir_sessao", "falha ao emitir sessão")
 		return
 	}
 	writeJSON(w, http.StatusOK, machineAuthResponse{

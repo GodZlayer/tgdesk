@@ -24,7 +24,7 @@ var upgrader = websocket.Upgrader{
 // technician, filtered by their organization/network scope (Seção 3.1/3.4).
 func (s *Server) PresenceWS(w http.ResponseWriter, r *http.Request) {
 	if !requestFromVPN(r) {
-		writeErr(w, http.StatusForbidden, "presença disponível somente pela VPN")
+		writeErrCode(w, http.StatusForbidden, "presenca_disponivel_somente_vpn", "presença disponível somente pela VPN")
 		return
 	}
 	token := r.URL.Query().Get("token")

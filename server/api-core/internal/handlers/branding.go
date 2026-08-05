@@ -96,7 +96,7 @@ func (s *Server) GetTechnicianBranding(w http.ResponseWriter, r *http.Request, t
 func (s *Server) getBranding(w http.ResponseWriter, r *http.Request, technicianID string) {
 	record, err := s.technicianBrand(r.Context(), technicianID)
 	if err != nil {
-		writeErr(w, http.StatusNotFound, "técnico não encontrado")
+		writeErrCode(w, http.StatusNotFound, "tecnico_encontrado", "técnico não encontrado")
 		return
 	}
 	writeJSON(w, http.StatusOK, brandJSON(record, true))
@@ -122,22 +122,22 @@ func (s *Server) UpdateTechnicianBranding(w http.ResponseWriter, r *http.Request
 func (s *Server) updateBranding(w http.ResponseWriter, r *http.Request, technicianID string, requireEnabled bool) {
 	record, err := s.technicianBrand(r.Context(), technicianID)
 	if err != nil {
-		writeErr(w, http.StatusNotFound, "técnico não encontrado")
+		writeErrCode(w, http.StatusNotFound, "tecnico_encontrado", "técnico não encontrado")
 		return
 	}
 	if requireEnabled && !record.Enabled {
-		writeErr(w, http.StatusForbidden, "personalização não habilitada pelo administrador")
+		writeErrCode(w, http.StatusForbidden, "personalizacao_habilitada_administrador", "personalização não habilitada pelo administrador")
 		return
 	}
 	var req updateBrandingRequest
 	decoder := json.NewDecoder(http.MaxBytesReader(w, r.Body, 3*maxBrandLogoBytes))
 	if decoder.Decode(&req) != nil {
-		writeErr(w, http.StatusBadRequest, "dados de personalização inválidos")
+		writeErrCode(w, http.StatusBadRequest, "dados_personalizacao_invalidos", "dados de personalização inválidos")
 		return
 	}
 	req.Name = strings.TrimSpace(req.Name)
 	if len(req.Name) < 2 || len(req.Name) > 40 {
-		writeErr(w, http.StatusBadRequest, "o nome deve possuir entre 2 e 40 caracteres")
+		writeErrCode(w, http.StatusBadRequest, "nome_deve_possuir_entre_2", "o nome deve possuir entre 2 e 40 caracteres")
 		return
 	}
 
@@ -149,7 +149,7 @@ func (s *Server) updateBranding(w http.ResponseWriter, r *http.Request, technici
 	if req.LogoBase64 != "" {
 		logo, decodeErr := base64.StdEncoding.DecodeString(req.LogoBase64)
 		if decodeErr != nil || len(logo) == 0 || len(logo) > maxBrandLogoBytes {
-			writeErr(w, http.StatusBadRequest, "logo inválida ou maior que 1 MB")
+			writeErrCode(w, http.StatusBadRequest, "logo_invalida_maior_1_mb", "logo inválida ou maior que 1 MB")
 			return
 		}
 		contentType := http.DetectContentType(logo)
@@ -157,23 +157,23 @@ func (s *Server) updateBranding(w http.ResponseWriter, r *http.Request, technici
 			"image/png": ".png", "image/jpeg": ".jpg", "image/webp": ".webp",
 		}[contentType]
 		if extension == "" {
-			writeErr(w, http.StatusBadRequest, "use uma imagem PNG, JPG ou WebP")
+			writeErrCode(w, http.StatusBadRequest, "use_imagem_png_jpg_webp", "use uma imagem PNG, JPG ou WebP")
 			return
 		}
 		if err := os.MkdirAll(brandingDir(), 0750); err != nil {
-			writeErr(w, http.StatusInternalServerError, "falha ao preparar armazenamento da marca")
+			writeErrCode(w, http.StatusInternalServerError, "falha_preparar_armazenamento_marca", "falha ao preparar armazenamento da marca")
 			return
 		}
 		logoFile = technicianID + extension
 		target := filepath.Join(brandingDir(), logoFile)
 		temp := target + ".tmp"
 		if err := os.WriteFile(temp, logo, 0640); err != nil {
-			writeErr(w, http.StatusInternalServerError, "falha ao salvar logo")
+			writeErrCode(w, http.StatusInternalServerError, "falha_salvar_logo", "falha ao salvar logo")
 			return
 		}
 		if err := os.Rename(temp, target); err != nil {
 			_ = os.Remove(temp)
-			writeErr(w, http.StatusInternalServerError, "falha ao concluir logo")
+			writeErrCode(w, http.StatusInternalServerError, "falha_concluir_logo", "falha ao concluir logo")
 			return
 		}
 	}
@@ -185,23 +185,23 @@ func (s *Server) updateBranding(w http.ResponseWriter, r *http.Request, technici
 		isICO := len(favicon) >= 6 && favicon[0] == 0 && favicon[1] == 0 &&
 			favicon[2] == 1 && favicon[3] == 0
 		if decodeErr != nil || !isICO || len(favicon) > maxBrandLogoBytes {
-			writeErr(w, http.StatusBadRequest, "favicon inválido, use um arquivo ICO de até 1 MB")
+			writeErrCode(w, http.StatusBadRequest, "favicon_invalido_use_arquivo_ico", "favicon inválido, use um arquivo ICO de até 1 MB")
 			return
 		}
 		if err := os.MkdirAll(brandingDir(), 0750); err != nil {
-			writeErr(w, http.StatusInternalServerError, "falha ao preparar armazenamento da marca")
+			writeErrCode(w, http.StatusInternalServerError, "falha_preparar_armazenamento_marca", "falha ao preparar armazenamento da marca")
 			return
 		}
 		faviconFile = technicianID + "-favicon.ico"
 		target := filepath.Join(brandingDir(), faviconFile)
 		temp := target + ".tmp"
 		if err := os.WriteFile(temp, favicon, 0640); err != nil {
-			writeErr(w, http.StatusInternalServerError, "falha ao salvar favicon")
+			writeErrCode(w, http.StatusInternalServerError, "falha_salvar_favicon", "falha ao salvar favicon")
 			return
 		}
 		if err := os.Rename(temp, target); err != nil {
 			_ = os.Remove(temp)
-			writeErr(w, http.StatusInternalServerError, "falha ao concluir favicon")
+			writeErrCode(w, http.StatusInternalServerError, "falha_concluir_favicon", "falha ao concluir favicon")
 			return
 		}
 	}
@@ -209,7 +209,7 @@ func (s *Server) updateBranding(w http.ResponseWriter, r *http.Request, technici
 		UPDATE technicians SET brand_name=$1,brand_logo_file=$2,brand_favicon_file=$3,
 			branding_updated_at=now() WHERE id=$4`,
 		req.Name, logoFile, faviconFile, technicianID); err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao salvar personalização")
+		writeErrCode(w, http.StatusInternalServerError, "falha_salvar_personalizacao", "falha ao salvar personalização")
 		return
 	}
 	if record.LogoFile != "" && record.LogoFile != logoFile &&
@@ -231,14 +231,14 @@ type brandingEnabledRequest struct {
 func (s *Server) SetTechnicianBrandingEnabled(w http.ResponseWriter, r *http.Request, technicianID string) {
 	var req brandingEnabledRequest
 	if json.NewDecoder(r.Body).Decode(&req) != nil {
-		writeErr(w, http.StatusBadRequest, "estado inválido")
+		writeErrCode(w, http.StatusBadRequest, "estado_invalido", "estado inválido")
 		return
 	}
 	tag, err := s.Pool.Exec(r.Context(), `
 		UPDATE technicians SET branding_enabled=$1,branding_updated_at=now()
 		WHERE id=$2 AND role='supervisor'`, req.Enabled, technicianID)
 	if err != nil || tag.RowsAffected() == 0 {
-		writeErr(w, http.StatusNotFound, "técnico não encontrado")
+		writeErrCode(w, http.StatusNotFound, "tecnico_encontrado", "técnico não encontrado")
 		return
 	}
 	_ = presence.Publish(r.Context(), s.RDB, presence.Event{

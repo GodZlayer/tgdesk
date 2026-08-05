@@ -18,19 +18,19 @@ import (
 func (s *Server) CreateSupervisorInvite(w http.ResponseWriter, r *http.Request, orgID string) {
 	c := middleware.ClaimsFrom(r.Context())
 	if c == nil || (c.Role != models.RoleSupervisor && c.Role != models.RoleSuperAdmin) {
-		writeErr(w, http.StatusForbidden, "apenas supervisor ou admin")
+		writeErrCode(w, http.StatusForbidden, "apenas_supervisor_admin", "apenas supervisor ou admin")
 		return
 	}
 	ok, err := s.Authorizer.CanAccessOrganization(r.Context(), c, orgID)
 	if err != nil || !ok {
-		writeErr(w, http.StatusForbidden, "sem permissão sobre esta organização")
+		writeErrCode(w, http.StatusForbidden, "permissao_sobre_organizacao", "sem permissão sobre esta organização")
 		return
 	}
 	code := genPairingCode(8)
 	if _, err := s.Pool.Exec(r.Context(), `
 		INSERT INTO supervisor_invites(code,organization_id,created_by)
 		VALUES($1,$2,$3)`, code, orgID, c.TechnicianID); err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao gerar convite")
+		writeErrCode(w, http.StatusInternalServerError, "falha_gerar_convite", "falha ao gerar convite")
 		return
 	}
 	var orgNome string
@@ -48,14 +48,14 @@ func (s *Server) CreateSupervisorInvite(w http.ResponseWriter, r *http.Request, 
 func (s *Server) RedeemSupervisorInvite(w http.ResponseWriter, r *http.Request) {
 	c := middleware.ClaimsFrom(r.Context())
 	if c == nil || (c.Role != models.RoleSupervisor && c.Role != models.RoleSuperAdmin) {
-		writeErr(w, http.StatusForbidden, "apenas supervisor ou admin pode resgatar")
+		writeErrCode(w, http.StatusForbidden, "apenas_supervisor_admin_pode_resgatar", "apenas supervisor ou admin pode resgatar")
 		return
 	}
 	var req struct {
 		Code string `json:"code"`
 	}
 	if json.NewDecoder(r.Body).Decode(&req) != nil || strings.TrimSpace(req.Code) == "" {
-		writeErr(w, http.StatusBadRequest, "código é obrigatório")
+		writeErrCode(w, http.StatusBadRequest, "codigo_obrigatorio", "código é obrigatório")
 		return
 	}
 	var orgID string
@@ -64,14 +64,14 @@ func (s *Server) RedeemSupervisorInvite(w http.ResponseWriter, r *http.Request) 
 		WHERE code=$1 AND consumed_at IS NULL AND expires_at>now()
 		RETURNING organization_id`,
 		strings.ToUpper(strings.TrimSpace(req.Code)), c.TechnicianID).Scan(&orgID) != nil {
-		writeErr(w, http.StatusNotFound, "código inválido, expirado ou já usado")
+		writeErrCode(w, http.StatusNotFound, "codigo_invalido_expirado_ja_usado", "código inválido, expirado ou já usado")
 		return
 	}
 	if _, err := s.Pool.Exec(r.Context(), `
 		INSERT INTO technician_assignments(technician_id,organization_id,assignment_scope,permissions_level)
 		VALUES($1,$2,'organization','full') ON CONFLICT DO NOTHING`,
 		c.TechnicianID, orgID); err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao vincular supervisor")
+		writeErrCode(w, http.StatusInternalServerError, "falha_vincular_supervisor", "falha ao vincular supervisor")
 		return
 	}
 	var orgNome string
@@ -87,7 +87,7 @@ func (s *Server) ListOrganizationSupervisors(w http.ResponseWriter, r *http.Requ
 	c := middleware.ClaimsFrom(r.Context())
 	ok, err := s.Authorizer.CanAccessOrganization(r.Context(), c, orgID)
 	if err != nil || !ok {
-		writeErr(w, http.StatusForbidden, "sem permissão sobre esta organização")
+		writeErrCode(w, http.StatusForbidden, "permissao_sobre_organizacao", "sem permissão sobre esta organização")
 		return
 	}
 	rows, err := s.Pool.Query(r.Context(), `
@@ -99,7 +99,7 @@ func (s *Server) ListOrganizationSupervisors(w http.ResponseWriter, r *http.Requ
 		             WHERE ta.technician_id=t.id AND ta.organization_id=$1)
 		ORDER BY dono DESC, t.username`, orgID)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao listar supervisores")
+		writeErrCode(w, http.StatusInternalServerError, "falha_listar_supervisores", "falha ao listar supervisores")
 		return
 	}
 	defer rows.Close()

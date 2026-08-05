@@ -26,6 +26,10 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 	_ = json.NewEncoder(w).Encode(v)
 }
 
-func writeErr(w http.ResponseWriter, status int, msg string) {
-	writeJSON(w, status, map[string]string{"error": msg})
+// writeErrCode acompanha a mensagem de um código estável. A frase serve ao
+// desktop em português; o código é o que um cliente em outro idioma — ou
+// outro tratamento de erro — tem como reconhecer sem ler texto.
+func writeErrCode(w http.ResponseWriter, status int, code, msg string) {
+	writeJSON(w, status, map[string]string{"error": msg, "code": code})
 }
+

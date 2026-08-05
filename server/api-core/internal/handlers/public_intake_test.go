@@ -133,3 +133,23 @@ func readSource(t *testing.T, file string) string {
 	}
 	return string(b)
 }
+
+// Erro sem código obriga o cliente a ler a frase para saber o que houve — e
+// frase é apresentação. Com código, um cliente em outro idioma reconhece a
+// causa e escreve o próprio texto.
+func TestTodoErroTemCodigo(t *testing.T) {
+	entradas, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entrada := range entradas {
+		nome := entrada.Name()
+		if !strings.HasSuffix(nome, ".go") || strings.HasSuffix(nome, "_test.go") {
+			continue
+		}
+		fonte := readSource(t, nome)
+		if strings.Contains(fonte, "writeErr(w,") {
+			t.Errorf("%s ainda usa writeErr sem código", nome)
+		}
+	}
+}

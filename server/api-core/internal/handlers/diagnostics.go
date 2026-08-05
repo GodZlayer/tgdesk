@@ -61,7 +61,7 @@ func (s *Server) DiagnosticCatalog(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) StartDiagnostic(w http.ResponseWriter, r *http.Request, deviceID string) {
 	if !s.diagnosticDeviceAccess(r, deviceID) {
-		writeErr(w, http.StatusForbidden, "sem permissão para esse dispositivo")
+		writeErrCode(w, http.StatusForbidden, "permissao_dispositivo", "sem permissão para esse dispositivo")
 		return
 	}
 	var req struct {
@@ -69,7 +69,7 @@ func (s *Server) StartDiagnostic(w http.ResponseWriter, r *http.Request, deviceI
 		Tests []string `json:"tests"`
 	}
 	if json.NewDecoder(r.Body).Decode(&req) != nil {
-		writeErr(w, http.StatusBadRequest, "selecione um teste")
+		writeErrCode(w, http.StatusBadRequest, "selecione_teste", "selecione um teste")
 		return
 	}
 	selected := req.Tests
@@ -77,7 +77,7 @@ func (s *Server) StartDiagnostic(w http.ResponseWriter, r *http.Request, deviceI
 		selected = []string{req.Test}
 	}
 	if len(selected) == 0 {
-		writeErr(w, http.StatusBadRequest, "selecione ao menos um teste")
+		writeErrCode(w, http.StatusBadRequest, "selecione_menos_teste", "selecione ao menos um teste")
 		return
 	}
 	allowed := map[string]bool{}
@@ -87,11 +87,11 @@ func (s *Server) StartDiagnostic(w http.ResponseWriter, r *http.Request, deviceI
 	seen := map[string]bool{}
 	for _, test := range selected {
 		if !allowed[test] || test == "all_tests" && len(selected) > 1 {
-			writeErr(w, http.StatusBadRequest, "teste desconhecido ou combinação inválida: "+test)
+			writeErrCode(w, http.StatusBadRequest, "teste_desconhecido", "teste desconhecido ou combinação inválida: "+test)
 			return
 		}
 		if seen[test] {
-			writeErr(w, http.StatusBadRequest, "teste repetido: "+test)
+			writeErrCode(w, http.StatusBadRequest, "teste_repetido", "teste repetido: "+test)
 			return
 		}
 		seen[test] = true
@@ -102,7 +102,7 @@ func (s *Server) StartDiagnostic(w http.ResponseWriter, r *http.Request, deviceI
 		INSERT INTO diagnostic_runs(device_id,requested_by,tests)
 		VALUES($1,$2,$3) RETURNING id`, deviceID, claims.TechnicianID, selected).Scan(&id)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao criar diagnóstico")
+		writeErrCode(w, http.StatusInternalServerError, "falha_criar_diagnostico", "falha ao criar diagnóstico")
 		return
 	}
 	writeJSON(w, http.StatusAccepted, map[string]any{
@@ -113,7 +113,7 @@ func (s *Server) StartDiagnostic(w http.ResponseWriter, r *http.Request, deviceI
 
 func (s *Server) ListDiagnostics(w http.ResponseWriter, r *http.Request, deviceID string) {
 	if !s.diagnosticDeviceAccess(r, deviceID) {
-		writeErr(w, http.StatusForbidden, "sem permissão para esse dispositivo")
+		writeErrCode(w, http.StatusForbidden, "permissao_dispositivo", "sem permissão para esse dispositivo")
 		return
 	}
 	rows, err := s.Pool.Query(r.Context(), `
@@ -122,7 +122,7 @@ func (s *Server) ListDiagnostics(w http.ResponseWriter, r *http.Request, deviceI
 		FROM diagnostic_runs WHERE device_id=$1
 		ORDER BY created_at DESC LIMIT 30`, deviceID)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao listar diagnósticos")
+		writeErrCode(w, http.StatusInternalServerError, "falha_listar_diagnosticos", "falha ao listar diagnósticos")
 		return
 	}
 	defer rows.Close()
@@ -154,7 +154,7 @@ func (s *Server) ListDiagnostics(w http.ResponseWriter, r *http.Request, deviceI
 // device control channel delivers an idempotent cancellation signal.
 func (s *Server) CancelDiagnostic(w http.ResponseWriter, r *http.Request, deviceID, runID string) {
 	if !s.diagnosticDeviceAccess(r, deviceID) {
-		writeErr(w, http.StatusForbidden, "sem permissão para esse dispositivo")
+		writeErrCode(w, http.StatusForbidden, "permissao_dispositivo", "sem permissão para esse dispositivo")
 		return
 	}
 	var status string
@@ -169,7 +169,7 @@ func (s *Server) CancelDiagnostic(w http.ResponseWriter, r *http.Request, device
 		RETURNING status,started_at IS NOT NULL AND finished_at IS NULL`,
 		runID, deviceID).Scan(&status, &running)
 	if err != nil {
-		writeErr(w, http.StatusNotFound, "diagnóstico não encontrado ou já concluído")
+		writeErrCode(w, http.StatusNotFound, "diagnostico_encontrado_ja_concluido", "diagnóstico não encontrado ou já concluído")
 		return
 	}
 	_ = presence.Publish(r.Context(), s.RDB, presence.Event{
@@ -184,7 +184,7 @@ func (s *Server) CancelDiagnostic(w http.ResponseWriter, r *http.Request, device
 
 func (s *Server) setDiagnosticPause(w http.ResponseWriter, r *http.Request, deviceID, runID string, paused bool) {
 	if !s.diagnosticDeviceAccess(r, deviceID) {
-		writeErr(w, http.StatusForbidden, "sem permissão para esse dispositivo")
+		writeErrCode(w, http.StatusForbidden, "permissao_dispositivo", "sem permissão para esse dispositivo")
 		return
 	}
 	from, to := "running", "paused"
@@ -195,7 +195,7 @@ func (s *Server) setDiagnosticPause(w http.ResponseWriter, r *http.Request, devi
 		UPDATE diagnostic_runs SET status=$1
 		WHERE id=$2 AND device_id=$3 AND status=$4`, to, runID, deviceID, from)
 	if err != nil || result.RowsAffected() != 1 {
-		writeErr(w, http.StatusConflict, "o diagnóstico não está em um estado que permita essa ação")
+		writeErrCode(w, http.StatusConflict, "diagnostico_estado_permita_acao", "o diagnóstico não está em um estado que permita essa ação")
 		return
 	}
 	_ = presence.Publish(r.Context(), s.RDB, presence.Event{

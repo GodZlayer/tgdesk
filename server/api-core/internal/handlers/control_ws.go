@@ -47,7 +47,7 @@ func requestFromVPN(r *http.Request) bool {
 // aceita tráfego originado da interface WireGuard.
 func (s *Server) DeviceControlWS(w http.ResponseWriter, r *http.Request) {
 	if !requestFromVPN(r) {
-		writeErr(w, http.StatusForbidden, "canal de controle disponível somente pela VPN")
+		writeErrCode(w, http.StatusForbidden, "canal_controle_disponivel_somente_vpn", "canal de controle disponível somente pela VPN")
 		return
 	}
 	deviceID := r.URL.Query().Get("device_id")
@@ -56,11 +56,11 @@ func (s *Server) DeviceControlWS(w http.ResponseWriter, r *http.Request) {
 	if err := s.Pool.QueryRow(r.Context(),
 		`SELECT state FROM devices WHERE id=$1 AND device_token=$2`,
 		deviceID, token).Scan(&state); err != nil {
-		writeErr(w, http.StatusUnauthorized, "dispositivo/token inválido")
+		writeErrCode(w, http.StatusUnauthorized, "dispositivo_token_invalido", "dispositivo/token inválido")
 		return
 	}
 	if state != models.DeviceStateAtivo {
-		writeErr(w, http.StatusForbidden, "dispositivo não está ativo")
+		writeErrCode(w, http.StatusForbidden, "dispositivo_ativo", "dispositivo não está ativo")
 		return
 	}
 	conn, err := controlUpgrader.Upgrade(w, r, nil)
@@ -372,7 +372,7 @@ func (s *Server) DeviceControlWS(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) TechnicianControlWS(w http.ResponseWriter, r *http.Request) {
 	if !requestFromVPN(r) {
-		writeErr(w, http.StatusForbidden, "canal de controle disponível somente pela VPN")
+		writeErrCode(w, http.StatusForbidden, "canal_controle_disponivel_somente_vpn", "canal de controle disponível somente pela VPN")
 		return
 	}
 	token := r.URL.Query().Get("token")
@@ -564,7 +564,7 @@ func (s *Server) PairingContext(w http.ResponseWriter, r *http.Request) {
 	authClaims := middleware.ClaimsFrom(r.Context())
 	snapshot, err := s.controlSnapshot(r.Context(), authClaims.TechnicianID, authClaims.Role)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao carregar redes de pareamento")
+		writeErrCode(w, http.StatusInternalServerError, "falha_carregar_redes_pareamento", "falha ao carregar redes de pareamento")
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{

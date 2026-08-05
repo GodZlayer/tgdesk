@@ -34,7 +34,7 @@ type createOrgRequest struct {
 func (s *Server) CreateOrganization(w http.ResponseWriter, r *http.Request) {
 	var req createOrgRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Name == "" {
-		writeErr(w, http.StatusBadRequest, "name é obrigatório")
+		writeErrCode(w, http.StatusBadRequest, "name_obrigatorio", "name é obrigatório")
 		return
 	}
 	var org models.Organization
@@ -43,7 +43,7 @@ func (s *Server) CreateOrganization(w http.ResponseWriter, r *http.Request) {
 		RETURNING id, name, status, created_at`, req.Name,
 	).Scan(&org.ID, &org.Name, &org.Status, &org.CreatedAt)
 	if err != nil {
-		writeErr(w, http.StatusConflict, "organização já existe ou dados inválidos")
+		writeErrCode(w, http.StatusConflict, "organizacao_ja_existe_dados_invalidos", "organização já existe ou dados inválidos")
 		return
 	}
 	writeJSON(w, http.StatusCreated, org)
@@ -78,7 +78,7 @@ func (s *Server) ListOrganizations(w http.ResponseWriter, r *http.Request) {
 
 	rs, err := s.Pool.Query(r.Context(), query, args...)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao listar organizações")
+		writeErrCode(w, http.StatusInternalServerError, "falha_listar_organizacoes", "falha ao listar organizações")
 		return
 	}
 	defer rs.Close()
@@ -87,7 +87,7 @@ func (s *Server) ListOrganizations(w http.ResponseWriter, r *http.Request) {
 	for rs.Next() {
 		var o models.Organization
 		if err := rs.Scan(&o.ID, &o.Name, &o.Status, &o.OwnerTechnicianID, &o.CreatedAt); err != nil {
-			writeErr(w, http.StatusInternalServerError, "falha ao ler organizações")
+			writeErrCode(w, http.StatusInternalServerError, "falha_ler_organizacoes", "falha ao ler organizações")
 			return
 		}
 		o.CanManage = claims.Role == models.RoleSuperAdmin ||
@@ -106,34 +106,33 @@ type renameRequest struct {
 // technician's control-device display name.
 func (s *Server) RenameOrganization(w http.ResponseWriter, r *http.Request, id string) {
 	if s.protectedTGDevsOrganization(r.Context(), id) {
-		writeErr(w, http.StatusConflict, "organizacao TGDevs nao pode ser editada")
+		writeErrCode(w, http.StatusConflict, "organizacao_tgdevs_pode_editada", "organizacao TGDevs nao pode ser editada")
 		return
 	}
 	var req renameRequest
 	if json.NewDecoder(r.Body).Decode(&req) != nil {
-		writeErr(w, http.StatusBadRequest, "nome inválido")
+		writeErrCode(w, http.StatusBadRequest, "nome_invalido", "nome inválido")
 		return
 	}
 	req.Name = strings.TrimSpace(req.Name)
 	if req.Name == "" || len([]rune(req.Name)) > 80 {
-		writeErr(w, http.StatusBadRequest, "nome deve ter entre 1 e 80 caracteres")
+		writeErrCode(w, http.StatusBadRequest, "nome_deve_ter_entre_1", "nome deve ter entre 1 e 80 caracteres")
 		return
 	}
 	var ownerID *string
 	if err := s.Pool.QueryRow(r.Context(),
 		`SELECT owner_technician_id FROM organizations WHERE id=$1`, id).
 		Scan(&ownerID); err != nil {
-		writeErr(w, http.StatusNotFound, "organização não encontrada")
+		writeErrCode(w, http.StatusNotFound, "organizacao_encontrada", "organização não encontrada")
 		return
 	}
 	if ownerID != nil {
-		writeErr(w, http.StatusConflict,
-			"organização de técnico acompanha automaticamente o nome do técnico")
+		writeErrCode(w, http.StatusConflict, "organizacao_tecnico_acompanha_automaticamente_nome", "organização de técnico acompanha automaticamente o nome do técnico")
 		return
 	}
 	if _, err := s.Pool.Exec(r.Context(),
 		`UPDATE organizations SET name=$1 WHERE id=$2`, req.Name, id); err != nil {
-		writeErr(w, http.StatusConflict, "nome de organização já utilizado")
+		writeErrCode(w, http.StatusConflict, "nome_organizacao_ja_utilizado", "nome de organização já utilizado")
 		return
 	}
 	s.audit(r, "renomear_organizacao", id)
@@ -144,33 +143,33 @@ func (s *Server) RenameOrganization(w http.ResponseWriter, r *http.Request, id s
 
 func (s *Server) RenameNetwork(w http.ResponseWriter, r *http.Request, id string) {
 	if s.protectedSystemNetwork(r.Context(), id) {
-		writeErr(w, http.StatusConflict, "rede obrigatoria TGDevs nao pode ser editada")
+		writeErrCode(w, http.StatusConflict, "rede_obrigatoria_tgdevs_pode_editada", "rede obrigatoria TGDevs nao pode ser editada")
 		return
 	}
 	claims := middleware.ClaimsFrom(r.Context())
 	allowed, err := s.Authorizer.CanManageNetwork(r.Context(), claims, id)
 	if err != nil || !allowed {
-		writeErr(w, http.StatusForbidden, "somente o criador da rede ou o Admin pode renomeá-la")
+		writeErrCode(w, http.StatusForbidden, "somente_criador_rede_admin_pode", "somente o criador da rede ou o Admin pode renomeá-la")
 		return
 	}
 	var req renameRequest
 	if json.NewDecoder(r.Body).Decode(&req) != nil {
-		writeErr(w, http.StatusBadRequest, "nome inválido")
+		writeErrCode(w, http.StatusBadRequest, "nome_invalido", "nome inválido")
 		return
 	}
 	req.Name = strings.TrimSpace(req.Name)
 	if req.Name == "" || len([]rune(req.Name)) > 80 {
-		writeErr(w, http.StatusBadRequest, "nome deve ter entre 1 e 80 caracteres")
+		writeErrCode(w, http.StatusBadRequest, "nome_deve_ter_entre_1", "nome deve ter entre 1 e 80 caracteres")
 		return
 	}
 	tag, err := s.Pool.Exec(r.Context(), `UPDATE networks SET name=$1 WHERE id=$2`,
 		req.Name, id)
 	if err != nil {
-		writeErr(w, http.StatusConflict, "nome de rede já utilizado nessa organização")
+		writeErrCode(w, http.StatusConflict, "nome_rede_ja_utilizado_nessa", "nome de rede já utilizado nessa organização")
 		return
 	}
 	if tag.RowsAffected() == 0 {
-		writeErr(w, http.StatusNotFound, "rede não encontrada")
+		writeErrCode(w, http.StatusNotFound, "rede_encontrada", "rede não encontrada")
 		return
 	}
 	s.audit(r, "renomear_rede", id)
@@ -188,28 +187,28 @@ type createNetworkRequest struct {
 func (s *Server) CreateNetwork(w http.ResponseWriter, r *http.Request) {
 	claims := middleware.ClaimsFrom(r.Context())
 	if claims.Role == models.RoleFreelancer {
-		writeErr(w, http.StatusForbidden, "freelancer não gerencia redes")
+		writeErrCode(w, http.StatusForbidden, "freelancer_gerencia_redes", "freelancer não gerencia redes")
 		return
 	}
 	var req createNetworkRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.Name == "" {
-		writeErr(w, http.StatusBadRequest, "organization_id e name são obrigatórios")
+		writeErrCode(w, http.StatusBadRequest, "organization_id_name_sao_obrigatorios", "organization_id e name são obrigatórios")
 		return
 	}
 	if claims.Role != models.RoleSuperAdmin {
 		if err := s.Pool.QueryRow(r.Context(),
 			`SELECT id FROM organizations WHERE owner_technician_id=$1`,
 			claims.TechnicianID).Scan(&req.OrganizationID); err != nil {
-			writeErr(w, http.StatusConflict, "organizacao pessoal indisponivel")
+			writeErrCode(w, http.StatusConflict, "organizacao_pessoal_indisponivel", "organizacao pessoal indisponivel")
 			return
 		}
 	}
 	if req.OrganizationID == "" {
-		writeErr(w, http.StatusBadRequest, "organization_id obrigatorio")
+		writeErrCode(w, http.StatusBadRequest, "organization_id_obrigatorio", "organization_id obrigatorio")
 		return
 	}
 	if s.protectedTGDevsOrganization(r.Context(), req.OrganizationID) {
-		writeErr(w, http.StatusConflict, "TGDevs possui exatamente as cinco redes de sistema")
+		writeErrCode(w, http.StatusConflict, "tgdevs_possui_exatamente_cinco_redes", "TGDevs possui exatamente as cinco redes de sistema")
 		return
 	}
 	var n models.Network
@@ -222,7 +221,7 @@ func (s *Server) CreateNetwork(w http.ResponseWriter, r *http.Request) {
 	).Scan(&n.ID, &n.OrganizationID, &n.Name, &n.CIDRVirtual, &n.Status,
 		&n.CreatedBy, &n.CreatedAt)
 	if err != nil {
-		writeErr(w, http.StatusConflict, "rede já existe ou dados inválidos")
+		writeErrCode(w, http.StatusConflict, "rede_ja_existe_dados_invalidos", "rede já existe ou dados inválidos")
 		return
 	}
 	_, _ = s.Pool.Exec(r.Context(), `
@@ -267,7 +266,7 @@ func (s *Server) ListNetworks(w http.ResponseWriter, r *http.Request) {
 
 	rs, err := s.Pool.Query(r.Context(), query, args...)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao listar redes")
+		writeErrCode(w, http.StatusInternalServerError, "falha_listar_redes", "falha ao listar redes")
 		return
 	}
 	defer rs.Close()
@@ -276,7 +275,7 @@ func (s *Server) ListNetworks(w http.ResponseWriter, r *http.Request) {
 	for rs.Next() {
 		var n models.Network
 		if err := rs.Scan(&n.ID, &n.OrganizationID, &n.Name, &n.CIDRVirtual, &n.Status, &n.CreatedBy, &n.CreatedAt); err != nil {
-			writeErr(w, http.StatusInternalServerError, "falha ao ler redes")
+			writeErrCode(w, http.StatusInternalServerError, "falha_ler_redes", "falha ao ler redes")
 			return
 		}
 		n.CanManage = claims.Role == models.RoleSuperAdmin

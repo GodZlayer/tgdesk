@@ -49,27 +49,27 @@ func (s *Server) WakeDevice(w http.ResponseWriter, r *http.Request, deviceID str
 		WHERE d.id=$1`, deviceID,
 	).Scan(&macStr, &orgID, &netID)
 	if err != nil {
-		writeErr(w, http.StatusNotFound, "dispositivo não encontrado ou não vinculado")
+		writeErrCode(w, http.StatusNotFound, "dispositivo_encontrado_vinculado", "dispositivo não encontrado ou não vinculado")
 		return
 	}
 	// Check authorization using centralized authorizer
 	ok, err := s.Authorizer.CanAccessDevice(r.Context(), claims, deviceID)
 	if err != nil || !ok {
-		writeErr(w, http.StatusForbidden, "sem permissão para esse dispositivo")
+		writeErrCode(w, http.StatusForbidden, "permissao_dispositivo", "sem permissão para esse dispositivo")
 		return
 	}
 	if macStr == "" {
-		writeErr(w, http.StatusUnprocessableEntity, "dispositivo sem MAC registrado")
+		writeErrCode(w, http.StatusUnprocessableEntity, "dispositivo_mac_registrado", "dispositivo sem MAC registrado")
 		return
 	}
 	mac, err := net.ParseMAC(macStr)
 	if err != nil {
-		writeErr(w, http.StatusUnprocessableEntity, fmt.Sprintf("MAC inválido: %s", macStr))
+		writeErrCode(w, http.StatusUnprocessableEntity, "mac_invalido", fmt.Sprintf("MAC inválido: %s", macStr))
 		return
 	}
 
 	if err := sendMagicPacket(mac); err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao enviar magic packet: "+err.Error())
+		writeErrCode(w, http.StatusInternalServerError, "falha_enviar_magic_packet", "falha ao enviar magic packet: "+err.Error())
 		return
 	}
 

@@ -73,11 +73,11 @@ func (s *Server) StartServiceOrder(w http.ResponseWriter, r *http.Request, ticke
 		SELECT status FROM service_orders
 		WHERE ticket_id=$1 AND assigned_technician_id=$2`,
 		ticketID, c.TechnicianID).Scan(&osStatus) != nil {
-		writeErr(w, http.StatusForbidden, "esta OS não está atribuída a você")
+		writeErrCode(w, http.StatusForbidden, "atribuida_voce", "esta OS não está atribuída a você")
 		return
 	}
 	if osStatus != "assigned" {
-		writeErr(w, http.StatusConflict, "a OS precisa estar atribuída para iniciar")
+		writeErrCode(w, http.StatusConflict, "precisa_estar_atribuida_iniciar", "a OS precisa estar atribuída para iniciar")
 		return
 	}
 	_, _ = s.Pool.Exec(r.Context(), `
@@ -102,11 +102,11 @@ func (s *Server) FinishServiceOrder(w http.ResponseWriter, r *http.Request, tick
 		SELECT status FROM service_orders
 		WHERE ticket_id=$1 AND assigned_technician_id=$2`,
 		ticketID, c.TechnicianID).Scan(&osStatus) != nil {
-		writeErr(w, http.StatusForbidden, "esta OS não está atribuída a você")
+		writeErrCode(w, http.StatusForbidden, "atribuida_voce", "esta OS não está atribuída a você")
 		return
 	}
 	if osStatus != "in_progress" {
-		writeErr(w, http.StatusConflict, "a execução precisa ter sido iniciada")
+		writeErrCode(w, http.StatusConflict, "execucao_precisa_ter_sido_iniciada", "a execução precisa ter sido iniciada")
 		return
 	}
 	_, _ = s.Pool.Exec(r.Context(), `
@@ -140,7 +140,7 @@ func (s *Server) RecordServiceOrderStep(w http.ResponseWriter, r *http.Request, 
 		Dados map[string]any `json:"dados"`
 	}
 	if json.NewDecoder(r.Body).Decode(&req) != nil || req.Etapa == "" {
-		writeErr(w, http.StatusBadRequest, "etapa é obrigatória")
+		writeErrCode(w, http.StatusBadRequest, "etapa_obrigatoria", "etapa é obrigatória")
 		return
 	}
 	var osStatus string
@@ -148,11 +148,11 @@ func (s *Server) RecordServiceOrderStep(w http.ResponseWriter, r *http.Request, 
 		SELECT status FROM service_orders
 		WHERE ticket_id=$1 AND assigned_technician_id=$2`,
 		ticketID, c.TechnicianID).Scan(&osStatus) != nil {
-		writeErr(w, http.StatusForbidden, "esta OS não está atribuída a você")
+		writeErrCode(w, http.StatusForbidden, "atribuida_voce", "esta OS não está atribuída a você")
 		return
 	}
 	if osStatus != "in_progress" {
-		writeErr(w, http.StatusConflict, "a execução precisa estar em andamento")
+		writeErrCode(w, http.StatusConflict, "execucao_precisa_estar_andamento", "a execução precisa estar em andamento")
 		return
 	}
 	if req.Dados == nil {
@@ -252,19 +252,18 @@ func (s *Server) fecharSeConfirmado(ctx context.Context, ticketID string) bool {
 // ConfirmClosure registra a confirmação de encerramento do staff.
 func (s *Server) ConfirmClosure(w http.ResponseWriter, r *http.Request, ticketID string) {
 	if !s.canManageTicket(r, ticketID) {
-		writeErr(w, http.StatusForbidden, "sem permissão")
+		writeErrCode(w, http.StatusForbidden, "permissao", "sem permissão")
 		return
 	}
 	c := middleware.ClaimsFrom(r.Context())
 	var status string
 	if s.Pool.QueryRow(r.Context(),
 		`SELECT status FROM support_tickets WHERE id=$1`, ticketID).Scan(&status) != nil {
-		writeErr(w, http.StatusNotFound, "chamado não encontrado")
+		writeErrCode(w, http.StatusNotFound, "chamado_encontrado", "chamado não encontrado")
 		return
 	}
 	if status != "awaiting_confirmation" {
-		writeErr(w, http.StatusConflict,
-			"o técnico precisa finalizar a execução antes das confirmações")
+		writeErrCode(w, http.StatusConflict, "tecnico_precisa_finalizar_execucao_antes", "o técnico precisa finalizar a execução antes das confirmações")
 		return
 	}
 	papel := "supervisor"
@@ -287,7 +286,7 @@ func (s *Server) ConfirmClosure(w http.ResponseWriter, r *http.Request, ticketID
 func (s *Server) ClientConfirmClosure(w http.ResponseWriter, r *http.Request) {
 	var req standaloneBindRequest
 	if json.NewDecoder(r.Body).Decode(&req) != nil || req.DeviceID == "" || req.DeviceToken == "" {
-		writeErr(w, http.StatusBadRequest, "dispositivo e token são obrigatórios")
+		writeErrCode(w, http.StatusBadRequest, "dispositivo_token_sao_obrigatorios", "dispositivo e token são obrigatórios")
 		return
 	}
 	var ticketID, status string
@@ -298,11 +297,11 @@ func (s *Server) ClientConfirmClosure(w http.ResponseWriter, r *http.Request) {
 		  AND t.status NOT IN ('closed','cancelled','expired')
 		ORDER BY t.created_at DESC LIMIT 1`,
 		req.DeviceID, req.DeviceToken).Scan(&ticketID, &status) != nil {
-		writeErr(w, http.StatusNotFound, "nenhum chamado em aberto para este dispositivo")
+		writeErrCode(w, http.StatusNotFound, "nenhum_chamado_aberto_dispositivo", "nenhum chamado em aberto para este dispositivo")
 		return
 	}
 	if status != "awaiting_confirmation" {
-		writeErr(w, http.StatusConflict, "o atendimento ainda não foi finalizado pelo técnico")
+		writeErrCode(w, http.StatusConflict, "atendimento_ainda_finalizado_tecnico", "o atendimento ainda não foi finalizado pelo técnico")
 		return
 	}
 	_, _ = s.Pool.Exec(r.Context(), `

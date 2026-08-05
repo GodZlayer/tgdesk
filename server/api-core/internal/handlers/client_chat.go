@@ -40,7 +40,7 @@ type clientThreadRequest struct {
 func (s *Server) ClientTicketThread(w http.ResponseWriter, r *http.Request) {
 	var req clientThreadRequest
 	if json.NewDecoder(r.Body).Decode(&req) != nil || req.DeviceID == "" || req.DeviceToken == "" {
-		writeErr(w, http.StatusBadRequest, "dispositivo e token são obrigatórios")
+		writeErrCode(w, http.StatusBadRequest, "dispositivo_token_sao_obrigatorios", "dispositivo e token são obrigatórios")
 		return
 	}
 	ticketID, err := s.clientTicketAuth(r, &req.standaloneBindRequest)
@@ -141,12 +141,12 @@ func (s *Server) ClientRespondRemoteAccess(w http.ResponseWriter, r *http.Reques
 	var req clientConsentRequest
 	if json.NewDecoder(r.Body).Decode(&req) != nil || req.DeviceID == "" ||
 		req.DeviceToken == "" || req.ConsentID == "" {
-		writeErr(w, http.StatusBadRequest, "dispositivo, token e pedido são obrigatórios")
+		writeErrCode(w, http.StatusBadRequest, "dispositivo_token_pedido_sao_obrigatorios", "dispositivo, token e pedido são obrigatórios")
 		return
 	}
 	ticketID, err := s.clientTicketAuth(r, &req.standaloneBindRequest)
 	if err != nil {
-		writeErr(w, http.StatusNotFound, "nenhum chamado em aberto para este dispositivo")
+		writeErrCode(w, http.StatusNotFound, "nenhum_chamado_aberto_dispositivo", "nenhum chamado em aberto para este dispositivo")
 		return
 	}
 	novo := "denied"
@@ -161,7 +161,7 @@ func (s *Server) ClientRespondRemoteAccess(w http.ResponseWriter, r *http.Reques
 		WHERE id=$1 AND ticket_id=$2 AND device_id=$4 AND status='pending'
 		RETURNING technician_id`,
 		req.ConsentID, ticketID, novo, req.DeviceID).Scan(&technicianID) != nil {
-		writeErr(w, http.StatusConflict, "pedido não encontrado ou já respondido")
+		writeErrCode(w, http.StatusConflict, "pedido_encontrado_ja_respondido", "pedido não encontrado ou já respondido")
 		return
 	}
 	if req.Grant {
@@ -195,7 +195,7 @@ func (s *Server) ClientRespondRemoteAccess(w http.ResponseWriter, r *http.Reques
 // Não concede nada: cria o pedido e o publica no chat, onde o cliente decide.
 func (s *Server) RequestRemoteAccess(w http.ResponseWriter, r *http.Request, id string) {
 	if !s.canManageTicket(r, id) {
-		writeErr(w, http.StatusForbidden, "sem permissão")
+		writeErrCode(w, http.StatusForbidden, "permissao", "sem permissão")
 		return
 	}
 	var req struct {
@@ -209,7 +209,7 @@ func (s *Server) RequestRemoteAccess(w http.ResponseWriter, r *http.Request, id 
 	if s.Pool.QueryRow(r.Context(),
 		`SELECT device_id,standalone,modality FROM support_tickets WHERE id=$1`, id).
 		Scan(&deviceID, &standalone, &modality) != nil || deviceID == nil {
-		writeErr(w, http.StatusConflict, "chamado sem dispositivo alvo")
+		writeErrCode(w, http.StatusConflict, "chamado_dispositivo_alvo", "chamado sem dispositivo alvo")
 		return
 	}
 	// Regras de acesso remoto ao cliente avulso:
@@ -219,8 +219,7 @@ func (s *Server) RequestRemoteAccess(w http.ResponseWriter, r *http.Request, id 
 	// aqui em vez de chegar ao cliente como uma escolha que não existe.
 	if standalone && c.Role != models.RoleSupervisor &&
 		c.Role != models.RoleSuperAdmin && modality != "virtual" {
-		writeErr(w, http.StatusConflict,
-			"acesso remoto só se aplica a chamado virtual")
+		writeErrCode(w, http.StatusConflict, "acesso_remoto_so_se_aplica", "acesso remoto só se aplica a chamado virtual")
 		return
 	}
 	var consentID string
@@ -231,7 +230,7 @@ func (s *Server) RequestRemoteAccess(w http.ResponseWriter, r *http.Request, id 
 		DO UPDATE SET motivo=excluded.motivo, requested_at=now()
 		RETURNING id`, id, c.TechnicianID, *deviceID,
 		strings.TrimSpace(req.Motivo)).Scan(&consentID) != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao registrar pedido")
+		writeErrCode(w, http.StatusInternalServerError, "falha_registrar_pedido", "falha ao registrar pedido")
 		return
 	}
 	// O evento tipado substitui a frase gravada como mensagem: o motivo é

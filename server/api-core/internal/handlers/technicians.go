@@ -15,7 +15,7 @@ func (s *Server) ListTechnicians(w http.ResponseWriter, r *http.Request) {
 		       branding_enabled,brand_name,brand_logo_file<>''
 		FROM technicians ORDER BY created_at`)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao listar técnicos")
+		writeErrCode(w, http.StatusInternalServerError, "falha_listar_tecnicos", "falha ao listar técnicos")
 		return
 	}
 	defer rs.Close()
@@ -27,7 +27,7 @@ func (s *Server) ListTechnicians(w http.ResponseWriter, r *http.Request) {
 		var brandName string
 		if err := rs.Scan(&t.ID, &t.Username, &t.Role, &t.CreatedViaEnv, &t.Status,
 			&t.CreatedAt, &brandingEnabled, &brandName, &hasBrandLogo); err != nil {
-			writeErr(w, http.StatusInternalServerError, "falha ao ler técnicos")
+			writeErrCode(w, http.StatusInternalServerError, "falha_ler_tecnicos", "falha ao ler técnicos")
 			return
 		}
 		item, _ := json.Marshal(t)
@@ -52,7 +52,7 @@ func (s *Server) ListTechnicianAssignments(w http.ResponseWriter, r *http.Reques
 		LEFT JOIN organizations o ON o.id=coalesce(a.organization_id, n.organization_id)
 		ORDER BY t.username, o.name, n.name`)
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao listar atribuições")
+		writeErrCode(w, http.StatusInternalServerError, "falha_listar_atribuicoes", "falha ao listar atribuições")
 		return
 	}
 	defer rs.Close()
@@ -62,7 +62,7 @@ func (s *Server) ListTechnicianAssignments(w http.ResponseWriter, r *http.Reques
 		var organizationID, networkID *string
 		if err := rs.Scan(&id, &technicianID, &username, &organizationID,
 			&organizationName, &networkID, &networkName); err != nil {
-			writeErr(w, http.StatusInternalServerError, "falha ao ler atribuições")
+			writeErrCode(w, http.StatusInternalServerError, "falha_ler_atribuicoes", "falha ao ler atribuições")
 			return
 		}
 		items = append(items, map[string]any{
@@ -81,17 +81,17 @@ type createTechnicianRequest struct {
 func (s *Server) CreateTechnician(w http.ResponseWriter, r *http.Request) {
 	var req createTechnicianRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
-		writeErr(w, http.StatusBadRequest, "username e password são obrigatórios")
+		writeErrCode(w, http.StatusBadRequest, "username_password_sao_obrigatorios", "username e password são obrigatórios")
 		return
 	}
 	req.Name = strings.TrimSpace(req.Name)
 	if req.Name == "" {
-		writeErr(w, http.StatusBadRequest, "nome é obrigatório")
+		writeErrCode(w, http.StatusBadRequest, "nome_obrigatorio", "nome é obrigatório")
 		return
 	}
 	tx, err := s.Pool.Begin(r.Context())
 	if err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao criar supervisor")
+		writeErrCode(w, http.StatusInternalServerError, "falha_criar_supervisor", "falha ao criar supervisor")
 		return
 	}
 	defer tx.Rollback(r.Context())
@@ -102,7 +102,7 @@ func (s *Server) CreateTechnician(w http.ResponseWriter, r *http.Request) {
 		req.Name, "!key-only!", models.RoleSupervisor,
 	).Scan(&t.ID, &t.Username, &t.Role, &t.CreatedViaEnv, &t.Status, &t.CreatedAt)
 	if err != nil {
-		writeErr(w, http.StatusConflict, "usuário já existe")
+		writeErrCode(w, http.StatusConflict, "usuario_ja_existe", "usuário já existe")
 		return
 	}
 	var organizationID string
@@ -116,23 +116,23 @@ func (s *Server) CreateTechnician(w http.ResponseWriter, r *http.Request) {
 			t.Username, t.ID).Scan(&organizationID)
 	}
 	if err != nil {
-		writeErr(w, http.StatusConflict, "falha ao criar organizacao pessoal")
+		writeErrCode(w, http.StatusConflict, "falha_criar_organizacao_pessoal", "falha ao criar organizacao pessoal")
 		return
 	}
 	if _, err = tx.Exec(r.Context(), `
 		INSERT INTO technician_assignments(technician_id, organization_id)
 		VALUES ($1, $2)`, t.ID, organizationID); err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao vincular organizacao pessoal")
+		writeErrCode(w, http.StatusInternalServerError, "falha_vincular_organizacao_pessoal", "falha ao vincular organizacao pessoal")
 		return
 	}
 	if _, err = tx.Exec(r.Context(), `
 		INSERT INTO supervisor_profiles(technician_id, rating_avg, rating_count)
 		VALUES ($1, 5.00, 0) ON CONFLICT (technician_id) DO NOTHING`, t.ID); err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao criar perfil de supervisor")
+		writeErrCode(w, http.StatusInternalServerError, "falha_criar_perfil_supervisor", "falha ao criar perfil de supervisor")
 		return
 	}
 	if err = tx.Commit(r.Context()); err != nil {
-		writeErr(w, http.StatusInternalServerError, "falha ao concluir criacao do supervisor")
+		writeErrCode(w, http.StatusInternalServerError, "falha_concluir_criacao_supervisor", "falha ao concluir criacao do supervisor")
 		return
 	}
 	writeJSON(w, http.StatusCreated, t)
@@ -147,7 +147,7 @@ type createAssignmentRequest struct {
 func (s *Server) CreateAssignment(w http.ResponseWriter, r *http.Request) {
 	var req createAssignmentRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.TechnicianID == "" || (req.OrganizationID == "" && req.NetworkID == "") {
-		writeErr(w, http.StatusBadRequest, "technician_id e (organization_id ou network_id) são obrigatórios")
+		writeErrCode(w, http.StatusBadRequest, "technician_id_organization_id_network", "technician_id e (organization_id ou network_id) são obrigatórios")
 		return
 	}
 	var orgID, netID any
@@ -165,7 +165,7 @@ func (s *Server) CreateAssignment(w http.ResponseWriter, r *http.Request) {
 		req.TechnicianID, orgID, netID,
 	).Scan(&a.ID, &a.TechnicianID, &a.OrganizationID, &a.NetworkID)
 	if err != nil {
-		writeErr(w, http.StatusBadRequest, "falha ao criar atribuição")
+		writeErrCode(w, http.StatusBadRequest, "falha_criar_atribuicao", "falha ao criar atribuição")
 		return
 	}
 	writeJSON(w, http.StatusCreated, a)
@@ -175,7 +175,7 @@ func (s *Server) DeleteTechnicianAssignment(w http.ResponseWriter, r *http.Reque
 	tag, err := s.Pool.Exec(r.Context(),
 		`DELETE FROM technician_assignments WHERE id=$1`, r.PathValue("id"))
 	if err != nil || tag.RowsAffected() == 0 {
-		writeErr(w, http.StatusNotFound, "atribuição não encontrada")
+		writeErrCode(w, http.StatusNotFound, "atribuicao_encontrada", "atribuição não encontrada")
 		return
 	}
 	w.WriteHeader(http.StatusNoContent)
@@ -193,13 +193,13 @@ type technicianWGKeyRequest struct {
 // endereço nem registra peer — o peer do dispositivo já está no hub.
 func (s *Server) TechnicianWGKey(w http.ResponseWriter, r *http.Request) {
 	if s.Hub == nil {
-		writeErr(w, http.StatusServiceUnavailable, "hub WireGuard indisponível neste servidor")
+		writeErrCode(w, http.StatusServiceUnavailable, "hub_wireguard_indisponivel_neste_servidor", "hub WireGuard indisponível neste servidor")
 		return
 	}
 	claims := middleware.ClaimsFrom(r.Context())
 	var req technicianWGKeyRequest
 	if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.PublicKey == "" {
-		writeErr(w, http.StatusBadRequest, "public_key é obrigatório")
+		writeErrCode(w, http.StatusBadRequest, "public_key_obrigatorio", "public_key é obrigatório")
 		return
 	}
 
@@ -208,11 +208,11 @@ func (s *Server) TechnicianWGKey(w http.ResponseWriter, r *http.Request) {
 	if err := s.Pool.QueryRow(r.Context(), `
 		SELECT status, wg_virtual_ip FROM technicians WHERE id=$1`, claims.TechnicianID,
 	).Scan(&status, &existingIP); err != nil {
-		writeErr(w, http.StatusUnauthorized, "técnico não encontrado")
+		writeErrCode(w, http.StatusUnauthorized, "tecnico_encontrado", "técnico não encontrado")
 		return
 	}
 	if status == models.StatusSuspenso {
-		writeErr(w, http.StatusForbidden, "conta suspensa")
+		writeErrCode(w, http.StatusForbidden, "conta_suspensa", "conta suspensa")
 		return
 	}
 
@@ -230,8 +230,7 @@ func (s *Server) TechnicianWGKey(w http.ResponseWriter, r *http.Request) {
 		WHERE control_technician_id=$1 AND state='ativo'
 		  AND coalesce(wg_virtual_ip,'') <> ''
 		ORDER BY created_at LIMIT 1`, claims.TechnicianID).Scan(&virtualIP); err != nil {
-		writeErr(w, http.StatusConflict,
-			"o dispositivo desta máquina precisa estar vinculado e ativo")
+		writeErrCode(w, http.StatusConflict, "dispositivo_desta_maquina_precisa_estar", "o dispositivo desta máquina precisa estar vinculado e ativo")
 		return
 	}
 	writeJSON(w, http.StatusOK, wgKeyResponse{
