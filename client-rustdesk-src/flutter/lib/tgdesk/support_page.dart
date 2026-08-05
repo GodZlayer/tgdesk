@@ -7,6 +7,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 
 import 'api_client.dart';
+import 'diagnostic_text.dart';
 import 'health_text.dart';
 import 'control_channel.dart';
 import 'diagnostics_dialog.dart';
@@ -613,6 +614,8 @@ class _SupportPageState extends State<SupportPage> {
         evento['type'] == 'message' || evento['type'] == 'client_message');
     final abas = <String, String>{
       'geral': 'Vis\u00e3o geral',
+      'hardware': 'Hardware',
+      'testes': 'Testes',
       'historico': 'Hist\u00f3rico',
       'conversa':
           mensagens.isEmpty ? 'Conversa' : 'Conversa (${mensagens.length})',
@@ -647,6 +650,16 @@ class _SupportPageState extends State<SupportPage> {
 
   Widget _detailBody(Map<String, dynamic> ticket) {
     switch (_detailTab) {
+      case 'hardware':
+        return ListView(
+          padding: const EdgeInsets.fromLTRB(24, 18, 24, 24),
+          children: [_hardwareSection(ticket)],
+        );
+      case 'testes':
+        return ListView(
+          padding: const EdgeInsets.fromLTRB(24, 18, 24, 24),
+          children: [_testsSection(ticket)],
+        );
       case 'historico':
         return ListView(
           padding: const EdgeInsets.fromLTRB(24, 18, 24, 24),
@@ -665,6 +678,126 @@ class _SupportPageState extends State<SupportPage> {
         _diagnosisSection(ticket),
       ],
     );
+  }
+
+  /// Inventário do computador dentro do chamado. O dado já chega pela telemetria
+  /// e vivia só na tela de Dispositivos — quem atende tinha que sair daqui para
+  /// saber com que máquina está lidando.
+  Widget _hardwareSection(Map<String, dynamic> ticket) {
+    final deviceId = ticket['device_id']?.toString();
+    final hardware = deviceId == null ? null : _control.deviceHealth[deviceId];
+    if (hardware == null) {
+      return _emptyNote(
+          'Invent\u00e1rio ainda n\u00e3o recebido deste computador.');
+    }
+    final cpu = _mapOf(hardware['cpu']);
+    final memoria = _mapOf(hardware['memory_summary']);
+    final discos = _listOf(hardware['storage']);
+    final gpus = _listOf(hardware['gpus']);
+    final redes = _listOf(hardware['networks']);
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      _sectionTitle('Computador'),
+      Wrap(spacing: 32, runSpacing: 14, children: [
+        _fact('Processador', cpu['model']?.toString() ?? '\u2014'),
+        _fact('N\u00facleos', cpu['cores']?.toString() ?? '\u2014'),
+        _fact('Mem\u00f3ria', _bytes(memoria['total_bytes'])),
+        _fact('Discos', '${discos.length}'),
+        _fact('Gr\u00e1ficos', gpus.isEmpty ? '\u2014' : '${gpus.length}'),
+        _fact('Interfaces de rede', '${redes.length}'),
+      ]),
+      if (discos.isNotEmpty) ...[
+        const SizedBox(height: 22),
+        _sectionTitle('Armazenamento'),
+        ...discos.map((disco) {
+          final item = _mapOf(disco);
+          final uso = (item['used_pct'] as num?)?.toDouble() ?? 0;
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Row(children: [
+                Expanded(
+                    child: Text(item['model']?.toString() ?? 'Disco',
+                        style: const TextStyle(fontWeight: FontWeight.w600))),
+                Text('${uso.round()}%'),
+              ]),
+              const SizedBox(height: 4),
+              LinearProgressIndicator(
+                  value: (uso / 100).clamp(0.0, 1.0),
+                  color: _severityColor(uso >= 90
+                      ? 'critical'
+                      : uso >= 80
+                          ? 'warning'
+                          : 'normal')),
+            ]),
+          );
+        }),
+      ],
+    ]);
+  }
+
+  /// Testes do chamado. O catálogo e a execução já existiam num diálogo
+  /// separado; aqui ficam os resultados visíveis sem clicar, e o botão só para
+  /// rodar algo novo.
+  Widget _testsSection(Map<String, dynamic> ticket) {
+    final deviceId = ticket['device_id']?.toString();
+    final execucoes = deviceId == null
+        ? const <String, Map<String, dynamic>>{}
+        : (_control.diagnosticRuns[deviceId] ??
+            const <String, Map<String, dynamic>>{});
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Row(children: [
+        Expanded(child: _sectionTitle('Testes executados')),
+        FilledButton.tonalIcon(
+          onPressed: _loading ? null : () => _openAuthorizedDiagnostics(ticket),
+          icon: const Icon(Icons.play_arrow),
+          label: const Text('Executar testes'),
+        ),
+      ]),
+      const SizedBox(height: 8),
+      if (execucoes.isEmpty)
+        _emptyNote('Nenhum teste executado neste computador ainda.')
+      else
+        ...execucoes.entries.map((entrada) {
+          final run = entrada.value;
+          final status = run['status']?.toString() ?? '';
+          return Padding(
+            padding: const EdgeInsets.only(bottom: 10),
+            child: Row(children: [
+              Icon(
+                  status == 'completed'
+                      ? Icons.check_circle_outline
+                      : status == 'failed'
+                          ? Icons.error_outline
+                          : Icons.timelapse,
+                  size: 18,
+                  color: Theme.of(context).colorScheme.outline),
+              const SizedBox(width: 10),
+              Expanded(
+                  child: Text(TgdeskDiagnosticText.name(
+                      run['test']?.toString() ?? entrada.key))),
+              Text(status, style: Theme.of(context).textTheme.bodySmall),
+            ]),
+          );
+        }),
+    ]);
+  }
+
+  Widget _emptyNote(String texto) => Padding(
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        child: Text(texto, style: Theme.of(context).textTheme.bodySmall),
+      );
+
+  Map<String, dynamic> _mapOf(dynamic v) =>
+      v is Map ? Map<String, dynamic>.from(v) : <String, dynamic>{};
+
+  List<dynamic> _listOf(dynamic v) => v is List ? v : const [];
+
+  String _bytes(dynamic valor) {
+    final n = (valor as num?)?.toDouble();
+    if (n == null || n <= 0) return '\u2014';
+    final gb = n / (1024 * 1024 * 1024);
+    return '${gb.toStringAsFixed(gb >= 10 ? 0 : 1)} GB';
   }
 
   Widget _sectionTitle(String texto) => Padding(
