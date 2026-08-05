@@ -29,9 +29,15 @@ class SupportPage extends StatefulWidget {
 
 class _SupportPageState extends State<SupportPage> {
   final _control = TgdeskControlChannel.instance;
+
   /// Aba corrente: active | queue | done | billing.
   String _tab = 'active';
   final Map<String, TextEditingController> _chatControllers = {};
+
+  /// Chamado aberto no painel da direita. Chamado não é item de lista:
+  /// tem histórico, conversa, diagnóstico e partes, e isso pede espaço
+  /// próprio em vez de nove botões espremidos num card fechado.
+  String? _selectedId;
   bool _loading = false;
   List<Map<String, dynamic>> _supervisorQueue = [];
   bool _queueLoading = false;
@@ -154,16 +160,7 @@ class _SupportPageState extends State<SupportPage> {
             ? _supervisorQueueList()
             : _tab == 'billing'
                 ? _billingPlaceholder()
-                : (tickets.isEmpty
-                    ? Center(child: Text(_emptyLabel()))
-                    : ListView.separated(
-                        padding: const EdgeInsets.all(20),
-                        itemCount: tickets.length,
-                        separatorBuilder: (_, __) =>
-                            const SizedBox(height: 10),
-                        itemBuilder: (_, index) =>
-                            _ticketCard(tickets[index]),
-                      )),
+                : _listAndDetail(tickets),
       ),
     ]);
   }
@@ -204,8 +201,8 @@ class _SupportPageState extends State<SupportPage> {
   Widget _ticketThread(Map<String, dynamic> ticket) {
     final id = ticket['id']?.toString() ?? '';
     final eventos = _control.ticketEvents[id] ?? const [];
-    final controller = _chatControllers.putIfAbsent(
-        id, () => TextEditingController());
+    final controller =
+        _chatControllers.putIfAbsent(id, () => TextEditingController());
     return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
       const Divider(height: 24),
       if (eventos.isEmpty)
@@ -310,7 +307,8 @@ class _SupportPageState extends State<SupportPage> {
     );
     if (ok != true || etapa.text.trim().isEmpty) return;
     await _action(() => TgdeskApi.recordServiceOrderStep(
-        ticket['id'].toString(), etapa: etapa.text.trim()));
+        ticket['id'].toString(),
+        etapa: etapa.text.trim()));
   }
 
   Future<void> _showFinishDialog(Map<String, dynamic> ticket) async {
@@ -343,8 +341,8 @@ class _SupportPageState extends State<SupportPage> {
       ),
     );
     if (ok != true) return;
-    await _action(() => TgdeskApi.finishServiceOrder(
-        ticket['id'].toString(), notas: notas.text.trim()));
+    await _action(() => TgdeskApi.finishServiceOrder(ticket['id'].toString(),
+        notas: notas.text.trim()));
   }
 
   Widget _supervisorQueueList() {
@@ -421,177 +419,252 @@ class _SupportPageState extends State<SupportPage> {
         : networkName;
   }
 
-  Widget _ticketCard(Map<String, dynamic> ticket) {
-    // Servidor retorna o campo como "status" (ver ListTickets em support.go),
-    // não "state" — corrigido aqui porque ticketStateFromServer agora lança
-    // em vez de mascarar silenciosamente estados desconhecidos.
+  /// Lista à esquerda, chamado aberto à direita. A lista responde "o que está
+  /// acontecendo"; o painel responde "o que houve neste".
+  Widget _listAndDetail(List<Map<String, dynamic>> tickets) {
+    if (tickets.isEmpty) return Center(child: Text(_emptyLabel()));
+    final selecionado = tickets.firstWhere(
+        (item) => item['id']?.toString() == _selectedId,
+        orElse: () => tickets.first);
+    return Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+      SizedBox(
+        width: 320,
+        child: ListView.builder(
+          padding: const EdgeInsets.symmetric(vertical: 8),
+          itemCount: tickets.length,
+          itemBuilder: (_, index) => _ticketRow(
+              tickets[index],
+              tickets[index]['id']?.toString() ==
+                  selecionado['id']?.toString()),
+        ),
+      ),
+      const VerticalDivider(width: 1),
+      Expanded(child: _ticketDetail(selecionado)),
+    ]);
+  }
+
+  /// Linha da lista: só o que decide para onde olhar — gravidade, computador,
+  /// protocolo e estado. O resto mora no painel.
+  Widget _ticketRow(Map<String, dynamic> ticket, bool ativo) {
     final state = ticketStateFromServer(ticket['status']?.toString());
+    final prioridade = (ticket['priority'] as num?)?.toInt() ?? 2;
+    return Material(
+      color: ativo
+          ? Theme.of(context).colorScheme.surfaceContainerHighest
+          : Colors.transparent,
+      child: InkWell(
+        onTap: () => setState(() => _selectedId = ticket['id']?.toString()),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+          child: Row(children: [
+            Container(
+              width: 8,
+              height: 8,
+              decoration: BoxDecoration(
+                  shape: BoxShape.circle, color: _priorityColor(prioridade)),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(ticket['title']?.toString() ?? 'Computador',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontWeight: FontWeight.w600)),
+                    const SizedBox(height: 2),
+                    Text(
+                        [
+                          ticket['protocol']?.toString() ?? '',
+                          _stateLabel(state),
+                        ].where((v) => v.isNotEmpty).join('  \u00b7  '),
+                        style: Theme.of(context).textTheme.bodySmall),
+                  ]),
+            ),
+            Icon(
+                ticket['modality'] == 'onsite'
+                    ? Icons.location_on_outlined
+                    : Icons.desktop_windows_outlined,
+                size: 16,
+                color: Theme.of(context).colorScheme.outline),
+          ]),
+        ),
+      ),
+    );
+  }
+
+  Color _priorityColor(int prioridade) {
+    if (prioridade >= 4) return const Color(0xffe5484d);
+    if (prioridade == 3) return const Color(0xffffb020);
+    return const Color(0xff45c95a);
+  }
+
+  /// Painel do chamado: cabeçalho com quem e em que pé, o relato, a linha do
+  /// tempo e a conversa. As ações ficam no topo, junto do estado que as
+  /// habilita, em vez de numa fileira de botões iguais no rodapé.
+  Widget _ticketDetail(Map<String, dynamic> ticket) {
+    final state = ticketStateFromServer(ticket['status']?.toString());
+    final relato = ticket['description']?.toString() ?? '';
+    final rede = _networkLabel(ticket);
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
+      children: [
+        Row(children: [
+          Expanded(
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(ticket['title']?.toString() ?? 'Computador',
+                  style: Theme.of(context).textTheme.headlineSmall),
+              const SizedBox(height: 4),
+              Text(
+                  [
+                    ticket['protocol']?.toString() ?? '',
+                    ticket['modality'] == 'onsite' ? 'Presencial' : 'Remoto',
+                    if (rede != null) rede,
+                  ].where((v) => v.isNotEmpty).join('  \u00b7  '),
+                  style: Theme.of(context).textTheme.bodySmall),
+            ]),
+          ),
+          _statusChip(state),
+        ]),
+        if (relato.isNotEmpty) ...[
+          const SizedBox(height: 18),
+          Text('Relato do cliente',
+              style: Theme.of(context).textTheme.labelMedium),
+          const SizedBox(height: 4),
+          Text(relato),
+        ],
+        const SizedBox(height: 18),
+        Wrap(
+            spacing: 8, runSpacing: 8, children: _ticketActions(ticket, state)),
+        const SizedBox(height: 8),
+        _ticketThread(ticket),
+      ],
+    );
+  }
+
+  /// Ações do chamado, na ordem do fluxo. Cada uma aparece só no estado
+  /// que a habilita — quem olha não precisa adivinhar o que pode fazer.
+  List<Widget> _ticketActions(
+      Map<String, dynamic> ticket, TgdeskTicketState state) {
     final mode = ticket['modality'] == 'onsite'
         ? TgdeskServiceMode.onsite
         : TgdeskServiceMode.virtual;
-    final mine = ticket['assigned_freelancer_id']?.toString() ==
-        AppState.technicianId;
-    final networkLabel = _networkLabel(ticket);
-    return Card(
-      child: ExpansionTile(
-        leading: Icon(mode == TgdeskServiceMode.virtual
-            ? Icons.desktop_windows_outlined
-            : Icons.location_on_outlined),
-        title: Text(ticket['title']?.toString() ?? 'Solicitação de suporte'),
-        subtitle: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-                [
-                  if ((ticket['protocol']?.toString() ?? '').isNotEmpty)
-                    ticket['protocol'].toString(),
-                  ticket['customer_name']?.toString() ?? 'Cliente',
-                  _stateLabel(state),
-                ].join(' • ')),
-            if (networkLabel != null) ...[
-              const SizedBox(height: TgdeskSpacing.xs),
-              Chip(
-                visualDensity: VisualDensity.compact,
-                avatar: const Icon(Icons.lan_outlined, size: 16),
-                label: Text(networkLabel),
-                backgroundColor: TgdeskColors.seed.withOpacity(.08),
-              ),
-            ],
-          ],
+    final mine =
+        ticket['assigned_freelancer_id']?.toString() == AppState.technicianId;
+    return [
+      if (_role == TgdeskSupportRole.freelancer &&
+          state == TgdeskTicketState.offered)
+        FilledButton(
+          onPressed: _loading
+              ? null
+              : () => _action(
+                  () => TgdeskApi.acceptSupportOffer(ticket['id'].toString())),
+          child: const Text('Aceitar atendimento'),
         ),
-        trailing: _statusChip(state),
-        childrenPadding: const EdgeInsets.fromLTRB(18, 0, 18, 18),
-        children: [
-          Align(
-            alignment: Alignment.centerLeft,
-            child: Text(ticket['description']?.toString() ??
-                'Sem detalhes adicionais.'),
-          ),
-          const SizedBox(height: 14),
-          Wrap(spacing: 8, runSpacing: 8, children: [
-            if (_role == TgdeskSupportRole.freelancer &&
-                state == TgdeskTicketState.offered)
-              FilledButton(
-                onPressed: _loading
-                    ? null
-                    : () => _action(() =>
-                        TgdeskApi.acceptSupportOffer(ticket['id'].toString())),
-                child: const Text('Aceitar atendimento'),
-              ),
-            if (state == TgdeskTicketState.accepted &&
-                (mine || TgdeskSupportPolicy.canManageQueue(_role)))
-              FilledButton.icon(
-                onPressed: _loading
-                    ? null
-                    : () => _action(() async {
-                          await TgdeskApi.transitionSupportTicket(
-                              ticket['id'].toString(), 'in_progress');
-                        }),
-                icon: const Icon(Icons.play_arrow),
-                label: const Text('Iniciar atendimento'),
-              ),
-            if (state == TgdeskTicketState.inProgress &&
-                (mine || TgdeskSupportPolicy.canManageQueue(_role)))
-              FilledButton.icon(
-                onPressed: _loading
-                    ? null
-                    : () => _action(() async {
-                          await TgdeskApi.transitionSupportTicket(
-                              ticket['id'].toString(), 'closed');
-                        }),
-                icon: const Icon(Icons.check_circle_outline),
-                label: const Text('Concluir atendimento'),
-              ),
-            if (TgdeskSupportPolicy.canUseTemporaryRemote(
-                role: _role,
-                mode: mode,
-                state: state,
-                assignedToCurrentUser: mine))
-              FilledButton.tonalIcon(
-                onPressed:
-                    _loading ? null : () => _openTemporaryRemote(ticket),
-                icon: const Icon(Icons.desktop_windows),
-                label: const Text('Acesso temporário'),
-              ),
-            if (TgdeskSupportPolicy.canUseTicketDiagnostics(
-                role: _role, state: state, assignedToCurrentUser: mine))
-              OutlinedButton.icon(
-                onPressed:
-                    _loading ? null : () => _openAuthorizedDiagnostics(ticket),
-                icon: const Icon(Icons.monitor_heart_outlined),
-                label: const Text('Testes autorizados'),
-              ),
-            if (mode == TgdeskServiceMode.onsite && mine)
-              OutlinedButton.icon(
-                onPressed: () => _showEvidenceDialog(ticket),
-                icon: const Icon(Icons.fact_check_outlined),
-                label: const Text('Comprovações'),
-              ),
-            if (TgdeskSupportPolicy.canManageQueue(_role) &&
-                (state == TgdeskTicketState.accepted ||
-                    state == TgdeskTicketState.inProgress))
-              OutlinedButton(
-                onPressed:
-                    _loading ? null : () => _showServiceOrderDialog(ticket),
-                child: const Text('Converter em OS'),
-              ),
-            if (state == TgdeskTicketState.closed)
-              OutlinedButton.icon(
-                onPressed: () => _showRatingDialog(ticket),
-                icon: const Icon(Icons.star_outline),
-                label: const Text('Avaliar atendimento'),
-              ),
-            // Sem isto não havia como pôr um chamado existente na Fila A
-            // pela interface — o botão de publicar cria outro, não despacha
-            // este.
-            if (TgdeskSupportPolicy.canManageQueue(_role) &&
-                state == TgdeskTicketState.open)
-              OutlinedButton.icon(
-                onPressed: _loading
-                    ? null
-                    : () => _action(() => TgdeskApi.dispatchTicket(
-                        ticket['id'].toString())),
-                icon: const Icon(Icons.campaign_outlined),
-                label: const Text('Publicar na fila'),
-              ),
-            if (state == TgdeskTicketState.inProgress && mine)
-              OutlinedButton.icon(
-                onPressed: _loading
-                    ? null
-                    : () => _action(() => TgdeskApi
-                        .startServiceOrderExecution(ticket['id'].toString())),
-                icon: const Icon(Icons.play_circle_outline),
-                label: const Text('Iniciar OS'),
-              ),
-            if (state == TgdeskTicketState.inProgress && mine)
-              OutlinedButton.icon(
-                onPressed: _loading ? null : () => _showStepDialog(ticket),
-                icon: const Icon(Icons.checklist_rtl),
-                label: const Text('Registrar etapa'),
-              ),
-            if (state == TgdeskTicketState.inProgress && mine)
-              OutlinedButton.icon(
-                onPressed: _loading ? null : () => _showFinishDialog(ticket),
-                icon: const Icon(Icons.task_alt),
-                label: const Text('Encerrar OS'),
-              ),
-            // O chamado só encerra quando as partes confirmam — é o que
-            // impede fechar por cima de quem não concordou.
-            if (state == TgdeskTicketState.awaitingConfirmation)
-              FilledButton.tonalIcon(
-                onPressed: _loading
-                    ? null
-                    : () => _action(() => TgdeskApi
-                        .confirmTicketClosure(ticket['id'].toString())),
-                icon: const Icon(Icons.how_to_reg_outlined),
-                label: const Text('Confirmar fechamento'),
-              ),
-          ]),
-          _ticketThread(ticket),
-        ],
-      ),
-    );
+      if (state == TgdeskTicketState.accepted &&
+          (mine || TgdeskSupportPolicy.canManageQueue(_role)))
+        FilledButton.icon(
+          onPressed: _loading
+              ? null
+              : () => _action(() async {
+                    await TgdeskApi.transitionSupportTicket(
+                        ticket['id'].toString(), 'in_progress');
+                  }),
+          icon: const Icon(Icons.play_arrow),
+          label: const Text('Iniciar atendimento'),
+        ),
+      if (state == TgdeskTicketState.inProgress &&
+          (mine || TgdeskSupportPolicy.canManageQueue(_role)))
+        FilledButton.icon(
+          onPressed: _loading
+              ? null
+              : () => _action(() async {
+                    await TgdeskApi.transitionSupportTicket(
+                        ticket['id'].toString(), 'closed');
+                  }),
+          icon: const Icon(Icons.check_circle_outline),
+          label: const Text('Concluir atendimento'),
+        ),
+      if (TgdeskSupportPolicy.canUseTemporaryRemote(
+          role: _role, mode: mode, state: state, assignedToCurrentUser: mine))
+        FilledButton.tonalIcon(
+          onPressed: _loading ? null : () => _openTemporaryRemote(ticket),
+          icon: const Icon(Icons.desktop_windows),
+          label: const Text('Acesso temporário'),
+        ),
+      if (TgdeskSupportPolicy.canUseTicketDiagnostics(
+          role: _role, state: state, assignedToCurrentUser: mine))
+        OutlinedButton.icon(
+          onPressed: _loading ? null : () => _openAuthorizedDiagnostics(ticket),
+          icon: const Icon(Icons.monitor_heart_outlined),
+          label: const Text('Testes autorizados'),
+        ),
+      if (mode == TgdeskServiceMode.onsite && mine)
+        OutlinedButton.icon(
+          onPressed: () => _showEvidenceDialog(ticket),
+          icon: const Icon(Icons.fact_check_outlined),
+          label: const Text('Comprovações'),
+        ),
+      if (TgdeskSupportPolicy.canManageQueue(_role) &&
+          (state == TgdeskTicketState.accepted ||
+              state == TgdeskTicketState.inProgress))
+        OutlinedButton(
+          onPressed: _loading ? null : () => _showServiceOrderDialog(ticket),
+          child: const Text('Converter em OS'),
+        ),
+      if (state == TgdeskTicketState.closed)
+        OutlinedButton.icon(
+          onPressed: () => _showRatingDialog(ticket),
+          icon: const Icon(Icons.star_outline),
+          label: const Text('Avaliar atendimento'),
+        ),
+      // Sem isto não havia como pôr um chamado existente na Fila A
+      // pela interface — o botão de publicar cria outro, não despacha
+      // este.
+      if (TgdeskSupportPolicy.canManageQueue(_role) &&
+          state == TgdeskTicketState.open)
+        OutlinedButton.icon(
+          onPressed: _loading
+              ? null
+              : () => _action(
+                  () => TgdeskApi.dispatchTicket(ticket['id'].toString())),
+          icon: const Icon(Icons.campaign_outlined),
+          label: const Text('Publicar na fila'),
+        ),
+      if (state == TgdeskTicketState.inProgress && mine)
+        OutlinedButton.icon(
+          onPressed: _loading
+              ? null
+              : () => _action(() => TgdeskApi.startServiceOrderExecution(
+                  ticket['id'].toString())),
+          icon: const Icon(Icons.play_circle_outline),
+          label: const Text('Iniciar OS'),
+        ),
+      if (state == TgdeskTicketState.inProgress && mine)
+        OutlinedButton.icon(
+          onPressed: _loading ? null : () => _showStepDialog(ticket),
+          icon: const Icon(Icons.checklist_rtl),
+          label: const Text('Registrar etapa'),
+        ),
+      if (state == TgdeskTicketState.inProgress && mine)
+        OutlinedButton.icon(
+          onPressed: _loading ? null : () => _showFinishDialog(ticket),
+          icon: const Icon(Icons.task_alt),
+          label: const Text('Encerrar OS'),
+        ),
+      // O chamado só encerra quando as partes confirmam — é o que
+      // impede fechar por cima de quem não concordou.
+      if (state == TgdeskTicketState.awaitingConfirmation)
+        FilledButton.tonalIcon(
+          onPressed: _loading
+              ? null
+              : () => _action(() =>
+                  TgdeskApi.confirmTicketClosure(ticket['id'].toString())),
+          icon: const Icon(Icons.how_to_reg_outlined),
+          label: const Text('Confirmar fechamento'),
+        ),
+    ];
   }
 
   Map<String, dynamic>? _findDevice(String? deviceId) {
@@ -630,10 +703,10 @@ class _SupportPageState extends State<SupportPage> {
         throw Exception('autorização remota indisponível');
       }
       if (!mounted) return;
-      final hostname = device?['display_name']?.toString().trim().isNotEmpty ==
-              true
-          ? device!['display_name'].toString()
-          : (device?['hostname']?.toString() ?? 'Dispositivo');
+      final hostname =
+          device?['display_name']?.toString().trim().isNotEmpty == true
+              ? device!['display_name'].toString()
+              : (device?['hostname']?.toString() ?? 'Dispositivo');
       Navigator.of(context).push(MaterialPageRoute(
         builder: (_) => TgdeskRemoteSessionPage(
           deviceId: deviceId,
@@ -665,10 +738,10 @@ class _SupportPageState extends State<SupportPage> {
         throw Exception('chamado sem dispositivo associado');
       }
       final device = _findDevice(deviceId);
-      final deviceName = device?['display_name']?.toString().trim().isNotEmpty ==
-              true
-          ? device!['display_name'].toString()
-          : (device?['hostname']?.toString() ?? 'Dispositivo');
+      final deviceName =
+          device?['display_name']?.toString().trim().isNotEmpty == true
+              ? device!['display_name'].toString()
+              : (device?['hostname']?.toString() ?? 'Dispositivo');
       if (!mounted) return;
       await showDialog<void>(
         context: context,
@@ -705,9 +778,14 @@ class _SupportPageState extends State<SupportPage> {
                 items: devices
                     .map((device) => DropdownMenuItem(
                           value: device['id']?.toString(),
-                          child: Text(device['display_name']?.toString().trim().isNotEmpty == true
+                          child: Text(device['display_name']
+                                      ?.toString()
+                                      .trim()
+                                      .isNotEmpty ==
+                                  true
                               ? device['display_name'].toString()
-                              : device['hostname']?.toString() ?? 'Dispositivo'),
+                              : device['hostname']?.toString() ??
+                                  'Dispositivo'),
                         ))
                     .toList(),
                 onChanged: (value) => setDialogState(() => deviceId = value),
@@ -770,8 +848,7 @@ class _SupportPageState extends State<SupportPage> {
     required List<int> bytes,
     Map<String, dynamic>? metadata,
   }) async {
-    final idempotencyKey =
-        '$type-${DateTime.now().microsecondsSinceEpoch}';
+    final idempotencyKey = '$type-${DateTime.now().microsecondsSinceEpoch}';
     final hash = _sha256Hex(bytes);
     await TgdeskApi.addOnsiteEvidence(
       ticketId,
@@ -806,15 +883,13 @@ class _SupportPageState extends State<SupportPage> {
               ),
               TextField(
                 controller: item,
-                decoration:
-                    const InputDecoration(labelText: 'Item ou serviço'),
+                decoration: const InputDecoration(labelText: 'Item ou serviço'),
               ),
               TextField(
                 controller: value,
                 keyboardType:
                     const TextInputType.numberWithOptions(decimal: true),
-                decoration:
-                    const InputDecoration(labelText: 'Valor estimado'),
+                decoration: const InputDecoration(labelText: 'Valor estimado'),
               ),
               const SizedBox(height: 12),
               SegmentedButton<String>(
@@ -847,7 +922,9 @@ class _SupportPageState extends State<SupportPage> {
         osType: osType,
         items: item.text.trim().isEmpty
             ? const []
-            : [<String, dynamic>{'description': item.text.trim()}],
+            : [
+                <String, dynamic>{'description': item.text.trim()}
+              ],
         values: {
           'estimated': double.tryParse(value.text.replaceAll(',', '.')) ?? 0
         },
@@ -888,12 +965,14 @@ class _SupportPageState extends State<SupportPage> {
             );
             final file = result?.files.firstOrNull;
             if (file?.bytes == null) return;
-            await run(label, () => _sendEvidence(
-                  ticketId: ticketId,
-                  type: type,
-                  bytes: file!.bytes!,
-                  metadata: {'filename': file.name},
-                ));
+            await run(
+                label,
+                () => _sendEvidence(
+                      ticketId: ticketId,
+                      type: type,
+                      bytes: file!.bytes!,
+                      metadata: {'filename': file.name},
+                    ));
           }
 
           return AlertDialog(
@@ -1041,8 +1120,9 @@ class _SupportPageState extends State<SupportPage> {
                               : () async {
                                   setDialogState(() => busy = true);
                                   try {
-                                    final os = await TgdeskApi
-                                        .exportServiceOrder(ticketId);
+                                    final os =
+                                        await TgdeskApi.exportServiceOrder(
+                                            ticketId);
                                     if (context.mounted) {
                                       await _showExportedOrderDialog(os);
                                     }
@@ -1103,14 +1183,16 @@ class _SupportPageState extends State<SupportPage> {
                 type: FileType.custom,
                 allowedExtensions: const ['json'],
               );
-              if (path != null) await File(path).writeAsString(pretty, flush: true);
+              if (path != null)
+                await File(path).writeAsString(pretty, flush: true);
             },
           ),
           TextButton.icon(
             icon: const Icon(Icons.print_outlined),
             label: const Text('Imprimir'),
             onPressed: () async {
-              final file = File('${Directory.systemTemp.path}${Platform.pathSeparator}TGDesk-OS-${order['service_order_id']}.txt');
+              final file = File(
+                  '${Directory.systemTemp.path}${Platform.pathSeparator}TGDesk-OS-${order['service_order_id']}.txt');
               await file.writeAsString(pretty, flush: true);
               await Process.start('notepad.exe', ['/p', file.path]);
             },
@@ -1161,9 +1243,7 @@ class _SupportPageState extends State<SupportPage> {
       return Row(children: [
         for (var i = 1; i <= 5; i++)
           IconButton(
-            onPressed: done
-                ? null
-                : () => setDialogState(() => stars[key] = i),
+            onPressed: done ? null : () => setDialogState(() => stars[key] = i),
             icon: Icon(i <= value ? Icons.star : Icons.star_border,
                 color: TgdeskColors.seed),
           ),
