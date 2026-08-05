@@ -683,6 +683,38 @@ class TgdeskApi {
         },
       ) as Map);
 
+  /// Publica um chamado existente na fila de avulsos. Sem isto não havia como
+  /// pôr nada na Fila A pela interface — o botão de publicar cria um chamado
+  /// novo, não despacha este.
+  static Future<void> dispatchTicket(String ticketId) async =>
+      _send('POST', '/api/v1/support/tickets/$ticketId/dispatch', body: {});
+
+  /// Início da execução da OS agendada.
+  static Future<void> startServiceOrderExecution(String ticketId) async =>
+      _send('POST', '/api/v1/support/tickets/$ticketId/os/start', body: {});
+
+  /// Uma etapa de execução. O servidor recusa etapa fora de OS em andamento e
+  /// fora do técnico atribuído: a tela oferece, quem valida é ele.
+  static Future<void> recordServiceOrderStep(
+    String ticketId, {
+    required String etapa,
+    Map<String, dynamic>? dados,
+  }) async =>
+      _send('POST', '/api/v1/support/tickets/$ticketId/os/step',
+          body: {'etapa': etapa, if (dados != null) 'dados': dados});
+
+  static Future<void> finishServiceOrder(String ticketId,
+          {required String notas}) async =>
+      _send('POST', '/api/v1/support/tickets/$ticketId/os/finish',
+          body: {'notas': notas});
+
+  /// Confirmação de fechamento do lado do técnico. O do cliente é
+  /// [clientConfirmClosure]: o chamado só encerra quando as partes confirmam,
+  /// e é isso que impede fechar por cima de quem não concordou.
+  static Future<void> confirmTicketClosure(String ticketId) async =>
+      _send('POST', '/api/v1/support/tickets/$ticketId/confirm-closure',
+          body: {});
+
   /// Nome que o cliente dá ao próprio computador, pelo menu do TGDesk. É a
   /// mesma coluna que o técnico enxerga na lista — quem nomeia a máquina é
   /// quem senta nela.

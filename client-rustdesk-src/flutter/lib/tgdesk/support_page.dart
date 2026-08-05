@@ -29,9 +29,10 @@ class SupportPage extends StatefulWidget {
 
 class _SupportPageState extends State<SupportPage> {
   final _control = TgdeskControlChannel.instance;
-  String _filter = 'active';
+  /// Aba corrente: active | queue | done | billing.
+  String _tab = 'active';
+  final Map<String, TextEditingController> _chatControllers = {};
   bool _loading = false;
-  bool _showSupervisorQueue = false;
   List<Map<String, dynamic>> _supervisorQueue = [];
   bool _queueLoading = false;
 
@@ -94,13 +95,15 @@ class _SupportPageState extends State<SupportPage> {
     final source = _role == TgdeskSupportRole.freelancer
         ? _control.offers
         : _control.tickets;
+    // O servidor devolve o campo como 'status' (ListTickets em support.go).
+    // Lendo 'state' o filtro achava null em tudo, caía no padrão 'open' e
+    // Concluídos nunca mostrava nada.
+    const encerrados = {'closed', 'cancelled', 'expired'};
     final tickets = source.where((item) {
-      final state = item['state']?.toString() ?? 'open';
-      if (_filter == 'all') return true;
-      if (_filter == 'closed') {
-        return const {'closed', 'cancelled', 'expired'}.contains(state);
-      }
-      return !const {'closed', 'cancelled', 'expired'}.contains(state);
+      final status = item['status']?.toString() ?? 'open';
+      return _tab == 'done'
+          ? encerrados.contains(status)
+          : !encerrados.contains(status);
     }).toList(growable: false);
     return Column(children: [
       Padding(
@@ -109,12 +112,7 @@ class _SupportPageState extends State<SupportPage> {
           Expanded(
             child:
                 Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(
-                  _role == TgdeskSupportRole.freelancer
-                      ? 'Atendimentos disponíveis'
-                      : (_showSupervisorQueue
-                          ? 'Fila de avulsos (Fila A)'
-                          : 'Chamados e ordens de serviço'),
+              Text(_tabTitle(),
                   style: Theme.of(context).textTheme.headlineSmall),
               const SizedBox(height: 4),
               Text(_control.connected
@@ -122,32 +120,25 @@ class _SupportPageState extends State<SupportPage> {
                   : 'Reconectando ao servidor'),
             ]),
           ),
-          if (canManage) ...[
-            SegmentedButton<bool>(
-              segments: const [
-                ButtonSegment(value: false, label: Text('Chamados')),
-                ButtonSegment(value: true, label: Text('Fila de avulsos')),
-              ],
-              selected: {_showSupervisorQueue},
-              onSelectionChanged: (value) {
-                setState(() => _showSupervisorQueue = value.first);
-                if (_showSupervisorQueue) unawaited(_loadSupervisorQueue());
-              },
-            ),
-            const SizedBox(width: 12),
-          ],
-          if (!_showSupervisorQueue)
-            SegmentedButton<String>(
-              segments: const [
-                ButtonSegment(value: 'active', label: Text('Ativos')),
-                ButtonSegment(value: 'closed', label: Text('Encerrados')),
-                ButtonSegment(value: 'all', label: Text('Todos')),
-              ],
-              selected: {_filter},
-              onSelectionChanged: (value) =>
-                  setState(() => _filter = value.first),
-            ),
-          if (canManage && !_showSupervisorQueue) ...[
+          // Um segmentado só, no lugar de dois empilhados: o antigo obrigava
+          // a combinar duas escolhas para chegar num lugar.
+          SegmentedButton<String>(
+            segments: [
+              const ButtonSegment(value: 'active', label: Text('Ativos')),
+              if (canManage)
+                const ButtonSegment(value: 'queue', label: Text('Fila')),
+              const ButtonSegment(value: 'done', label: Text('Concluídos')),
+              if (canManage)
+                const ButtonSegment(
+                    value: 'billing', label: Text('Faturamento')),
+            ],
+            selected: {_tab},
+            onSelectionChanged: (value) {
+              setState(() => _tab = value.first);
+              if (_tab == 'queue') unawaited(_loadSupervisorQueue());
+            },
+          ),
+          if (canManage && _tab == 'active') ...[
             const SizedBox(width: 12),
             FilledButton.icon(
               onPressed: _loading ? null : _showDispatchDialog,
@@ -159,18 +150,135 @@ class _SupportPageState extends State<SupportPage> {
       ),
       const Divider(height: 1),
       Expanded(
-        child: _showSupervisorQueue
+        child: _tab == 'queue'
             ? _supervisorQueueList()
-            : (tickets.isEmpty
-                ? const Center(child: Text('Nenhum atendimento nesta fila.'))
-                : ListView.separated(
-                    padding: const EdgeInsets.all(20),
-                    itemCount: tickets.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 10),
-                    itemBuilder: (_, index) => _ticketCard(tickets[index]),
-                  )),
+            : _tab == 'billing'
+                ? _billingPlaceholder()
+                : (tickets.isEmpty
+                    ? Center(child: Text(_emptyLabel()))
+                    : ListView.separated(
+                        padding: const EdgeInsets.all(20),
+                        itemCount: tickets.length,
+                        separatorBuilder: (_, __) =>
+                            const SizedBox(height: 10),
+                        itemBuilder: (_, index) =>
+                            _ticketCard(tickets[index]),
+                      )),
       ),
     ]);
+  }
+
+  String _tabTitle() {
+    if (_role == TgdeskSupportRole.freelancer) {
+      return 'Atendimentos disponíveis';
+    }
+    switch (_tab) {
+      case 'queue':
+        return 'Fila de avulsos';
+      case 'done':
+        return 'Atendimentos concluídos';
+      case 'billing':
+        return 'Faturamento';
+    }
+    return 'Chamados e ordens de serviço';
+  }
+
+  String _emptyLabel() => _tab == 'done'
+      ? 'Nenhum atendimento concluído ainda.'
+      : 'Nenhum atendimento em andamento.';
+
+  /// A aba existe para reservar o lugar; a lógica vem depois.
+  Widget _billingPlaceholder() => const Center(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          Icon(Icons.receipt_long_outlined, size: 42),
+          SizedBox(height: 12),
+          Text('Conteúdo em construção'),
+        ]),
+      );
+
+  /// Conversa e histórico do chamado. São a mesma lista de eventos vista de
+  /// dois jeitos — mensagem é um tipo de evento entre outros — e ela chega
+  /// empurrada pelo canal, evento a evento. A tela nunca vai buscar.
+  ///
+  /// O cliente já escrevia; sem isto ninguém do outro lado lia.
+  Widget _ticketThread(Map<String, dynamic> ticket) {
+    final id = ticket['id']?.toString() ?? '';
+    final eventos = _control.ticketEvents[id] ?? const [];
+    final controller = _chatControllers.putIfAbsent(
+        id, () => TextEditingController());
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      const Divider(height: 24),
+      if (eventos.isEmpty)
+        Text('Nenhuma mensagem ainda.',
+            style: Theme.of(context).textTheme.bodySmall)
+      else
+        ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: 220),
+          child: ListView(
+            shrinkWrap: true,
+            children: eventos
+                .map((evento) => Padding(
+                      padding: const EdgeInsets.only(bottom: 6),
+                      child: Text(_eventLine(evento)),
+                    ))
+                .toList(growable: false),
+          ),
+        ),
+      const SizedBox(height: 10),
+      Row(children: [
+        Expanded(
+          child: TextField(
+            controller: controller,
+            decoration: const InputDecoration(
+              isDense: true,
+              hintText: 'Escrever para o cliente',
+              border: OutlineInputBorder(),
+            ),
+            onSubmitted: (_) => _sendMessage(id, controller),
+          ),
+        ),
+        const SizedBox(width: 8),
+        IconButton.filled(
+          onPressed: _loading ? null : () => _sendMessage(id, controller),
+          icon: const Icon(Icons.send),
+          tooltip: 'Enviar',
+        ),
+      ]),
+    ]);
+  }
+
+  Future<void> _sendMessage(
+      String ticketId, TextEditingController controller) async {
+    final texto = controller.text.trim();
+    if (texto.isEmpty) return;
+    controller.clear();
+    await _action(() => TgdeskApi.addTicketMessage(ticketId, message: texto));
+  }
+
+  /// O rótulo de cada evento é desta camada: do servidor vem o tipo e o
+  /// dado, nunca a frase.
+  String _eventLine(Map<String, dynamic> evento) {
+    final payload = evento['payload'];
+    final corpo = payload is Map ? payload['message']?.toString() : null;
+    switch (evento['type']?.toString()) {
+      case 'message':
+        return 'Técnico: ${corpo ?? ''}';
+      case 'client_message':
+        return 'Cliente: ${corpo ?? ''}';
+      case 'opened':
+        return 'Chamado aberto.';
+      case 'diagnosis':
+        return 'Diagnóstico automático registrado.';
+      case 'os_step':
+        return 'Etapa da OS registrada.';
+      case 'closure_confirmed':
+        return 'Fechamento confirmado.';
+      case 'remote_access_requested':
+        return 'Acesso remoto solicitado.';
+      case 'remote_access_response':
+        return 'Cliente respondeu ao pedido de acesso.';
+    }
+    return evento['type']?.toString() ?? '';
   }
 
   Widget _supervisorQueueList() {
@@ -270,7 +378,12 @@ class _SupportPageState extends State<SupportPage> {
           mainAxisSize: MainAxisSize.min,
           children: [
             Text(
-                '${ticket['customer_name'] ?? 'Cliente'} • ${_stateLabel(state)}'),
+                [
+                  if ((ticket['protocol']?.toString() ?? '').isNotEmpty)
+                    ticket['protocol'].toString(),
+                  ticket['customer_name']?.toString() ?? 'Cliente',
+                  _stateLabel(state),
+                ].join(' • ')),
             if (networkLabel != null) ...[
               const SizedBox(height: TgdeskSpacing.xs),
               Chip(
@@ -366,7 +479,30 @@ class _SupportPageState extends State<SupportPage> {
                 icon: const Icon(Icons.star_outline),
                 label: const Text('Avaliar atendimento'),
               ),
+            // Sem isto não havia como pôr um chamado existente na Fila A
+            // pela interface — o botão de publicar cria outro, não despacha
+            // este.
+            if (TgdeskSupportPolicy.canManageQueue(_role) &&
+                state == TgdeskTicketState.open)
+              OutlinedButton.icon(
+                onPressed: _loading
+                    ? null
+                    : () => _action(() => TgdeskApi.dispatchTicket(
+                        ticket['id'].toString())),
+                icon: const Icon(Icons.campaign_outlined),
+                label: const Text('Publicar na fila'),
+              ),
+            if (state == TgdeskTicketState.inProgress && mine)
+              OutlinedButton.icon(
+                onPressed: _loading
+                    ? null
+                    : () => _action(() => TgdeskApi
+                        .startServiceOrderExecution(ticket['id'].toString())),
+                icon: const Icon(Icons.play_circle_outline),
+                label: const Text('Iniciar OS'),
+              ),
           ]),
+          _ticketThread(ticket),
         ],
       ),
     );
