@@ -312,23 +312,10 @@ class TgdeskApi {
     return res as Map<String, dynamic>;
   }
 
-  /// Entrada do cliente particular: vincula este dispositivo à rede de
-  /// atendimento avulso da TGDevs sem código de pareamento e sem abrir
-  /// chamado. Autenticado por device_id + device_token, como os demais
-  /// endpoints de dispositivo — o device ainda é guest e não tem túnel, então
-  /// não pode passar pelo canal privado.
-  /// Endpoint real: POST /api/v1/pairing/standalone-bind.
-  static Future<Map<String, dynamic>> standaloneBindDevice({
-    required String deviceId,
-    required String deviceToken,
-  }) async =>
-      Map<String, dynamic>.from(await _send(
-        'POST',
-        '/api/v1/pairing/standalone-bind',
-        auth: false,
-        privateControl: false,
-        body: {'device_id': deviceId, 'device_token': deviceToken},
-      ) as Map);
+  /// A entrada do cliente — avulso ou empresarial — deixou de ser uma ação da
+  /// interface: o instalador grava a escolha e o agente a executa na primeira
+  /// conexão, inclusive quando ninguém abre o TGDesk. Ver
+  /// client-agent/cmd/agent/install_intent.go.
 
   /// Código que vincula outro supervisor a esta organização. A fila de
   /// chamados sempre foi da org, então todos os supervisores vinculados veem

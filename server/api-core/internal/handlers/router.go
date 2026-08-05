@@ -16,6 +16,7 @@ func NewRouter(s *Server) http.Handler {
 	// Público — usado pelo agente recém-instalado (estado guest).
 	mux.HandleFunc("POST /api/v1/auth/technician/redeem", s.RedeemTechnicianEnrollment)
 	mux.HandleFunc("POST /api/v1/auth/control-key/install", s.RedeemTechnicianEnrollment)
+	mux.HandleFunc("POST /api/v1/auth/control-key/validate", s.ValidateTechnicianEnrollment)
 	mux.HandleFunc("POST /api/v1/auth/technician/refresh", s.RefreshTechnicianMachine)
 	mux.HandleFunc("POST /api/v1/devices/register", s.RegisterDevice)
 	mux.HandleFunc("POST /api/v1/devices/heartbeat", s.Heartbeat)
@@ -44,6 +45,15 @@ func NewRouter(s *Server) http.Handler {
 	// dispositivo (autenticado por device_id + device_token no corpo): o device
 	// ainda é guest, logo não tem túnel e não pode passar por private().
 	mux.HandleFunc("POST /api/v1/pairing/standalone-bind", s.StandaloneBindDevice)
+	// Entrada do cliente empresarial e a busca que o instalador faz antes dela.
+	// Público pelo mesmo motivo: no momento da instalação ainda não existe
+	// dispositivo, logo não existe túnel para passar por private().
+	mux.HandleFunc("POST /api/v1/pairing/org-intake-bind", s.OrgIntakeBindDevice)
+	mux.HandleFunc("GET /api/v1/public/technicians/search", s.SearchPublicTechnicians)
+	mux.HandleFunc("GET /api/v1/public/technicians/{id}/branding",
+		func(w http.ResponseWriter, r *http.Request) {
+			s.GetPublicTechnicianBranding(w, r, r.PathValue("id"))
+		})
 
 	jwtAuth := middleware.RequireAuth(s.Cfg.JWTSecret)
 	auth := func(h http.Handler) http.Handler {

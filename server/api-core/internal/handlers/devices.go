@@ -462,11 +462,16 @@ func (s *Server) UpdateDeviceNetworks(w http.ResponseWriter, r *http.Request, de
 		writeErr(w, http.StatusForbidden, "sem permissao para alterar as redes deste dispositivo")
 		return
 	}
+	// A rede de entrada não conta como organização natal: estar nela é a
+	// intenção declarada pelo cliente na instalação, não um vínculo. Se
+	// contasse, quem escolhesse o técnico errado ficaria preso naquela
+	// organização — o 409 abaixo bloquearia a correção, e não há saída por
+	// DELETE /admin/guest-devices/{id}, que só alcança dispositivo guest.
 	var homeOrganizationID string
 	_ = s.Pool.QueryRow(r.Context(), `
 		SELECT n.organization_id
 		FROM device_networks dn JOIN networks n ON n.id=dn.network_id
-		WHERE dn.device_id=$1 AND n.system_key IS NULL
+		WHERE dn.device_id=$1 AND n.system_key IS NULL AND NOT n.is_intake
 		ORDER BY dn.created_at LIMIT 1`, deviceID).Scan(&homeOrganizationID)
 	selectedSystemNetworks := map[string]string{}
 	for _, networkID := range req.NetworkIDs {
@@ -562,10 +567,25 @@ func (s *Server) UpdateDeviceNetworks(w http.ResponseWriter, r *http.Request, de
 		writeErr(w, http.StatusInternalServerError, "falha ao conciliar sub-redes")
 		return
 	}
+	// Entrar na rede é entrar na subrede Principal dela, como em Bind e nas
+	// duas entradas de cliente. Sem isso o dispositivo movido fica em uma rede
+	// e em subrede nenhuma — e como quem decide contato direto é a subrede
+	// (0042), ele não enxergaria os da própria rede: seria promovido para
+	// lugar nenhum.
 	if _, err = tx.Exec(r.Context(), `
-		UPDATE devices SET network_id=$1,subnetwork_id=NULL,updated_at=now() WHERE id=$2`,
+		UPDATE devices SET network_id=$1,
+			subnetwork_id=(SELECT id FROM subnetworks WHERE network_id=$1 ORDER BY (name='Principal') DESC,created_at LIMIT 1),
+			updated_at=now() WHERE id=$2`,
 		req.NetworkIDs[0], deviceID); err != nil {
 		writeErr(w, http.StatusInternalServerError, "falha ao definir rede principal")
+		return
+	}
+	if _, err = tx.Exec(r.Context(), `
+		INSERT INTO device_subnetworks(device_id,subnetwork_id)
+		SELECT $1,id FROM subnetworks WHERE network_id=$2
+		ORDER BY (name='Principal') DESC, created_at LIMIT 1
+		ON CONFLICT DO NOTHING`, deviceID, req.NetworkIDs[0]); err != nil {
+		writeErr(w, http.StatusInternalServerError, "falha ao vincular sub-rede principal")
 		return
 	}
 	if err = tx.Commit(r.Context()); err != nil {

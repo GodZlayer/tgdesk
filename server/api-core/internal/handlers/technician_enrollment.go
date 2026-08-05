@@ -108,6 +108,51 @@ func (s *Server) CreateTechnicianEnrollmentKey(w http.ResponseWriter, r *http.Re
 	})
 }
 
+// ValidateTechnicianEnrollment confere a chave sem consumi-la, para que o
+// instalador possa recusar um arquivo inválido na própria tela de seleção.
+//
+// A chave é de uso único: consumi-la antes da remoção da instalação anterior
+// significaria queimá-la se a remoção falhasse, deixando o técnico sem chave e
+// sem instalação. Por isso a validação vem aqui, e o consumo continua em
+// RedeemTechnicianEnrollment, já com a máquina limpa.
+func (s *Server) ValidateTechnicianEnrollment(w http.ResponseWriter, r *http.Request) {
+	var req redeemEnrollmentRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil ||
+		(req.Key.Format != controlKeyFormat && req.Key.Format != legacyTechnicianFormat) ||
+		req.Key.KeyID == "" ||
+		req.Key.Secret == "" ||
+		req.Key.ServerID != enrollmentServerID(s.Cfg.JWTSecret) {
+		writeErr(w, http.StatusBadRequest, "arquivo-chave inválido")
+		return
+	}
+	var username, role, status string
+	var storedHash []byte
+	var expiresAt, consumedAt *time.Time
+	err := s.Pool.QueryRow(r.Context(), `
+		SELECT t.username, t.role, t.status, k.secret_hash,
+		       k.expires_at, k.consumed_at
+		FROM technician_enrollment_keys k
+		JOIN technicians t ON t.id=k.technician_id
+		WHERE k.id=$1`, req.Key.KeyID,
+	).Scan(&username, &role, &status, &storedHash, &expiresAt, &consumedAt)
+	if err != nil || status != "ativo" ||
+		!equalDigest(storedHash, secretDigest(req.Key.Secret)) {
+		writeErr(w, http.StatusUnauthorized, "chave inválida")
+		return
+	}
+	if consumedAt != nil {
+		writeErr(w, http.StatusConflict, "chave já utilizada")
+		return
+	}
+	if expiresAt != nil && time.Now().After(*expiresAt) {
+		writeErr(w, http.StatusGone, "chave expirada")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{
+		"role": role, "username": username,
+	})
+}
+
 // RedeemTechnicianEnrollment atomically consumes a one-time key and binds the
 // resulting credential to the supplied Windows machine identity.
 func (s *Server) RedeemTechnicianEnrollment(w http.ResponseWriter, r *http.Request) {

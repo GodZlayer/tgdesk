@@ -3,7 +3,7 @@
 ; uso único validada pelo servidor dentro do próprio TGDesk.
 
 #define MyAppName "TGDesk"
-#define MyAppVersion "1.1.35"
+#define MyAppVersion "1.1.36"
 #define MyAppPublisher "TGDesk"
 #ifndef TGDeskServerHost
   #define TGDeskServerHost "127.0.0.1"
@@ -19,7 +19,7 @@ DefaultGroupName=TGDesk
 DisableProgramGroupPage=yes
 PrivilegesRequired=admin
 OutputDir=.\output
-OutputBaseFilename=tgdesk-installer-1.1.35
+OutputBaseFilename=tgdesk-installer-1.1.36
 Compression=lzma2
 SolidCompression=yes
 ArchitecturesInstallIn64BitMode=x64compatible
@@ -77,63 +77,227 @@ Root: HKCU; Subkey: "SOFTWARE\TGDesk"; ValueType: dword; ValueName: "StartWithWi
 Root: HKCU; Subkey: "SOFTWARE\TGDesk"; ValueType: dword; ValueName: "StartWithWindows"; ValueData: "1"; Check: ShouldInitializeAutoStart
 
 [Code]
+{ O instalador resolve o destino da máquina antes de instalar: quem é técnico
+  entrega a chave, quem é cliente escolhe entre a empresa dele e o atendimento
+  avulso. Com isso a tela de bifurcação do primeiro início do TGDesk deixa de
+  existir — a pergunta já foi respondida aqui.
+
+  A identidade do técnico só é substituída quando isso é decidido de fato, e a
+  chave, que é de uso único, só é consumida depois da remoção da instalação
+  anterior ter dado certo: queimá-la antes deixaria o técnico sem chave e sem
+  instalação se a remoção falhasse. }
+
 const
-  ControlInstallUrl =
-    'http://{#TGDeskServerHost}:8090/api/v1/auth/control-key/install';
+  ServerBaseUrl = 'http://{#TGDeskServerHost}:8090';
+  ControlInstallUrl = 'http://{#TGDeskServerHost}:8090/api/v1/auth/control-key/install';
+  ControlValidateUrl = 'http://{#TGDeskServerHost}:8090/api/v1/auth/control-key/validate';
+  TechnicianSearchUrl = 'http://{#TGDeskServerHost}:8090/api/v1/public/technicians/search?q=';
+  MinSearchLength = 3;
 
 var
-  PreserveIdentityPage: TInputOptionWizardPage;
-  HasControlKeyPage: TInputOptionWizardPage;
+  InstallTypePage: TInputOptionWizardPage;
+  OverwriteIdentityPage: TInputOptionWizardPage;
   ControlKeyFilePage: TInputFileWizardPage;
+  ClientKindPage: TInputOptionWizardPage;
+  TechnicianPage: TWizardPage;
+  TechnicianSearchEdit: TNewEdit;
+  TechnicianSearchButton: TNewButton;
+  TechnicianList: TNewListBox;
+  TechnicianIDs: TStringList;
+  SelectedTechnicianID: string;
+  BrandingPayload: string;
   EnrollmentResponse: string;
   ExistingControlIdentity: Boolean;
   ControlKeyParam: string;
   CleanupProgressPage: TOutputProgressWizardPage;
 
+function IsTechnicianInstall: Boolean;
+begin
+  Result := InstallTypePage.SelectedValueIndex = 1;
+end;
+
+{ A identidade de controle existente é preservada só quando o usuário disse
+  que este continua sendo o mesmo computador de técnico. Escolher "Cliente"
+  já é, por si, a decisão de descartá-la. }
+function ReplacesIdentity: Boolean;
+begin
+  Result := (not ExistingControlIdentity) or (not IsTechnicianInstall) or
+    (OverwriteIdentityPage.SelectedValueIndex = 1);
+end;
+
+function IsCorporateClient: Boolean;
+begin
+  Result := (not IsTechnicianInstall) and (ClientKindPage.SelectedValueIndex = 0);
+end;
+
+function HttpGetText(Url: string; var Body: string): Boolean;
+var
+  Http: Variant;
+begin
+  Result := False;
+  try
+    Http := CreateOleObject('WinHttp.WinHttpRequest.5.1');
+    Http.SetTimeouts(5000, 5000, 10000, 15000);
+    Http.Open('GET', Url, False);
+    Http.Send('');
+    Body := Http.ResponseText;
+    Result := Http.Status = 200;
+  except
+    Body := '';
+  end;
+end;
+
+{ Extração pontual de campo de JSON. O instalador consome duas respostas de
+  formato conhecido e fixo; embutir um parser completo aqui seria peso morto. }
+function JsonStringAfter(Source: string; var Cursor: Integer; Field: string): string;
+var
+  Marker: string;
+  Start, Stop: Integer;
+begin
+  Result := '';
+  Marker := '"' + Field + '":"';
+  Start := Pos(Marker, Copy(Source, Cursor, Length(Source)));
+  if Start = 0 then
+    exit;
+  Start := Cursor + Start - 1 + Length(Marker);
+  Stop := Start;
+  while (Stop <= Length(Source)) and (Source[Stop] <> '"') do
+    Stop := Stop + 1;
+  Result := Copy(Source, Start, Stop - Start);
+  Cursor := Stop;
+end;
+
+{ Nome de tecnico tem espaco e acento, e os dois quebram a query string se
+  forem enviados crus. A conversao para UTF-8 e feita a mao de proposito: um
+  cast para AnsiString usaria a codepage do Windows, e o servidor leria os
+  acentos errados. }
+function PercentByte(Value: Integer): string;
+begin
+  Result := Format('%%%.2x', [Value]);
+end;
+
+function UrlEncode(Value: string): string;
+var
+  Index, Code: Integer;
+begin
+  Result := '';
+  for Index := 1 to Length(Value) do
+  begin
+    Code := Ord(Value[Index]);
+    if ((Code >= 48) and (Code <= 57)) or ((Code >= 65) and (Code <= 90)) or
+        ((Code >= 97) and (Code <= 122)) or (Code = 45) or (Code = 46) or
+        (Code = 95) or (Code = 126) then
+      Result := Result + Chr(Code)
+    else if Code < $80 then
+      Result := Result + PercentByte(Code)
+    else if Code < $800 then
+      Result := Result + PercentByte($C0 or (Code shr 6)) +
+        PercentByte($80 or (Code and $3F))
+    else
+      Result := Result + PercentByte($E0 or (Code shr 12)) +
+        PercentByte($80 or ((Code shr 6) and $3F)) +
+        PercentByte($80 or (Code and $3F));
+  end;
+end;
+
+procedure SearchTechnicians(Sender: TObject);
+var
+  Query, Body, TechID, TechName: string;
+  Cursor: Integer;
+begin
+  Query := Trim(TechnicianSearchEdit.Text);
+  if Length(Query) < MinSearchLength then
+  begin
+    MsgBox('Digite ao menos 3 letras do nome do técnico.', mbInformation, MB_OK);
+    exit;
+  end;
+  TechnicianList.Items.Clear;
+  TechnicianIDs.Clear;
+  SelectedTechnicianID := '';
+  if not HttpGetText(TechnicianSearchUrl + UrlEncode(Query), Body) then
+  begin
+    MsgBox('Não foi possível consultar o servidor. Verifique a conexão.',
+      mbError, MB_OK);
+    exit;
+  end;
+  Cursor := 1;
+  repeat
+    TechID := JsonStringAfter(Body, Cursor, 'id');
+    if TechID = '' then
+      break;
+    TechName := JsonStringAfter(Body, Cursor, 'name');
+    TechnicianIDs.Add(TechID);
+    TechnicianList.Items.Add(TechName);
+  until False;
+  if TechnicianList.Items.Count = 0 then
+    MsgBox('Nenhum técnico encontrado com esse nome.', mbInformation, MB_OK);
+end;
+
 procedure InitializeWizard;
 begin
   ExistingControlIdentity :=
     FileExists(ExpandConstant('{commonappdata}\TGDesk\identity\technician.dat'));
+  TechnicianIDs := TStringList.Create;
 
-  { FLUXO: Se existe instalação prévia, perguntar se mantém a chave }
-  if ExistingControlIdentity then
-  begin
-    PreserveIdentityPage := CreateInputOptionPage(wpWelcome,
-      'Manter chave de registro?', 'Deseja manter a chave de registro TGDesk existente?',
-      'Recomendado para atualizações. Mantém Admin/Tech, dispositivo e vínculo com a rede.',
-      True, False);
-    PreserveIdentityPage.Add('Sim — manter chave (recomendado para update)');
-    PreserveIdentityPage.Add('Não — apagar e instalar como novo computador');
-    PreserveIdentityPage.SelectedValueIndex := 0;
-  end
-  else
-  begin
-    { FLUXO: Se NÃO existe instalação prévia, perguntar chave/client direto }
-    PreserveIdentityPage := CreateInputOptionPage(wpWelcome,
-      'Tipo de instalação', 'Este é um novo computador. Qual é seu tipo?',
-      'Admin/Tech: computador com controle. Client: computador cliente.',
-      True, False);
-    PreserveIdentityPage.Add('Client — sem controle, apenas recebe suporte');
-    PreserveIdentityPage.Add('Admin ou Tech — com chave de controle');
-    PreserveIdentityPage.SelectedValueIndex := 0;
-  end;
-
-  HasControlKeyPage := CreateInputOptionPage(PreserveIdentityPage.ID,
-    'Chave de controle', 'Possui chave de controle?',
-    'Sem uma chave válida este computador será instalado no modo Client.',
+  InstallTypePage := CreateInputOptionPage(wpWelcome,
+    'Tipo de instalação', 'Este computador é de um técnico ou de um cliente?',
+    'Cliente recebe suporte. Técnico e Admin controlam, e precisam de uma chave.',
     True, False);
-  HasControlKeyPage.Add('Não (instalar como Client)');
-  HasControlKeyPage.Add('Sim (Admin ou Tech)');
-  HasControlKeyPage.SelectedValueIndex := 0;
+  InstallTypePage.Add('Cliente — recebe suporte');
+  InstallTypePage.Add('Técnico ou Admin — tenho chave de controle');
+  InstallTypePage.SelectedValueIndex := 0;
 
-  ControlKeyFilePage := CreateInputFilePage(HasControlKeyPage.ID,
+  OverwriteIdentityPage := CreateInputOptionPage(InstallTypePage.ID,
+    'Identidade de controle', 'Este computador já tem uma identidade registrada.',
+    'Manter é o caminho da atualização. Substituir exige uma nova chave.',
+    True, False);
+  OverwriteIdentityPage.Add('Manter a identidade atual');
+  OverwriteIdentityPage.Add('Substituir por uma nova chave');
+  OverwriteIdentityPage.SelectedValueIndex := 0;
+
+  ControlKeyFilePage := CreateInputFilePage(OverwriteIdentityPage.ID,
     'Chave de controle', 'Selecione o arquivo .tgdesk-key',
-    'A chave será validada e consumida agora. Ela não será copiada para o computador.');
+    'A chave é conferida agora e consumida só depois da limpeza da instalação anterior.');
   ControlKeyFilePage.Add('Arquivo:', 'Arquivos TGDesk|*.tgdesk-key|Todos os arquivos|*.*', '.tgdesk-key');
+
+  ClientKindPage := CreateInputOptionPage(ControlKeyFilePage.ID,
+    'Como você usa o TGDesk', 'Este computador é atendido por uma empresa?',
+    'A escolha define para onde este computador vai — e não precisa ser refeita depois.',
+    True, False);
+  ClientKindPage.Add('Minha empresa tem TGDesk');
+  ClientKindPage.Add('Sou particular — atendimento TGDesk');
+  ClientKindPage.SelectedValueIndex := 1;
+
+  TechnicianPage := CreateCustomPage(ClientKindPage.ID,
+    'Técnico responsável', 'Procure pelo nome do técnico que atende a sua empresa.');
+
+  TechnicianSearchEdit := TNewEdit.Create(TechnicianPage);
+  TechnicianSearchEdit.Parent := TechnicianPage.Surface;
+  TechnicianSearchEdit.Left := 0;
+  TechnicianSearchEdit.Top := 0;
+  TechnicianSearchEdit.Width := TechnicianPage.SurfaceWidth - ScaleX(90);
+
+  TechnicianSearchButton := TNewButton.Create(TechnicianPage);
+  TechnicianSearchButton.Parent := TechnicianPage.Surface;
+  TechnicianSearchButton.Left := TechnicianPage.SurfaceWidth - ScaleX(80);
+  TechnicianSearchButton.Top := TechnicianSearchEdit.Top - ScaleY(1);
+  TechnicianSearchButton.Width := ScaleX(80);
+  TechnicianSearchButton.Height := TechnicianSearchEdit.Height + ScaleY(2);
+  TechnicianSearchButton.Caption := 'Procurar';
+  TechnicianSearchButton.OnClick := @SearchTechnicians;
+
+  TechnicianList := TNewListBox.Create(TechnicianPage);
+  TechnicianList.Parent := TechnicianPage.Surface;
+  TechnicianList.Left := 0;
+  TechnicianList.Top := TechnicianSearchEdit.Top + TechnicianSearchEdit.Height + ScaleY(10);
+  TechnicianList.Width := TechnicianPage.SurfaceWidth;
+  TechnicianList.Height := TechnicianPage.SurfaceHeight - TechnicianList.Top;
+
   ControlKeyParam := ExpandConstant('{param:CONTROLKEY|}');
   if (ControlKeyParam <> '') and FileExists(ControlKeyParam) then
   begin
-    HasControlKeyPage.SelectedValueIndex := 1;
+    InstallTypePage.SelectedValueIndex := 1;
+    OverwriteIdentityPage.SelectedValueIndex := 1;
     ControlKeyFilePage.Values[0] := ControlKeyParam;
   end;
 
@@ -142,38 +306,31 @@ begin
     'Limpando serviços, drivers, registros e arquivos antigos do TGDesk.');
 end;
 
+procedure DeinitializeSetup;
+begin
+  { Roda mesmo quando o setup aborta antes de montar o wizard. }
+  if TechnicianIDs <> nil then
+    TechnicianIDs.Free;
+end;
+
 function ShouldSkipPage(PageID: Integer): Boolean;
 begin
-  { Se mantém chave existente (SIM selecionado), pular perguntas de chave/client }
-  if ExistingControlIdentity and (PreserveIdentityPage.SelectedValueIndex = 0) then
-  begin
-    Result := (PageID = HasControlKeyPage.ID) or (PageID = ControlKeyFilePage.ID);
-    exit;
-  end;
-
-  { Se em nova instalação e selecionou Client, pular páginas de chave }
-  if not ExistingControlIdentity and (PreserveIdentityPage.SelectedValueIndex = 0) then
-  begin
-    Result := (PageID = HasControlKeyPage.ID) or (PageID = ControlKeyFilePage.ID);
-    exit;
-  end;
-
-  { Se selecionou "não tem chave", pular página de seleção de arquivo }
-  if (PageID = ControlKeyFilePage.ID) and (HasControlKeyPage.SelectedValueIndex = 0) then
-  begin
-    Result := True;
-    exit;
-  end;
-
   Result := False;
+  if PageID = OverwriteIdentityPage.ID then
+    Result := (not ExistingControlIdentity) or (not IsTechnicianInstall)
+  else if PageID = ControlKeyFilePage.ID then
+    Result := (not IsTechnicianInstall) or (not ReplacesIdentity)
+  else if PageID = ClientKindPage.ID then
+    Result := IsTechnicianInstall
+  else if PageID = TechnicianPage.ID then
+    Result := not IsCorporateClient;
 end;
 
 function ShouldInitializeAutoStart: Boolean;
 var
   Configured: Cardinal;
 begin
-  if not (ExistingControlIdentity and
-      (PreserveIdentityPage.SelectedValueIndex = 0)) then
+  if ReplacesIdentity then
     Result := True
   else
     Result := not RegQueryDWordValue(
@@ -255,18 +412,73 @@ begin
   end;
 end;
 
+{ Confere a chave sem gastá-la, para que um arquivo errado seja recusado aqui
+  e não depois da máquina já ter sido limpa. }
+function ValidateControlKey: Boolean;
+var
+  ResponseText: string;
+  KeyJson: AnsiString;
+  Http: Variant;
+begin
+  Result := False;
+  if not LoadStringFromFile(ControlKeyFilePage.Values[0], KeyJson) then
+  begin
+    MsgBox('Não foi possível ler a chave.', mbError, MB_OK);
+    exit;
+  end;
+  try
+    Http := CreateOleObject('WinHttp.WinHttpRequest.5.1');
+    Http.SetTimeouts(5000, 5000, 10000, 10000);
+    Http.Open('POST', ControlValidateUrl, False);
+    Http.SetRequestHeader('Content-Type', 'application/json');
+    Http.Send('{"key":' + string(KeyJson) + '}');
+    ResponseText := Http.ResponseText;
+    if Http.Status <> 200 then
+    begin
+      MsgBox('A chave foi recusada pelo servidor.' + #13#10 + ResponseText,
+        mbError, MB_OK);
+      exit;
+    end;
+    Result := True;
+  except
+    MsgBox('Não foi possível conferir a chave no servidor. Verifique a conexão.',
+      mbError, MB_OK);
+  end;
+end;
+
 function NextButtonClick(CurPageID: Integer): Boolean;
+var
+  Body: string;
 begin
   Result := True;
-  if (CurPageID = ControlKeyFilePage.ID) and
-      (HasControlKeyPage.SelectedValueIndex = 1) then
+  if (CurPageID = ControlKeyFilePage.ID) and IsTechnicianInstall and
+      ReplacesIdentity then
   begin
     if (ControlKeyFilePage.Values[0] = '') or
         not FileExists(ControlKeyFilePage.Values[0]) then
     begin
       MsgBox('Selecione um arquivo .tgdesk-key válido.', mbError, MB_OK);
       Result := False;
+      exit;
     end;
+    Result := ValidateControlKey;
+  end
+  else if CurPageID = TechnicianPage.ID then
+  begin
+    if TechnicianList.ItemIndex < 0 then
+    begin
+      MsgBox('Selecione o técnico que atende a sua empresa.', mbError, MB_OK);
+      Result := False;
+      exit;
+    end;
+    SelectedTechnicianID := TechnicianIDs.Strings[TechnicianList.ItemIndex];
+    { O branding vem do servidor porque o instalador é um binário único e
+      assinado: recompilar por cliente criaria variantes sem reputação no
+      SmartScreen. Falhar aqui não impede a instalação — o TGDesk busca o
+      mesmo branding em runtime. }
+    if HttpGetText(ServerBaseUrl + '/api/v1/public/technicians/' +
+        SelectedTechnicianID + '/branding', Body) then
+      BrandingPayload := Body;
   end;
 end;
 
@@ -425,27 +637,22 @@ begin
     CleanupProgressPage.SetProgress(1, 3);
     RemoveLegacyUninstallEntries;
     RemoveLegacyTGDeskFolders;
-    { So apaga identity/ (que guarda tanto technician.dat quanto device.json)
-      quando o usuario ESCOLHEU isso explicitamente na pagina "Manter chave
-      de registro?" - pagina que so aparece se ja existe technician.dat.
-      Quando essa pagina nunca apareceu (ExistingControlIdentity=False, ex:
-      computador que so era Cliente e nunca teve Admin/Tech) a identidade do
-      DISPOSITIVO ja registrado tem que sobreviver de qualquer forma: sem
-      isso o agente esquece quem e, tenta se registrar como novo e o servidor
-      recusa (409) porque o MAC ja pertence a um dispositivo existente. }
-    if ExistingControlIdentity and
-        (PreserveIdentityPage.SelectedValueIndex = 1) then
+    { identity/ guarda duas coisas: technician.dat, que e a identidade de
+      CONTROLE, e device.json, que e a identidade do DISPOSITIVO. Apagar o
+      diretorio inteiro leva as duas, e sem device.json o agente esquece quem
+      e, tenta se registrar como novo e o servidor recusa (409) porque o MAC
+      ja pertence a um dispositivo existente.
+      Por isso a remocao e cirurgica: o dispositivo sobrevive sempre, e so a
+      identidade de controle cai quando substitui-la foi decidido de fato. }
+    DelTree(ExpandConstant('{commonappdata}\TGDesk\state'), True, True, True);
+    DelTree(ExpandConstant('{commonappdata}\TGDesk\logs'), True, True, True);
+    DelTree(ExpandConstant('{commonappdata}\TGDesk\updates'), True, True, True);
+    if ReplacesIdentity then
     begin
-      DelTree(ExpandConstant('{commonappdata}\TGDesk'), True, True, True);
+      DeleteFile(ExpandConstant('{commonappdata}\TGDesk\identity\technician.dat'));
       RegDeleteKeyIncludingSubkeys(HKCU, 'SOFTWARE\TGDesk');
       RegDeleteKeyIncludingSubkeys(HKLM64, 'SOFTWARE\TGDesk');
       RegDeleteKeyIncludingSubkeys(HKLM32, 'SOFTWARE\TGDesk');
-    end
-    else
-    begin
-      DelTree(ExpandConstant('{commonappdata}\TGDesk\state'), True, True, True);
-      DelTree(ExpandConstant('{commonappdata}\TGDesk\logs'), True, True, True);
-      DelTree(ExpandConstant('{commonappdata}\TGDesk\updates'), True, True, True);
     end;
     DelTree(ExpandConstant('{app}'), True, True, True);
     DelTree(ExpandConstant('{autopf}\RustDesk'), True, True, True);
@@ -469,9 +676,7 @@ begin
   begin
     WizardForm.StatusLabel.Caption :=
       'Validando e vinculando a chave ao servidor...';
-    if not (ExistingControlIdentity and
-        (PreserveIdentityPage.SelectedValueIndex = 0)) and
-        (HasControlKeyPage.SelectedValueIndex = 1) and
+    if IsTechnicianInstall and ReplacesIdentity and
         (EnrollmentResponse = '') and not ConsumeControlKey then
       RaiseException(
         'A instalação foi cancelada porque a chave de controle não pôde ser validada.');
@@ -504,6 +709,29 @@ begin
         RaiseException(
           'Falha ao proteger a identidade Admin/Tech. O serviço não será iniciado.');
     end;
+    { A escolha do cliente vira intencao em disco em vez de uma chamada aqui:
+      exigir servidor durante a instalacao deixaria uma maquina instalada
+      offline sem destino. O agente materializa na primeira conexao, e tenta
+      de novo enquanto nao conseguir. Instalacao de tecnico nao passa por
+      aqui - la a chave e obrigatoria e a falta de rede aborta mesmo. }
+    if not IsTechnicianInstall then
+    begin
+      if IsCorporateClient then
+        SaveStringToFile(ExpandConstant(
+          '{commonappdata}\TGDesk\identity\install-intent.json'),
+          '{"kind":"empresarial","technician_id":"' +
+          JsonEscape(SelectedTechnicianID) + '"}', False)
+      else
+        SaveStringToFile(ExpandConstant(
+          '{commonappdata}\TGDesk\identity\install-intent.json'),
+          '{"kind":"particular"}', False);
+    end;
+    { O TGDesk busca o branding em runtime; o pacote baixado aqui so evita
+      que a primeira tela apareca sem marca enquanto a rede nao responde. }
+    if BrandingPayload <> '' then
+      SaveStringToFile(ExpandConstant(
+        '{commonappdata}\TGDesk\identity\install-branding.json'),
+        BrandingPayload, False);
     SaveStringToFile(ExpandConstant(
       '{commonappdata}\TGDesk\layout-0.3.marker'), '0.3', False);
 

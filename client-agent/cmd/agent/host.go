@@ -248,6 +248,7 @@ func runHost(args []string) {
 	} else {
 		log.Printf("dispositivo já registrado (id=%s)", cfg.DeviceID)
 	}
+	applyInstallIntent(cfg)
 	if configuredCoreExe != "" {
 		cfg.CoreExe = configuredCoreExe
 		_ = saveConfig(cfg)
@@ -258,7 +259,9 @@ func runHost(args []string) {
 	var tunnelUp bool
 	var remoteReady bool
 	var privateFailures int
-	writeStatus(tgdeskStatus{State: "guest", PairingCode: cfg.PairingCode, Hostname: localHostname(), DeviceID: cfg.DeviceID})
+	preBranding := installBranding()
+	syncBrandFavicon(preBranding)
+	writeStatus(tgdeskStatus{State: "guest", PairingCode: cfg.PairingCode, Hostname: localHostname(), DeviceID: cfg.DeviceID, Branding: preBranding})
 	for {
 		if tunnelUp {
 			if !remoteReady {

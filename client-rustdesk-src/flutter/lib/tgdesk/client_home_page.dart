@@ -1,4 +1,4 @@
-import 'dart:async';
+﻿import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -27,7 +27,6 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
   bool _updateAvailable = false;
   bool _serverOnline = false;
   bool _openingTicket = false;
-  bool _bindingStandalone = false;
   bool _selfBindAttempted = false;
   Map<String, dynamic>? _openTicket;
   final TextEditingController _chatController = TextEditingController();
@@ -70,7 +69,7 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
     _pollTimer = Timer.periodic(const Duration(seconds: 2), (_) => _poll());
     if (_canRequestSupport) {
       // A conversa chega por push no canal do dispositivo. A leitura inicial
-      // existe só porque esta tela acabou de abrir e ainda não recebeu nada.
+      // existe sÃ³ porque esta tela acabou de abrir e ainda nÃ£o recebeu nada.
       TgdeskApi.onTicketThread = (thread) {
         if (mounted) {
           setState(() => _openTicket = thread['open'] == true ? thread : null);
@@ -85,8 +84,8 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
       final identity = await _deviceIdentity();
       final deviceId = identity['device_id']?.toString() ?? '';
       if (deviceId.isEmpty) return;
-      // A thread já devolve protocolo, status, mensagens e pedidos de acesso
-      // remoto — uma chamada resolve o painel inteiro.
+      // A thread jÃ¡ devolve protocolo, status, mensagens e pedidos de acesso
+      // remoto â€” uma chamada resolve o painel inteiro.
       final result = await TgdeskApi.clientTicketThread(
         deviceId: deviceId,
         deviceToken: identity['device_token']?.toString() ?? '',
@@ -96,7 +95,7 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
         setState(() => _openTicket = result['open'] == true ? result : null);
       }
     } catch (_) {
-      // Sem chamado conhecido a tela apenas reoferece o botão; o servidor
+      // Sem chamado conhecido a tela apenas reoferece o botÃ£o; o servidor
       // deduplica de qualquer forma se o cliente pedir de novo.
     }
   }
@@ -114,8 +113,8 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
             content: Text(grant
-                ? 'Acesso autorizado. O técnico já pode assumir o computador.'
-                : 'Acesso negado. O técnico segue com os testes, sem controlar a máquina.')));
+                ? 'Acesso autorizado. O tÃ©cnico jÃ¡ pode assumir o computador.'
+                : 'Acesso negado. O tÃ©cnico segue com os testes, sem controlar a mÃ¡quina.')));
       }
     } catch (error) {
       if (mounted) {
@@ -125,8 +124,8 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
     }
   }
 
-  // O pedido de acesso remoto é a decisão mais sensível que o cliente toma na
-  // tela, então aparece como bloco próprio e destacado — nunca embutido no
+  // O pedido de acesso remoto Ã© a decisÃ£o mais sensÃ­vel que o cliente toma na
+  // tela, entÃ£o aparece como bloco prÃ³prio e destacado â€” nunca embutido no
   // meio das mensagens, onde passaria batido.
   Widget _remoteAccessRequest(Map<String, dynamic> pedido) => Container(
         margin: const EdgeInsets.only(top: 10),
@@ -143,7 +142,7 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
             const SizedBox(width: 8),
             Expanded(
               child: Text(
-                  '${pedido['requested_by'] ?? 'O técnico'} pediu para acessar seu computador',
+                  '${pedido['requested_by'] ?? 'O tÃ©cnico'} pediu para acessar seu computador',
                   style: const TextStyle(fontWeight: FontWeight.w600)),
             ),
           ]),
@@ -154,7 +153,7 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
           ],
           const SizedBox(height: 6),
           const Text(
-              'Se você recusar, o técnico continua podendo fazer testes, mas não controla a máquina.',
+              'Se vocÃª recusar, o tÃ©cnico continua podendo fazer testes, mas nÃ£o controla a mÃ¡quina.',
               style: TextStyle(color: Color(0xff9eacbf), fontSize: 12)),
           const SizedBox(height: 10),
           Row(children: [
@@ -166,14 +165,14 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
             TextButton(
                 onPressed: () =>
                     _answerRemoteAccess(pedido['id'].toString(), false),
-                child: const Text('Agora não')),
+                child: const Text('Agora nÃ£o')),
           ]),
         ]),
       );
 
-  // A tela Cliente já é diferente por tier. Para quem está logado como
-  // supervisor ou admin, ela oferece o resgate do convite: é assim que ele
-  // passa a supervisionar a organização de outro, vendo a mesma fila.
+  // A tela Cliente jÃ¡ Ã© diferente por tier. Para quem estÃ¡ logado como
+  // supervisor ou admin, ela oferece o resgate do convite: Ã© assim que ele
+  // passa a supervisionar a organizaÃ§Ã£o de outro, vendo a mesma fila.
   Widget _supervisorInvitePanel() => Container(
         width: double.infinity,
         margin: const EdgeInsets.only(top: 12),
@@ -188,13 +187,13 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
           const SizedBox(width: 12),
           const Expanded(
             child: Text(
-                'Recebeu um código para supervisionar outra organização? '
+                'Recebeu um cÃ³digo para supervisionar outra organizaÃ§Ã£o? '
                 'Resgate aqui para passar a ver os chamados dela.',
                 style: TextStyle(color: Color(0xffb7c2d1), fontSize: 13)),
           ),
           TextButton(
             onPressed: _resgatarConviteSupervisor,
-            child: const Text('Resgatar código'),
+            child: const Text('Resgatar cÃ³digo'),
           ),
         ]),
       );
@@ -204,7 +203,7 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (d) => AlertDialog(
-        title: const Text('Supervisionar outra organização'),
+        title: const Text('Supervisionar outra organizaÃ§Ã£o'),
         content: SizedBox(
           width: 380,
           child: TextField(
@@ -212,8 +211,8 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
             autofocus: true,
             textCapitalization: TextCapitalization.characters,
             decoration: const InputDecoration(
-                labelText: 'Código recebido',
-                helperText: 'Você passa a ver os chamados dessa organização.'),
+                labelText: 'CÃ³digo recebido',
+                helperText: 'VocÃª passa a ver os chamados dessa organizaÃ§Ã£o.'),
           ),
         ),
         actions: [
@@ -232,7 +231,7 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
             content: Text(
-                'Você agora supervisiona ${r['organization_name'] ?? 'a organização'}.')));
+                'VocÃª agora supervisiona ${r['organization_name'] ?? 'a organizaÃ§Ã£o'}.')));
       }
     } catch (error) {
       if (mounted) {
@@ -248,13 +247,13 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
       builder: (d) => AlertDialog(
         title: const Text('Confirmar o encerramento?'),
         content: const Text(
-            'O técnico informou que concluiu o atendimento. Confirme só se o '
-            'problema foi resolvido — o chamado é encerrado quando todas as '
+            'O tÃ©cnico informou que concluiu o atendimento. Confirme sÃ³ se o '
+            'problema foi resolvido â€” o chamado Ã© encerrado quando todas as '
             'partes confirmarem.'),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(d, false),
-              child: const Text('Ainda não')),
+              child: const Text('Ainda nÃ£o')),
           FilledButton(
               onPressed: () => Navigator.pop(d, true),
               child: const Text('Confirmar')),
@@ -273,7 +272,7 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
             content: Text(r['chamado_fechado'] == true
                 ? 'Atendimento encerrado. Obrigado!'
-                : 'Sua confirmação foi registrada. Aguardando as demais.')));
+                : 'Sua confirmaÃ§Ã£o foi registrada. Aguardando as demais.')));
       }
     } catch (error) {
       if (mounted) {
@@ -283,7 +282,7 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
     }
   }
 
-  // Estado do atendimento em linguagem de cliente: onde está e o que se espera
+  // Estado do atendimento em linguagem de cliente: onde estÃ¡ e o que se espera
   // dele agora.
   Widget _servicePanel(Map<String, dynamic> os) {
     final status = os['status']?.toString() ?? '';
@@ -292,23 +291,23 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
     String texto;
     switch (status) {
       case 'offered':
-        texto = 'Procurando um técnico disponível para o seu atendimento.';
+        texto = 'Procurando um tÃ©cnico disponÃ­vel para o seu atendimento.';
         break;
       case 'assigned':
         texto = agendada.isEmpty
-            ? 'Um técnico assumiu o atendimento.'
-            : 'Atendimento agendado. Um técnico já está designado.';
+            ? 'Um tÃ©cnico assumiu o atendimento.'
+            : 'Atendimento agendado. Um tÃ©cnico jÃ¡ estÃ¡ designado.';
         break;
       case 'in_progress':
-        texto = 'O técnico está trabalhando no seu atendimento agora.';
+        texto = 'O tÃ©cnico estÃ¡ trabalhando no seu atendimento agora.';
         break;
       case 'awaiting_confirmation':
         texto = aguardaEle
-            ? 'O técnico concluiu. Confirme para encerrar o atendimento.'
-            : 'Concluído. Aguardando a confirmação dos responsáveis.';
+            ? 'O tÃ©cnico concluiu. Confirme para encerrar o atendimento.'
+            : 'ConcluÃ­do. Aguardando a confirmaÃ§Ã£o dos responsÃ¡veis.';
         break;
       case 'completed':
-        texto = 'Atendimento concluído.';
+        texto = 'Atendimento concluÃ­do.';
         break;
       default:
         texto = 'Seu pedido foi registrado.';
@@ -341,7 +340,7 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
         ]),
         if ((os['escopo']?.toString() ?? '').isNotEmpty) ...[
           const SizedBox(height: 6),
-          Text('Serviço: ${os['escopo']}',
+          Text('ServiÃ§o: ${os['escopo']}',
               style: const TextStyle(color: Color(0xff9eacbf), fontSize: 12)),
         ],
         if (agendada.isNotEmpty) ...[
@@ -365,7 +364,7 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
     final d = DateTime.tryParse(iso)?.toLocal();
     if (d == null) return iso;
     String dois(int v) => v.toString().padLeft(2, '0');
-    return '${dois(d.day)}/${dois(d.month)} às ${dois(d.hour)}:${dois(d.minute)}';
+    return '${dois(d.day)}/${dois(d.month)} Ã s ${dois(d.hour)}:${dois(d.minute)}';
   }
 
   Widget _chatPanel() {
@@ -385,12 +384,12 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
         Row(children: [
           const Icon(Icons.forum_outlined, color: Color(0xff8db8ee), size: 20),
           const SizedBox(width: 8),
-          Text('Conversa • ${ticket['protocol'] ?? ''}',
+          Text('Conversa â€¢ ${ticket['protocol'] ?? ''}',
               style: const TextStyle(fontWeight: FontWeight.w600)),
         ]),
         const SizedBox(height: 10),
         if (mensagens.isEmpty)
-          const Text('Assim que um técnico assumir, a conversa aparece aqui.',
+          const Text('Assim que um tÃ©cnico assumir, a conversa aparece aqui.',
               style: TextStyle(color: Color(0xff9eacbf), fontSize: 13))
         else
           ConstrainedBox(
@@ -404,7 +403,7 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
                   return Padding(
                     padding: const EdgeInsets.only(bottom: 7),
                     child: Text(
-                      '${doCliente ? "Você" : (m['author']?.toString().isNotEmpty == true ? m['author'] : "Técnico")}: ${m['message'] ?? ''}',
+                      '${doCliente ? "VocÃª" : (m['author']?.toString().isNotEmpty == true ? m['author'] : "TÃ©cnico")}: ${m['message'] ?? ''}',
                       style: TextStyle(
                           fontSize: 13,
                           color: doCliente
@@ -425,7 +424,7 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
               style: const TextStyle(fontSize: 13),
               decoration: const InputDecoration(
                 isDense: true,
-                hintText: 'Escreva para o técnico (opcional)',
+                hintText: 'Escreva para o tÃ©cnico (opcional)',
               ),
               onSubmitted: (_) => _sendChat(),
             ),
@@ -456,7 +455,7 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
       if (result.exitCode != 10 && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
             content: Text(result.stderr.toString().trim().isEmpty
-                ? 'Não foi possível instalar a atualização.'
+                ? 'NÃ£o foi possÃ­vel instalar a atualizaÃ§Ã£o.'
                 : result.stderr.toString().trim())));
       }
     } finally {
@@ -515,11 +514,11 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
     } catch (_) {}
   }
 
-  // Esta mesma máquina física já provou quem é através da credencial de
-  // técnico (Admin/Tech), um vínculo bem mais forte que um código de
-  // pareamento. Pedir aprovação manual de novo, agora na camada de
-  // dispositivo, é só fricção redundante — então, quando a sessão logada é
-  // supervisor/admin, resolve sozinho assim que aparece um código.
+  // Esta mesma mÃ¡quina fÃ­sica jÃ¡ provou quem Ã© atravÃ©s da credencial de
+  // tÃ©cnico (Admin/Tech), um vÃ­nculo bem mais forte que um cÃ³digo de
+  // pareamento. Pedir aprovaÃ§Ã£o manual de novo, agora na camada de
+  // dispositivo, Ã© sÃ³ fricÃ§Ã£o redundante â€” entÃ£o, quando a sessÃ£o logada Ã©
+  // supervisor/admin, resolve sozinho assim que aparece um cÃ³digo.
   Future<void> _maybeSelfBind(Map<String, dynamic> status) async {
     if (_selfBindAttempted) return;
     final state = status['state']?.toString() ?? '';
@@ -535,7 +534,7 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
     }
     if (!(AppState.isSupervisor || AppState.isSuperAdmin)) {
       _logSelfBind(
-          'pulado: role=${AppState.role} não é supervisor/super_admin (code=$code)');
+          'pulado: role=${AppState.role} nÃ£o Ã© supervisor/super_admin (code=$code)');
       return;
     }
     _selfBindAttempted = true;
@@ -545,7 +544,7 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
       _logSelfBind('sucesso: $result');
     } catch (e) {
       _selfBindAttempted = false;
-      _logSelfBind('falhou: $e — tentará de novo no próximo poll');
+      _logSelfBind('falhou: $e â€” tentarÃ¡ de novo no prÃ³ximo poll');
     }
   }
 
@@ -595,7 +594,7 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
     }
     final state = _status!['state']?.toString() ?? '';
     if (state == 'guest') {
-      return _buildEntryChoice(_status!['pairing_code']?.toString() ?? '');
+      return _buildEntryPending(_status!['pairing_code']?.toString() ?? '');
     }
     if (state != 'ativo') {
       return Center(
@@ -603,13 +602,13 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
         Icon(state == 'suspenso' ? Icons.block : Icons.link, size: 42),
         const SizedBox(height: 12),
         Text(state == 'suspenso'
-            ? 'Contate a TG Devs para reativar o serviço'
+            ? 'Contate a TG Devs para reativar o serviÃ§o'
             : 'Conectando ao TGDesk'),
       ]));
     }
     final hw = _map(_status!['hardware']);
-    // A aba Cliente dentro de Tech/Admin é uma prévia fiel do que o cliente
-    // enxerga. Diagnóstico técnico pertence ao dispositivo selecionado.
+    // A aba Cliente dentro de Tech/Admin Ã© uma prÃ©via fiel do que o cliente
+    // enxerga. DiagnÃ³stico tÃ©cnico pertence ao dispositivo selecionado.
     return _buildClientReport(hw);
     /*
     return Container(
@@ -647,132 +646,37 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
     return jsonDecode(await file.readAsString()) as Map<String, dynamic>;
   }
 
-  // O TGDesk atende tanto a empresa quanto o particular, então a tela de
-  // entrada é uma bifurcação, não uma sala de espera: ou o técnico da empresa
-  // vincula pelo código, ou a pessoa entra por conta própria na rede de
-  // atendimento avulso da TGDevs. Entrar não depende de abrir chamado — o
-  // dispositivo passa a participar da telemetria primeiro, para que o
-  // histórico já exista quando o problema aparecer.
-  Widget _buildEntryChoice(String code) => Center(
-        child: SingleChildScrollView(
-          padding: const EdgeInsets.all(32),
-          child: ConstrainedBox(
-            constraints: const BoxConstraints(maxWidth: 760),
-            child: Column(mainAxisSize: MainAxisSize.min, children: [
-              const Icon(Icons.link, size: 42),
-              const SizedBox(height: 12),
-              const Text('Como você vai usar o TGDesk?',
-                  style:
-                      TextStyle(fontSize: 22, fontWeight: FontWeight.w600)),
-              const SizedBox(height: 26),
-              Row(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-                Expanded(
-                  child: _panel(
-                    child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Row(children: [
-                            Icon(Icons.business_outlined,
-                                color: Color(0xff2787ff)),
-                            SizedBox(width: 10),
-                            Expanded(
-                                child: Text('Minha empresa tem TGDesk',
-                                    style: TextStyle(
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.w600))),
-                          ]),
-                          const SizedBox(height: 10),
-                          const Text(
-                              'Informe este código ao técnico responsável para ele vincular este computador à rede da empresa.',
-                              style: TextStyle(color: Color(0xff9eacbf))),
-                          const SizedBox(height: 16),
-                          if (code.isEmpty)
-                            const Text('Gerando código…',
-                                style: TextStyle(color: Color(0xff75849a)))
-                          else
-                            SelectableText(code,
-                                style: const TextStyle(
-                                    fontSize: 28, letterSpacing: 4)),
-                        ]),
-                  ),
-                ),
-                const SizedBox(width: 16),
-                Expanded(
-                  child: _panel(
-                    child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Row(children: [
-                            Icon(Icons.person_outline,
-                                color: Color(0xff45c95a)),
-                            SizedBox(width: 10),
-                            Expanded(
-                                child: Text('Sou particular',
-                                    style: TextStyle(
-                                        fontSize: 16,
-                                        fontWeight: FontWeight.w600))),
-                          ]),
-                          const SizedBox(height: 10),
-                          const Text(
-                              'Entre por conta própria e passe a ser acompanhado pelo TGDesk. Quando precisar, um técnico com garantia TG Devs atende você.',
-                              style: TextStyle(color: Color(0xff9eacbf))),
-                          const SizedBox(height: 16),
-                          FilledButton.icon(
-                            onPressed: _bindingStandalone
-                                ? null
-                                : _bindStandalone,
-                            icon: _bindingStandalone
-                                ? const SizedBox(
-                                    width: 16,
-                                    height: 16,
-                                    child: CircularProgressIndicator(
-                                        strokeWidth: 2))
-                                : const Icon(Icons.arrow_forward),
-                            label: Text(_bindingStandalone
-                                ? 'Entrando…'
-                                : 'Entrar como cliente avulso'),
-                          ),
-                        ]),
-                  ),
-                ),
-              ]),
-              const SizedBox(height: 18),
-              const Text(
-                'Em qualquer um dos casos, o TGDesk não dá acesso a outros clientes, redes ou dispositivos. '
-                'Todo acesso remoto ao seu computador depende de um chamado aceito por você.',
-                textAlign: TextAlign.center,
-                style: TextStyle(fontSize: 12, color: Color(0xff91a0b5)),
-              ),
-            ]),
-          ),
-        ),
+  // A bifurcaÃ§Ã£o "empresa ou particular" saiu daqui: quem instalou jÃ¡
+  // respondeu isso no instalador, e o agente materializa a escolha assim que
+  // houver conexÃ£o. O que resta Ã© a espera â€” normalmente de segundos, e mais
+  // longa sÃ³ quando a mÃ¡quina foi instalada sem rede.
+  //
+  // O cÃ³digo de pareamento continua visÃ­vel porque ele Ã© a saÃ­da manual: um
+  // tÃ©cnico ainda pode vincular este computador por cÃ³digo quando a intenÃ§Ã£o
+  // gravada na instalaÃ§Ã£o nÃ£o puder ser aplicada.
+  Widget _buildEntryPending(String code) => Center(
+        child: Column(mainAxisSize: MainAxisSize.min, children: [
+          const SizedBox(
+              width: 28,
+              height: 28,
+              child: CircularProgressIndicator(strokeWidth: 2)),
+          const SizedBox(height: 18),
+          const Text('Conectando este computador ao TGDesk',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
+          const SizedBox(height: 10),
+          const Text('Estamos aplicando a configuraÃ§Ã£o escolhida na instalaÃ§Ã£o.',
+              style: TextStyle(color: Color(0xff9eacbf))),
+          if (code.isNotEmpty) ...[
+            const SizedBox(height: 26),
+            const Text('CÃ³digo deste computador',
+                style: TextStyle(fontSize: 12, color: Color(0xff75849a))),
+            const SizedBox(height: 6),
+            SelectableText(code,
+                style: const TextStyle(fontSize: 20, letterSpacing: 3)),
+          ],
+        ]),
       );
 
-  Future<void> _bindStandalone() async {
-    setState(() => _bindingStandalone = true);
-    try {
-      final identity = await _deviceIdentity();
-      await TgdeskApi.standaloneBindDevice(
-        deviceId: identity['device_id']?.toString() ??
-            _status?['device_id']?.toString() ??
-            '',
-        deviceToken: identity['device_token']?.toString() ?? '',
-      );
-      // O agente reconsulta o estado e sobe o túnel sozinho; o poll de 2s
-      // troca a tela assim que o status.json refletir 'ativo'.
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text(
-                'Tudo certo! Conectando este computador ao atendimento TGDesk.')));
-      }
-    } catch (error) {
-      if (mounted) {
-        setState(() => _bindingStandalone = false);
-        ScaffoldMessenger.of(context)
-            .showSnackBar(SnackBar(content: Text(error.toString())));
-      }
-    }
-  }
 
   Widget _buildClientReport(Map<String, dynamic> hw) {
     final statistics = _map(_status!['statistics']);
@@ -831,30 +735,30 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
     final processingState = cpuLevel == 3
         ? 'Uso no limite'
         : cpuLevel == 2
-            ? 'Uso crítico'
+            ? 'Uso crÃ­tico'
             : cpuLevel == 1
                 ? 'Uso elevado'
-                : 'Desempenho estável';
+                : 'Desempenho estÃ¡vel';
     final memoryState = memoryLevel == 3
         ? 'Capacidade no limite'
         : memoryLevel == 2
-            ? 'Uso crítico'
+            ? 'Uso crÃ­tico'
             : memoryLevel == 1
                 ? 'Uso elevado'
                 : 'Uso adequado';
     final storageState = disks.isEmpty
-        ? 'Análise em andamento'
+        ? 'AnÃ¡lise em andamento'
         : storageLevel == 3
-            ? 'Espaço no limite'
+            ? 'EspaÃ§o no limite'
             : storageLevel == 2
-                ? 'Espaço crítico'
+                ? 'EspaÃ§o crÃ­tico'
                 : storageLevel == 1
-                    ? 'Espaço reduzido'
-                    : 'Espaço disponível';
+                    ? 'EspaÃ§o reduzido'
+                    : 'EspaÃ§o disponÃ­vel';
     final temperatureState = highestTemperature == 0
         ? 'Sensores acompanhados'
         : temperatureLevel >= 2
-            ? 'Temperatura crítica'
+            ? 'Temperatura crÃ­tica'
             : temperatureLevel == 1
                 ? 'Temperatura elevada'
                 : 'Dentro do esperado';
@@ -893,7 +797,7 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
                           const SizedBox(height: 5),
                           Text(
                             _brandText(health['client_summary']?.toString() ??
-                                'O TGDesk está preparando a primeira análise.'),
+                                'O TGDesk estÃ¡ preparando a primeira anÃ¡lise.'),
                             style: const TextStyle(
                                 fontSize: 15, color: Color(0xffa9b5c6)),
                           ),
@@ -903,17 +807,17 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
                     _clientConnectionBadge(),
                   ]),
                   const SizedBox(height: 22),
-                  // Os textos vêm do servidor, que é quem tem o histórico e
-                  // sabe há quanto tempo a condição dura e para onde caminha.
-                  // A tela só escolhe ícone e cor.
+                  // Os textos vÃªm do servidor, que Ã© quem tem o histÃ³rico e
+                  // sabe hÃ¡ quanto tempo a condiÃ§Ã£o dura e para onde caminha.
+                  // A tela sÃ³ escolhe Ã­cone e cor.
                   Row(children: [
                     Expanded(
                         child: _serverCard(healthMetrics, 'processing',
-                            'Experiência de uso', Icons.speed_outlined,
+                            'ExperiÃªncia de uso', Icons.speed_outlined,
                             processingState, cpuLevel)),
                     const SizedBox(width: 14),
                     Expanded(
-                        child: _serverCard(healthMetrics, 'memory', 'Memória',
+                        child: _serverCard(healthMetrics, 'memory', 'MemÃ³ria',
                             Icons.view_module_outlined, memoryState,
                             memoryLevel)),
                   ]),
@@ -929,8 +833,8 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
                             'Temperatura e estabilidade',
                             temperatureState,
                             temperatureLevel == 0
-                                ? 'O $_productName acompanha os sensores disponíveis.'
-                                : 'Uma alteração de temperatura foi identificada.',
+                                ? 'O $_productName acompanha os sensores disponÃ­veis.'
+                                : 'Uma alteraÃ§Ã£o de temperatura foi identificada.',
                             Icons.thermostat_outlined,
                             _indicatorColor(temperatureLevel))),
                   ]),
@@ -944,15 +848,15 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
                         child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              const Text('Acompanhamento contínuo',
+                              const Text('Acompanhamento contÃ­nuo',
                                   style: TextStyle(
                                       fontSize: 16,
                                       fontWeight: FontWeight.w600)),
                               const SizedBox(height: 4),
                               Text(
                                   samples == 0
-                                      ? 'O histórico deste computador está sendo iniciado.'
-                                      : '$samples verificações já fazem parte da análise deste computador.',
+                                      ? 'O histÃ³rico deste computador estÃ¡ sendo iniciado.'
+                                      : '$samples verificaÃ§Ãµes jÃ¡ fazem parte da anÃ¡lise deste computador.',
                                   style: const TextStyle(
                                       color: Color(0xff9eacbf))),
                             ]),
@@ -974,9 +878,9 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
     );
   }
 
-  // O botão de chamado é regra de PAPEL, não de alvo: quem está logado como
-  // técnico, supervisor ou admin não pede atendimento por esta tela, mesmo
-  // vendo-a embutida no próprio shell. Ver MODELO-PRODUTO.md, "Exceções".
+  // O botÃ£o de chamado Ã© regra de PAPEL, nÃ£o de alvo: quem estÃ¡ logado como
+  // tÃ©cnico, supervisor ou admin nÃ£o pede atendimento por esta tela, mesmo
+  // vendo-a embutida no prÃ³prio shell. Ver MODELO-PRODUTO.md, "ExceÃ§Ãµes".
   bool get _canRequestSupport => !AppState.isLoggedIn;
 
   Widget _supportPanel(Color color) {
@@ -1009,8 +913,8 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
         Expanded(
             child: Text(
                 hasOpen
-                    ? 'Seu pedido ${open?['protocol'] ?? ''} está aberto. Um técnico vai assumir e falar com você.'
-                    : 'Precisa de ajuda? Peça atendimento — o $_productName envia sozinho o diagnóstico deste computador.',
+                    ? 'Seu pedido ${open?['protocol'] ?? ''} estÃ¡ aberto. Um tÃ©cnico vai assumir e falar com vocÃª.'
+                    : 'Precisa de ajuda? PeÃ§a atendimento â€” o $_productName envia sozinho o diagnÃ³stico deste computador.',
                 style: const TextStyle(color: Color(0xffb7c2d1)))),
         if (!hasOpen)
           FilledButton.icon(
@@ -1021,28 +925,28 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
                     height: 16,
                     child: CircularProgressIndicator(strokeWidth: 2))
                 : const Icon(Icons.support_agent_outlined),
-            label: Text(_openingTicket ? 'Enviando…' : 'Pedir ajuda'),
+            label: Text(_openingTicket ? 'Enviandoâ€¦' : 'Pedir ajuda'),
           ),
       ]),
     );
   }
 
-  // Pedir ajuda não faz pergunta nenhuma ao cliente: ele não sabe além do que
-  // o próprio TGDesk diagnosticou, então quem redige o chamado é o servidor, a
-  // partir do histórico de saúde do dispositivo.
+  // Pedir ajuda nÃ£o faz pergunta nenhuma ao cliente: ele nÃ£o sabe alÃ©m do que
+  // o prÃ³prio TGDesk diagnosticou, entÃ£o quem redige o chamado Ã© o servidor, a
+  // partir do histÃ³rico de saÃºde do dispositivo.
   Future<void> _requestSupport() async {
     final confirmed = await showDialog<bool>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: const Text('Pedir ajuda ao seu técnico?'),
+        title: const Text('Pedir ajuda ao seu tÃ©cnico?'),
         content: const Text(
-            'O TGDesk vai enviar o diagnóstico deste computador junto com o pedido. '
-            'Você não precisa preencher nada.\n\n'
+            'O TGDesk vai enviar o diagnÃ³stico deste computador junto com o pedido. '
+            'VocÃª nÃ£o precisa preencher nada.\n\n'
             'Nenhum acesso ao seu computador acontece sem que o chamado seja aceito.'),
         actions: [
           TextButton(
               onPressed: () => Navigator.pop(dialogContext, false),
-              child: const Text('Agora não')),
+              child: const Text('Agora nÃ£o')),
           FilledButton(
               onPressed: () => Navigator.pop(dialogContext, true),
               child: const Text('Pedir ajuda')),
@@ -1063,8 +967,8 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
         setState(() => _openTicket = result);
         ScaffoldMessenger.of(context).showSnackBar(SnackBar(
             content: Text(result['already_open'] == true
-                ? 'Você já tem o pedido ${result['protocol'] ?? ''} em aberto.'
-                : 'Pedido ${result['protocol'] ?? ''} enviado. Aguarde o contato do técnico.')));
+                ? 'VocÃª jÃ¡ tem o pedido ${result['protocol'] ?? ''} em aberto.'
+                : 'Pedido ${result['protocol'] ?? ''} enviado. Aguarde o contato do tÃ©cnico.')));
       }
     } catch (error) {
       if (mounted) {
@@ -1082,9 +986,9 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
     return const Color(0xff45c95a);
   }
 
-  // Card cujo conteúdo vem da análise do servidor. Mantém os textos locais
-  // como fallback: servidor antigo, ou dispositivo ainda sem histórico
-  // suficiente, não pode deixar o card vazio.
+  // Card cujo conteÃºdo vem da anÃ¡lise do servidor. MantÃ©m os textos locais
+  // como fallback: servidor antigo, ou dispositivo ainda sem histÃ³rico
+  // suficiente, nÃ£o pode deixar o card vazio.
   Widget _serverCard(Map<String, dynamic> healthMetrics, String categoria,
       String tituloPadrao, IconData icon, String estadoPadrao, int nivel) {
     final m = _map(healthMetrics[categoria]);
@@ -1093,7 +997,7 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
     final tendencia = m['tendencia']?.toString() ?? '';
     if (detalhe.isEmpty) {
       detalhe = nivel > 0
-          ? 'O $_productName está acompanhando esta condição.'
+          ? 'O $_productName estÃ¡ acompanhando esta condiÃ§Ã£o.'
           : 'Dentro do esperado.';
     } else if (tendencia == 'piorando') {
       detalhe = '$detalhe Vem piorando.';
@@ -1156,11 +1060,11 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
               size: 9,
               color: _serverOnline ? const Color(0xff45c95a) : Colors.orange),
           const SizedBox(width: 7),
-          Text(_serverOnline ? 'Proteção ativa' : 'Reconectando'),
+          Text(_serverOnline ? 'ProteÃ§Ã£o ativa' : 'Reconectando'),
         ]),
       );
 
-  // Mantido durante a transição para comparação visual.
+  // Mantido durante a transiÃ§Ã£o para comparaÃ§Ã£o visual.
   // ignore: unused_element
   Widget _buildClientSummary(Map<String, dynamic> hw) {
     final statistics = _map(_status!['statistics']);
@@ -1198,7 +1102,7 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
               const SizedBox(height: 10),
               Text(
                 health['client_summary']?.toString() ??
-                    'O TGDesk está reunindo informações para a primeira análise.',
+                    'O TGDesk estÃ¡ reunindo informaÃ§Ãµes para a primeira anÃ¡lise.',
                 textAlign: TextAlign.center,
                 style: const TextStyle(fontSize: 16, color: Color(0xffa9b5c6)),
               ),
@@ -1236,7 +1140,7 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
                             child: _clientMetric(
                                 'Processamento', 'Monitorado', Icons.memory)),
                         Expanded(
-                            child: _clientMetric('Memória', 'Monitorado',
+                            child: _clientMetric('MemÃ³ria', 'Monitorado',
                                 Icons.view_module_outlined)),
                         Expanded(
                             child: _clientMetric(
@@ -1268,7 +1172,7 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
         ],
       );
 
-  // Mantido temporariamente para a futura tela técnica dedicada.
+  // Mantido temporariamente para a futura tela tÃ©cnica dedicada.
   // ignore: unused_element
   Widget _header() {
     final online = _serverOnline;
@@ -1280,7 +1184,7 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
         Text(_status!['hostname']?.toString() ?? '',
             style: const TextStyle(fontSize: 24, fontWeight: FontWeight.w600)),
         const SizedBox(height: 3),
-        Text('IP: ${_status!['virtual_ip'] ?? "—"}',
+        Text('IP: ${_status!['virtual_ip'] ?? "â€”"}',
             style: const TextStyle(color: Color(0xff91a0b5))),
       ]),
       const SizedBox(width: 18),
@@ -1321,7 +1225,7 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
                 Text(title, style: const TextStyle(fontSize: 20))
               ]),
               const SizedBox(height: 5),
-              Text(current['name']?.toString() ?? 'Não identificado',
+              Text(current['name']?.toString() ?? 'NÃ£o identificado',
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: const TextStyle(color: Color(0xffa9b5c6))),
@@ -1332,13 +1236,13 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
             child: Wrap(runSpacing: 16, spacing: 28, children: [
           _metric('Pico de uso', _pct(_num(usageStats['peak'])),
               Icons.show_chart, color),
-          _metric('Média de uso', _pct(_num(usageStats['average'])),
+          _metric('MÃ©dia de uso', _pct(_num(usageStats['average'])),
               Icons.multiline_chart, color),
           _metric('Temperatura', _temp(_num(current['temperature'])),
               Icons.thermostat, color),
           _metric('Clock atual', _clock(_num(current['clock_mhz'])),
               Icons.speed, color),
-          _metric('Clock médio', _clock(_num(clockStats['average'])),
+          _metric('Clock mÃ©dio', _clock(_num(clockStats['average'])),
               Icons.query_stats, color),
           _metric('Clock pico', _clock(_num(clockStats['peak'])), Icons.bolt,
               color),
@@ -1351,12 +1255,12 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
                 Icons.settings_input_component, color),
           ] else ...[
             _metric(
-                'Memória dedicada',
+                'MemÃ³ria dedicada',
                 _optionalBytes(current['dedicated_memory_bytes']),
                 Icons.memory_outlined,
                 color),
             _metric(
-                'Memória compartilhada',
+                'MemÃ³ria compartilhada',
                 _optionalBytes(current['shared_memory_bytes']),
                 Icons.share_outlined,
                 color),
@@ -1385,7 +1289,7 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
           const SizedBox(height: 9),
           Text(
               '${_bytes(_num(summary['used_bytes']))} de ${_bytes(_num(summary['total_bytes']))}'),
-          Text('Média: ${_bytes(_num(systemStats['average']))}',
+          Text('MÃ©dia: ${_bytes(_num(systemStats['average']))}',
               style: const TextStyle(color: Color(0xff9aa8ba), fontSize: 12)),
           Text('Pico: ${_bytes(_num(systemStats['peak']))}',
               style: const TextStyle(color: Color(0xff9aa8ba), fontSize: 12)),
@@ -1401,13 +1305,13 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
         const SizedBox(height: 8),
         Text(_bytes(_num(m['total_bytes'])),
             style: const TextStyle(fontSize: 20)),
-        Text('${m['type'] ?? "DDR"} • ${m['speed_mhz'] ?? 0} MHz',
+        Text('${m['type'] ?? "DDR"} â€¢ ${m['speed_mhz'] ?? 0} MHz',
             style: const TextStyle(color: Color(0xff9aa8ba), fontSize: 12)),
         Text(m['manufacturer']?.toString() ?? '',
             style: const TextStyle(color: Color(0xff75849a), fontSize: 11)),
       ]));
     }));
-    return _section(Icons.view_module_outlined, 'Memória RAM',
+    return _section(Icons.view_module_outlined, 'MemÃ³ria RAM',
         const Color(0xffa451f2), cards);
   }
 
@@ -1417,7 +1321,7 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
       'Armazenamento',
       const Color(0xffff9914),
       disks.isEmpty
-          ? [const Text('Nenhum disco físico identificado')]
+          ? [const Text('Nenhum disco fÃ­sico identificado')]
           : disks.map((raw) {
               final d = _map(raw),
                   health = d['smart_status']?.toString() ?? 'Desconhecido';
@@ -1453,7 +1357,7 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
                                         ? const Color(0xff45c95a)
                                         : Colors.orange)),
                             Text(
-                                'Vida útil: ${_num(d['life_pct']) > 0 ? "${_num(d['life_pct']).toStringAsFixed(0)}%" : "não informada"}'),
+                                'Vida Ãºtil: ${_num(d['life_pct']) > 0 ? "${_num(d['life_pct']).toStringAsFixed(0)}%" : "nÃ£o informada"}'),
                           ])),
                     ]),
                   ]));
@@ -1467,7 +1371,7 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
         'Rede',
         const Color(0xff2cc7e9),
         networks.isEmpty
-            ? [const Text('Nenhum adaptador físico identificado')]
+            ? [const Text('Nenhum adaptador fÃ­sico identificado')]
             : networks.map((raw) {
                 final n = _map(raw),
                     st = _map(stats[n['id']?.toString() ?? '']);
@@ -1495,14 +1399,14 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
                       Wrap(spacing: 20, runSpacing: 8, children: [
                         _tinyMetric(
                             'Link', _bitSpeed(_num(n['link_speed_bps']))),
-                        _tinyMetric('Máxima', _speed(_num(st['max_bps']))),
-                        _tinyMetric('Mínima', _speed(_num(st['min_bps']))),
-                        _tinyMetric('Média', _speed(_num(st['average_bps']))),
+                        _tinyMetric('MÃ¡xima', _speed(_num(st['max_bps']))),
+                        _tinyMetric('MÃ­nima', _speed(_num(st['min_bps']))),
+                        _tinyMetric('MÃ©dia', _speed(_num(st['average_bps']))),
                       ]),
                       const SizedBox(height: 9),
                       Text(
                           up
-                              ? 'Status estável'
+                              ? 'Status estÃ¡vel'
                               : 'Rede caiu${st['last_down_at'] == null ? "" : " em ${st['last_down_at']}"}',
                           style: TextStyle(
                               color: up
@@ -1510,7 +1414,7 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
                                   : Colors.orange)),
                       if (_num(st['downtime_seconds']) > 0)
                         Text(
-                            'Tempo total indisponível: ${_duration(_num(st['downtime_seconds']).round())}',
+                            'Tempo total indisponÃ­vel: ${_duration(_num(st['downtime_seconds']).round())}',
                             style: const TextStyle(
                                 color: Color(0xff9aa8ba), fontSize: 12)),
                     ]));
@@ -1622,7 +1526,7 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
   String _optionalNumber(dynamic v) =>
       v is num ? v.toDouble().toStringAsFixed(1) : 'N/D';
   String _optionalBytes(dynamic v) => v is num ? _bytes(v.toDouble()) : 'N/D';
-  String _temp(double v) => v > 0 ? '${v.toStringAsFixed(0)}°C' : 'N/D';
+  String _temp(double v) => v > 0 ? '${v.toStringAsFixed(0)}Â°C' : 'N/D';
   String _clock(double mhz) => mhz <= 0
       ? 'N/D'
       : mhz >= 1000
@@ -1667,6 +1571,6 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
     final at = DateTime.tryParse(raw);
     if (at == null) return 'Aguardando telemetria';
     final age = DateTime.now().toUtc().difference(at).inSeconds;
-    return age < 60 ? 'Atualizado agora' : 'Atualizado há ${age ~/ 60} min';
+    return age < 60 ? 'Atualizado agora' : 'Atualizado hÃ¡ ${age ~/ 60} min';
   }
 }
