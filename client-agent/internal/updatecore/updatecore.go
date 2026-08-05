@@ -687,18 +687,13 @@ func stopProcesses(names []string) error {
 		}
 		// The TGDesk service is stopped through SCM first. Killing by image name
 		// without /T avoids taskkill failing on already-detached service children.
-		// The command's "not found" response uses the OEM code page; shutdown is
-		// intentionally idempotent and file replacement remains the hard gate.
+		//
+		// The exit status is deliberately ignored. taskkill reports "process not
+		// found" through localized text in the OEM code page, so deciding what is
+		// a real failure by matching that text never worked reliably. Stopping is
+		// idempotent by design and file replacement remains the hard gate: if a
+		// process really is holding a file, the replacement fails and reports it.
 		_, _ = exec.Command("taskkill.exe", "/F", "/IM", name).CombinedOutput()
-		continue
-		output, err := exec.Command("taskkill.exe", "/F", "/IM", name).CombinedOutput()
-		if err != nil {
-			text := strings.ToLower(string(output))
-			if !strings.Contains(text, "not found") && !strings.Contains(text, "nÃ£o foi encontrado") &&
-				!strings.Contains(text, "nenhuma instÃ¢ncia") {
-				return fmt.Errorf("failed to stop %s: %s", name, strings.TrimSpace(string(output)))
-			}
-		}
 	}
 	return nil
 }
