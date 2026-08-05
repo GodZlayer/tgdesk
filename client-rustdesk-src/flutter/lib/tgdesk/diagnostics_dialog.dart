@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import 'api_client.dart';
+import 'diagnostic_text.dart';
 import 'control_channel.dart';
 import 'theme.dart';
 import 'ui_contract.dart';
@@ -141,7 +142,7 @@ class _DiagnosticDialogState extends State<DiagnosticDialog> {
                   : 'Confirmar teste de alto impacto'),
               content: Text(completeSuite
                   ? 'A suíte executará todo o catálogo disponível, inclusive cargas de CPU/GPU e leitura integral dos discos. Pode levar horas ou dias, não altera dados e pode ser cancelada.'
-                  : '${test['name']} pode reduzir temporariamente o desempenho do computador. O teste será executado somente agora e não ficará agendado.'),
+                  : '${TgdeskDiagnosticText.name(test['id']?.toString())} pode reduzir temporariamente o desempenho do computador. O teste será executado somente agora e não ficará agendado.'),
               actions: [
                 TextButton(
                     onPressed: () => Navigator.pop(ctx, false),
@@ -437,10 +438,10 @@ class _DiagnosticDialogState extends State<DiagnosticDialog> {
           Expanded(
             child:
                 Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              Text(test['name']?.toString() ?? '',
+              Text(TgdeskDiagnosticText.name(test['id']?.toString()),
                   style: const TextStyle(fontWeight: FontWeight.w600)),
               const SizedBox(height: 4),
-              Text(test['description']?.toString() ?? '',
+              Text(TgdeskDiagnosticText.description(test['id']?.toString()),
                   style: const TextStyle(color: Colors.grey, fontSize: 12)),
             ]),
           ),

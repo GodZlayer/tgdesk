@@ -234,14 +234,16 @@ func (s *Server) RequestRemoteAccess(w http.ResponseWriter, r *http.Request, id 
 		writeErr(w, http.StatusInternalServerError, "falha ao registrar pedido")
 		return
 	}
-	mensagem := "Pedido de acesso remoto ao seu computador."
-	if m := strings.TrimSpace(req.Motivo); m != "" {
-		mensagem += " Motivo: " + m
-	}
+	// O evento tipado substitui a frase gravada como mensagem: o motivo é
+	// texto livre porque quem o escreveu foi o técnico, mas o aviso em si é
+	// dado — quem exibe decide como dizer, e em que idioma.
 	_, _ = s.Pool.Exec(r.Context(), `
 		INSERT INTO ticket_events(ticket_id,actor_technician_id,event_type,payload)
-		VALUES($1,$2,'client_message',$3)`,
-		id, c.TechnicianID, map[string]any{"message": mensagem})
+		VALUES($1,$2,'remote_access_requested',$3)`,
+		id, c.TechnicianID, map[string]any{
+			"consent_id": consentID,
+			"motivo":     strings.TrimSpace(req.Motivo),
+		})
 	s.publishTicket(r, id, "remote_access_requested", map[string]any{"consent_id": consentID})
 	writeJSON(w, http.StatusCreated, map[string]any{"id": consentID, "status": "pending"})
 }
