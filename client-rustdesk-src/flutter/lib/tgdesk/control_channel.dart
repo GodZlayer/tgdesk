@@ -21,6 +21,17 @@ class TgdeskControlChannel extends ChangeNotifier {
   final Map<String, Map<String, Map<String, dynamic>>> diagnosticRuns = {};
   List<Map<String, dynamic>> tickets = const [];
   List<Map<String, dynamic>> offers = const [];
+
+  /// Conversa e histórico de cada chamado, por id. São a mesma lista de
+  /// eventos vista de dois jeitos: mensagem é um tipo de evento entre outros.
+  /// Chega empurrada, evento a evento — a tela nunca vai buscar.
+  final Map<String, List<Map<String, dynamic>>> ticketEvents = {};
+
+  List<Map<String, dynamic>> messagesOf(String ticketId) =>
+      (ticketEvents[ticketId] ?? const [])
+          .where((event) =>
+              event['type'] == 'message' || event['type'] == 'client_message')
+          .toList(growable: false);
   bool? brandingEnabled;
   Object? error;
   bool connected = false;
@@ -190,6 +201,42 @@ class TgdeskControlChannel extends ChangeNotifier {
           ...tickets.where((item) => item['id']?.toString() != id),
           ticket,
         ];
+        notifyListeners();
+      }
+      return;
+    }
+    // Delta de dispositivo: uma linha trocada na lista, em vez do estado
+    // inteiro reenviado. O desenho da tela é dela e não trafega.
+    if (event['type'] == 'device' && event['payload'] is Map) {
+      final device =
+          Map<String, dynamic>.from(event['payload'] as Map<dynamic, dynamic>);
+      final id = device['id']?.toString();
+      if (id != null) {
+        devices = [
+          ...devices.where(
+              (item) => item is! Map || item['id']?.toString() != id),
+          device,
+        ];
+        notifyListeners();
+      }
+      return;
+    }
+    // Um evento do chamado: mensagem, etapa de OS, confirmação. Chega pronto,
+    // não como aviso de "vá buscar".
+    if (event['type'] == 'ticket_event' && event['payload'] is Map) {
+      final entry =
+          Map<String, dynamic>.from(event['payload'] as Map<dynamic, dynamic>);
+      final ticketId = entry['ticket_id']?.toString();
+      final id = entry['id']?.toString();
+      if (ticketId != null && id != null) {
+        final current = <Map<String, dynamic>>[
+          ...(ticketEvents[ticketId] ?? const <Map<String, dynamic>>[])
+        ]
+          ..removeWhere((item) => item['id']?.toString() == id)
+          ..add(entry);
+        current.sort((a, b) => (a['created_at']?.toString() ?? '')
+            .compareTo(b['created_at']?.toString() ?? ''));
+        ticketEvents[ticketId] = current;
         notifyListeners();
       }
       return;

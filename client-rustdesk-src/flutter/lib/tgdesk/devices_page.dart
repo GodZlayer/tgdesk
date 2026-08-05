@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/material.dart';
 import 'agent_deploy.dart';
 import 'api_client.dart';
+import 'health_text.dart';
 import 'theme.dart';
 import 'control_channel.dart';
 import 'diagnostics_dialog.dart';
@@ -1313,7 +1314,7 @@ class _DevicesPageState extends State<DevicesPage> {
             const SizedBox(width: 10),
             Expanded(
                 child: Text(
-                    health['title']?.toString() ?? 'Análise em andamento',
+                    TgdeskHealthText.technicalTitle(health['level']?.toString()),
                     style: const TextStyle(
                         fontSize: 18, fontWeight: FontWeight.w600))),
             Text(response['collected_at']?.toString() ?? '',
@@ -1626,9 +1627,9 @@ class _DevicesPageState extends State<DevicesPage> {
           Text(level >= 2 ? 'Ação prioritária' : 'Acompanhamento recomendado',
               style: TextStyle(color: color, fontWeight: FontWeight.w600)),
           const SizedBox(height: 4),
-          Text(issue['technical_message']?.toString() ?? ''),
+          Text(TgdeskHealthText.technical(Map<String, dynamic>.from(issue))),
         ])),
-        Chip(label: Text(issue['category']?.toString() ?? 'sistema')),
+        Chip(label: Text(TgdeskHealthText.categoryLabel(issue['category']?.toString()))),
       ]),
     );
   }

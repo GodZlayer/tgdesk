@@ -1,6 +1,9 @@
 package handlers
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // Testes lógicos do fluxo da tela Client. Cobrem as decisões que a tela e o
 // servidor tomam a partir do estado — sem banco nem rede, que é o que dá para
@@ -95,10 +98,9 @@ func TestTelaNaoAlarmaMaquinaSaudavel(t *testing.T) {
 		t.Errorf("disco a 88%% é espaço reduzido, veio %q", got)
 	}
 	// Armazenamento é condição, não evento: não eleva o alerta do cliente.
-	health := map[string]any{"client_level": "normal"}
-	titulo, _ := resumoCliente(health)
-	if titulo != "Tudo certo por aqui" {
-		t.Errorf("cliente com disco cheio e CPU ociosa não deve ser alarmado, veio %q", titulo)
+	// A regra vive na avaliação; a frase que o cliente lê é do cliente.
+	if severityRank(occupancyLevel(disco)) == 0 {
+		t.Error("disco reduzido precisa aparecer para o técnico")
 	}
 }
 
@@ -110,9 +112,8 @@ func TestTelaAlarmaMaquinaSobrecarregada(t *testing.T) {
 	if got := exposureLevel(w); severityRank(got) < 2 {
 		t.Errorf("uso sustentado deve alarmar, veio %q", got)
 	}
-	titulo, resumo := resumoCliente(map[string]any{"client_level": "critical"})
-	if titulo == "Tudo certo por aqui" || resumo == "" {
-		t.Errorf("nível crítico precisa de título próprio, veio %q", titulo)
+	if severityRank(exposureLevel(w)) < severityRank("critical") {
+		t.Error("uso sustentado precisa alcançar nível crítico")
 	}
 }
 
@@ -202,4 +203,24 @@ func contains(s, sub string) bool {
 		}
 	}
 	return false
+}
+
+// O fio carrega dado, nunca frase pronta: é o que permite outro cliente —
+// Android, web — escrever o próprio texto contra o mesmo fluxo. A análise de
+// saúde emitia duas redações por problema e quatro títulos de resumo.
+func TestSaudeNaoTrafegaTextoPronto(t *testing.T) {
+	fonte := readSource(t, "telemetry_stats.go")
+	proibidos := []string{
+		"technical_message", "client_message",
+		"client_title", "client_summary",
+		"resumoCliente", "estadoLegivel", "descreveExposicao",
+	}
+	for _, campo := range proibidos {
+		if strings.Contains(fonte, campo) {
+			t.Errorf("a saúde não pode montar texto: %q ainda existe", campo)
+		}
+	}
+	if !strings.Contains(fonte, `"code": code`) {
+		t.Error("cada condição precisa viajar como código")
+	}
 }

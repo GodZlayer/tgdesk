@@ -488,11 +488,26 @@ func (s *Server) TechnicianControlWS(w http.ResponseWriter, r *http.Request) {
 			if err := write(map[string]any{"type": "event", "event": evt}); err != nil {
 				return
 			}
-			if evt.Type != "presence" && evt.Type != "telemetry" {
-				if snapshot, err := s.controlSnapshot(r.Context(), claims.TechnicianID, claims.Role); err == nil {
-					if write(snapshot) != nil {
-						return
-					}
+			if evt.Type == "presence" || evt.Type == "telemetry" {
+				continue
+			}
+			// O que mudou vai como delta: uma linha, não o mundo. O snapshot
+			// inteiro era reconsultado e reenviado a cada evento — quatro
+			// consultas vezes o número de técnicos conectados para entregar
+			// uma mensagem de chat.
+			eventPayload, _ := evt.Payload.(map[string]any)
+			if delta, ok := s.deltaFor(r.Context(), evt.Type, evt.TargetID,
+				eventPayload); ok {
+				if write(delta) != nil {
+					return
+				}
+				continue
+			}
+			// Evento de estrutura mexe em várias linhas de uma vez; aí o
+			// estado inteiro ainda é o caminho honesto.
+			if snapshot, err := s.controlSnapshot(r.Context(), claims.TechnicianID, claims.Role); err == nil {
+				if write(snapshot) != nil {
+					return
 				}
 			}
 		}

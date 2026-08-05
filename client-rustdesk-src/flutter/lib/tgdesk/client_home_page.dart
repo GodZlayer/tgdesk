@@ -7,6 +7,7 @@ import 'package:flutter/material.dart';
 import 'agent_deploy.dart';
 import 'api_client.dart';
 import 'branding_window_icon.dart';
+import 'health_text.dart';
 import 'window_frame.dart';
 
 class TgdeskClientHomePage extends StatefulWidget {
@@ -775,15 +776,13 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            health['client_title']?.toString() ??
-                                'Analisando este computador',
+                            TgdeskHealthText.clientTitle(health['client_level']?.toString()),
                             style: const TextStyle(
                                 fontSize: 26, fontWeight: FontWeight.w600),
                           ),
                           const SizedBox(height: 5),
                           Text(
-                            _brandText(health['client_summary']?.toString() ??
-                                'O TGDesk está preparando a primeira análise.'),
+                            _brandText(TgdeskHealthText.clientSummary(health['client_level']?.toString())),
                             style: const TextStyle(
                                 fontSize: 15, color: Color(0xffa9b5c6)),
                           ),
@@ -978,19 +977,10 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
   Widget _serverCard(Map<String, dynamic> healthMetrics, String categoria,
       String tituloPadrao, IconData icon, String estadoPadrao, int nivel) {
     final m = _map(healthMetrics[categoria]);
-    final estado = m['estado']?.toString() ?? estadoPadrao;
-    var detalhe = m['detalhe']?.toString() ?? '';
-    final tendencia = m['tendencia']?.toString() ?? '';
-    if (detalhe.isEmpty) {
-      detalhe = nivel > 0
-          ? 'O $_productName está acompanhando esta condição.'
-          : 'Dentro do esperado.';
-    } else if (tendencia == 'piorando') {
-      detalhe = '$detalhe Vem piorando.';
-    } else if (tendencia == 'melhorando') {
-      detalhe = '$detalhe Vem melhorando.';
-    }
-    return _clientInsightCard(m['titulo']?.toString() ?? tituloPadrao, estado,
+    // Título, estado e narrativa são desta camada. Do servidor vem o que
+    // só ele sabe: nível, desde quando a condição dura e para onde caminha.
+    final detalhe = TgdeskHealthText.cardNarrative(m, categoria);
+    return _clientInsightCard(tituloPadrao, estadoPadrao,
         _brandText(detalhe), icon, _indicatorColor(nivel));
   }
 
@@ -1079,16 +1069,14 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
               Icon(icon, size: 70, color: color),
               const SizedBox(height: 18),
               Text(
-                health['client_title']?.toString() ??
-                    'Analisando este computador',
+                TgdeskHealthText.clientTitle(health['client_level']?.toString()),
                 textAlign: TextAlign.center,
                 style:
                     const TextStyle(fontSize: 28, fontWeight: FontWeight.w600),
               ),
               const SizedBox(height: 10),
               Text(
-                health['client_summary']?.toString() ??
-                    'O TGDesk está reunindo informações para a primeira análise.',
+                TgdeskHealthText.clientSummary(health['client_level']?.toString()),
                 textAlign: TextAlign.center,
                 style: const TextStyle(fontSize: 16, color: Color(0xffa9b5c6)),
               ),

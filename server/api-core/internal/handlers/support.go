@@ -6,7 +6,6 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
-	"fmt"
 	"log"
 	"math"
 	"net/http"
@@ -214,12 +213,14 @@ func (s *Server) ClientOpenTicket(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	title, description := s.synthesizeTicket(r.Context(), req.DeviceID)
-	// Texto livre do cliente é opcional e entra como complemento — nunca
-	// substitui o diagnóstico técnico.
-	if extra := strings.TrimSpace(req.Title + "\n" + req.Description); extra != "" {
-		description += "\n\nRelato do cliente: " + extra
-	}
+	// O título carrega o dado que identifica o chamado: o computador. A frase
+	// que a pessoa lê é montada no cliente, a partir do diagnóstico que segue
+	// como evento estruturado.
+	hostname, diagnosis := s.ticketDiagnosis(r.Context(), req.DeviceID)
+	title := hostname
+	// Texto livre do cliente continua texto livre: é o que a pessoa
+	// escreveu, e ninguém além dela pode redigir.
+	description := strings.TrimSpace(req.Title + "\n" + req.Description)
 
 	var id, protocol string
 	err := s.Pool.QueryRow(r.Context(), `
@@ -230,7 +231,11 @@ func (s *Server) ClientOpenTicket(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, 500, "falha ao abrir chamado")
 		return
 	}
-	_, _ = s.Pool.Exec(r.Context(), `INSERT INTO ticket_events(ticket_id,actor_device_id,event_type,payload) VALUES($1,$2,'opened',$3)`, id, req.DeviceID, map[string]any{"standalone": standalone, "synthesized": true})
+	_, _ = s.Pool.Exec(r.Context(), `INSERT INTO ticket_events(ticket_id,actor_device_id,event_type,payload) VALUES($1,$2,'opened',$3)`, id, req.DeviceID, map[string]any{"standalone": standalone})
+	// O diagnóstico entra como evento estruturado em vez de parágrafo na
+	// descrição: quem exibe decide como dizer, e o chamado já nasce com o
+	// dado que o supervisor precisa sem o cliente ter que redigir nada.
+	_, _ = s.Pool.Exec(r.Context(), `INSERT INTO ticket_events(ticket_id,actor_device_id,event_type,payload) VALUES($1,$2,'diagnosis',$3)`, id, req.DeviceID, diagnosis)
 	// Avulso vai para a Fila A (oferta concorrente aos supervisores por nota);
 	// o vinculado fica na fila exclusiva do supervisor da própria org e não é
 	// ofertado a ninguém. Ver MODELO-PRODUTO.md, "Duas filas dinâmicas".
@@ -276,44 +281,28 @@ func (s *Server) ClientOpenTicketStatus(w http.ResponseWriter, r *http.Request) 
 	})
 }
 
-// synthesizeTicket monta título e descrição do chamado a partir da análise de
-// saúde do dispositivo, para que o pedido do cliente já chegue ao supervisor
-// com o diagnóstico técnico em vez de um texto que o leigo teria que redigir.
-func (s *Server) synthesizeTicket(ctx context.Context, deviceID string) (string, string) {
+// ticketDiagnosis devolve o hostname do dispositivo e o diagnóstico dele em
+// forma de dado: severidade, condições e a janela avaliada.
+//
+// Antes daqui saíam título e descrição em prosa, montados no servidor. O
+// cliente recebia o parágrafo pronto e não podia traduzi-lo, encurtá-lo para
+// tela pequena nem reordená-lo — o que fecharia a porta para qualquer cliente
+// que não fosse o desktop em português.
+func (s *Server) ticketDiagnosis(ctx context.Context, deviceID string) (string, map[string]any) {
 	var hostname string
 	_ = s.Pool.QueryRow(ctx, `SELECT coalesce(nullif(display_name,''),hostname) FROM devices WHERE id=$1`, deviceID).Scan(&hostname)
-	if hostname == "" {
-		hostname = "computador do cliente"
-	}
 	health := s.persistedHealth(ctx, deviceID)
 	issues, _ := health["issues"].([]map[string]any)
-	if len(issues) == 0 {
-		return "Pedido de atendimento — " + hostname,
-			"O cliente pediu atendimento em " + hostname + ".\n\n" +
-				"A análise automática não apontou nenhuma condição de hardware sustentada " +
-				"no período avaliado. O motivo do pedido provavelmente não aparece na " +
-				"telemetria (software, periférico, rede externa ou dúvida de uso)."
-	}
 	level, _ := health["level"].(string)
-	headline := "Pedido de atendimento"
-	if severityRank(level) >= 2 {
-		headline = "Pedido de atendimento (condição crítica detectada)"
-	} else if severityRank(level) == 1 {
-		headline = "Pedido de atendimento (condição em atenção)"
+	if level == "" {
+		level = "normal"
 	}
-	var b strings.Builder
-	b.WriteString("O cliente pediu atendimento em " + hostname + ".\n\n")
-	b.WriteString("Diagnóstico automático do TGDesk:\n")
-	for _, issue := range issues {
-		severity, _ := issue["severity"].(string)
-		technical, _ := issue["technical_message"].(string)
-		b.WriteString("- [" + severity + "] " + technical + "\n")
+	return hostname, map[string]any{
+		"level":          level,
+		"issues":         issues,
+		"window_minutes": health["recent_window_minutes"],
+		"samples":        health["recent_samples"],
 	}
-	if samples, ok := health["recent_samples"].(int); ok {
-		b.WriteString(fmt.Sprintf("\nBaseado em %d verificações dos últimos %v minutos.",
-			samples, health["recent_window_minutes"]))
-	}
-	return headline + " — " + hostname, b.String()
 }
 
 // DispatchToSupervisors mirrors DispatchTicket (Fila B) but targets supervisors

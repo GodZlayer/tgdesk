@@ -218,24 +218,8 @@ func (s *Server) hardwareStatistics(ctx context.Context, deviceID string) map[st
 	// histerese — não mais de um recálculo da janela de 15 minutos a cada
 	// telemetria. É o que faz a tela parar de oscilar.
 	health := s.persistedHealth(ctx, deviceID)
-	health["client_title"], health["client_summary"] = resumoCliente(health)
 	result["health"] = health
 	return result
-}
-
-// resumoCliente monta o título e o texto de cabeçalho da tela do cliente a
-// partir do nível já persistido, em vez de a tela decidi-los por conta própria.
-func resumoCliente(health map[string]any) (string, string) {
-	nivel, _ := health["client_level"].(string)
-	switch nivel {
-	case "maximum", "critical":
-		return "Entre em contato com seu técnico",
-			"Foi identificada uma condição persistente neste computador."
-	case "warning":
-		return "Vale falar com seu técnico",
-			"Uma condição vem se mantendo e merece atenção."
-	}
-	return "Tudo certo por aqui", "O TGDesk está acompanhando este computador."
 }
 
 func accumulate(s *metricStats, v *float64) {
@@ -273,7 +257,7 @@ func (s *Server) persistedHealth(ctx context.Context, deviceID string) map[strin
 	issues := []map[string]any{}
 	nivelGeral, nivelCliente := "normal", "normal"
 
-	avaliar := func(categoria, metrica, rotulo string) {
+	avaliar := func(categoria, metrica string) {
 		candidato := ""
 		var melhor janelaMetrica
 		var janelaEscolhida string
@@ -295,12 +279,9 @@ func (s *Server) persistedHealth(ctx context.Context, deviceID string) map[strin
 		nivel, desde := s.applyHysteresis(ctx, deviceID, categoria, candidato)
 		detalhe["level"] = nivel
 		detalhe["desde"] = desde.Format(time.RFC3339)
-		// A tela do cliente derivava esses textos localmente, por if de nível,
-		// sem saber há quanto tempo a condição dura nem para onde ela caminha.
-		// Quem tem o histórico é o servidor, então é ele quem narra.
-		detalhe["titulo"] = rotulo
-		detalhe["estado"] = estadoLegivel(categoria, nivel)
-		detalhe["detalhe"] = narrativaCliente(categoria, nivel, desde)
+		// Quem tem o histórico é o servidor, então ele manda desde quando a
+		// condição dura e para onde caminha. A narrativa em cima disso é do
+		// cliente: só ele sabe em que tela cabe e em que idioma.
 		detalhe["tendencia"] = tendencia(
 			s.metricWindow(ctx, deviceID, metrica, 24),
 			s.metricWindow(ctx, deviceID, metrica, 168))
@@ -316,24 +297,31 @@ func (s *Server) persistedHealth(ctx context.Context, deviceID string) map[strin
 			nivelCliente = nivel
 		}
 		if severityRank(nivel) > 0 {
-			tecnica := rotulo + ": " + descreveExposicao(melhor, janelaEscolhida)
-			cliente := rotulo + " vem apresentando uso elevado de forma persistente."
+			// Código mais números. A frase é do cliente, que sabe em que tela
+			// ela cabe e em que idioma quem lê a espera.
+			code := "sustained_usage"
+			params := map[string]any{
+				"window": janelaEscolhida, "peak_pct": melhor.Pico,
+				"average_pct": melhor.Media, "threshold_pct": exposicaoLimiar(melhor),
+				"time_above_pct": exposicaoTempo(melhor),
+			}
 			if categoria == catStorage {
-				tecnica = rotulo + ": " + fmtPct(melhor.Media) +
-					" de ocupação média nas últimas " + janelaEscolhida
-				cliente = "O espaço de armazenamento está ficando reduzido."
+				code = "storage_occupancy"
+				params = map[string]any{
+					"window": janelaEscolhida, "average_pct": melhor.Media,
+				}
 			}
 			issues = append(issues, map[string]any{
 				"severity": nivel, "client_severity": nivel, "category": categoria,
-				"technical_message": tecnica, "client_message": cliente,
+				"code": code, "params": params,
 				"desde": desde.Format(time.RFC3339),
 			})
 		}
 	}
 
-	avaliar(catProcessing, catProcessing, "Processamento")
-	avaliar(catMemory, catMemory, "Memória")
-	avaliar(catStorage, catStorage, "Armazenamento")
+	avaliar(catProcessing, catProcessing)
+	avaliar(catMemory, catMemory)
+	avaliar(catStorage, catStorage)
 
 	return map[string]any{
 		"level": nivelGeral, "client_level": nivelCliente,
@@ -342,70 +330,8 @@ func (s *Server) persistedHealth(ctx context.Context, deviceID string) map[strin
 	}
 }
 
-// estadoLegivel é o rótulo curto do card, em linguagem de cliente.
-func estadoLegivel(categoria, nivel string) string {
-	if categoria == catStorage {
-		switch nivel {
-		case "maximum", "critical":
-			return "Espaço quase no fim"
-		case "warning":
-			return "Espaço reduzido"
-		}
-		return "Espaço disponível"
-	}
-	if categoria == catMemory {
-		switch nivel {
-		case "maximum", "critical":
-			return "Memória sobrecarregada"
-		case "warning":
-			return "Uso elevado"
-		}
-		return "Uso adequado"
-	}
-	switch nivel {
-	case "maximum", "critical":
-		return "Uso no limite"
-	case "warning":
-		return "Uso elevado"
-	}
-	return "Desempenho estável"
-}
 
-// narrativaCliente explica a condição e há quanto tempo ela dura. O "desde" é o
-// que faltava: saber que algo está assim há seis dias muda completamente a
-// leitura em relação a um alerta que apareceu agora.
-func narrativaCliente(categoria, nivel string, desde time.Time) string {
-	if severityRank(nivel) == 0 {
-		switch categoria {
-		case catStorage:
-			return "Há espaço livre suficiente neste computador."
-		case catMemory:
-			return "Há memória suficiente para as atividades atuais."
-		}
-		return "O computador está respondendo como esperado."
-	}
-	base := "Esta condição se mantém " + haQuantoTempo(desde) + "."
-	if categoria == catStorage {
-		return "O disco está ficando cheio. " + base +
-			" Liberar espaço costuma resolver."
-	}
-	return base + " Seu técnico consegue ver o histórico completo."
-}
 
-// haQuantoTempo devolve a duração em linguagem corrente, sem precisão falsa.
-func haQuantoTempo(desde time.Time) string {
-	d := time.Since(desde)
-	switch {
-	case d < time.Hour:
-		return "há menos de uma hora"
-	case d < 24*time.Hour:
-		return "há " + strconv.Itoa(int(d.Hours())) + "h"
-	case d < 48*time.Hour:
-		return "há um dia"
-	default:
-		return "há " + strconv.Itoa(int(d.Hours()/24)) + " dias"
-	}
-}
 
 // tendencia compara o curto prazo com o longo para dizer se a situação está
 // melhorando, estável ou piorando.
@@ -423,19 +349,28 @@ func tendencia(curto, longo janelaMetrica) string {
 	return "estavel"
 }
 
-// descreveExposicao narra o padrão real em vez de citar um limiar cru, para que
-// o chamado sintetizado e o card digam desde quando e com que frequência.
-func descreveExposicao(w janelaMetrica, janela string) string {
+// exposicaoLimiar e exposicaoTempo devolvem o par (limiar, tempo acima dele)
+// que caracteriza a exposição. São os números que a frase antiga embutia em
+// português: quanto tempo a máquina passou acima de qual limiar.
+func exposicaoLimiar(w janelaMetrica) int {
 	switch {
 	case w.PctAcima95 >= 15:
-		return fmtPct(w.PctAcima95) + " do tempo acima de 95% nas últimas " + janela +
-			" (pico de " + fmtPct(w.Pico) + ")"
+		return 95
 	case w.PctAcima85 >= 15:
-		return fmtPct(w.PctAcima85) + " do tempo acima de 85% nas últimas " + janela +
-			" (pico de " + fmtPct(w.Pico) + ")"
+		return 85
 	default:
-		return fmtPct(w.PctAcima75) + " do tempo acima de 75% nas últimas " + janela +
-			" (pico de " + fmtPct(w.Pico) + ")"
+		return 75
+	}
+}
+
+func exposicaoTempo(w janelaMetrica) float64 {
+	switch {
+	case w.PctAcima95 >= 15:
+		return w.PctAcima95
+	case w.PctAcima85 >= 15:
+		return w.PctAcima85
+	default:
+		return w.PctAcima75
 	}
 }
 
@@ -543,7 +478,11 @@ func analyzeHardwareHealth(
 		"storage":     map[string]any{"level": "normal"},
 		"temperature": map[string]any{"level": "normal"},
 	}
-	add := func(severity, clientSeverity, category, clientMessage, technicalMessage string) {
+	// Cada condição vira código mais números. A frase — técnica ou para o
+	// cliente — é do cliente, que conhece a tela em que vai caber e o idioma
+	// de quem lê. Antes saíam daqui duas redações por problema, e a escolha de
+	// quem via qual estava resolvida no servidor.
+	add := func(severity, clientSeverity, category, code string, params map[string]any) {
 		if severityRank(severity) > severityRank(level) {
 			level = severity
 		}
@@ -554,39 +493,35 @@ func analyzeHardwareHealth(
 			severityRank(severity) > severityRank(metric["level"].(string)) {
 			metric["level"] = severity
 		}
-		issues = append(issues, map[string]any{
-			"severity": severity, "client_severity": clientSeverity, "category": category,
-			"client_message": clientMessage, "technical_message": technicalMessage,
-		})
+		issue := map[string]any{
+			"severity": severity, "client_severity": clientSeverity,
+			"category": category, "code": code,
+		}
+		if params != nil {
+			issue["params"] = params
+		}
+		issues = append(issues, issue)
 	}
 
-	switch sustainedUsageLevel(cpuUsage.Average, cpuUsage.Samples) {
-	case "maximum":
-		add("maximum", "maximum", "processing", "O processamento permanece no limite.",
-			"Média de CPU dos últimos 15 minutos acima de 95%.")
-	case "critical":
-		add("critical", "critical", "processing", "O processamento está sobrecarregado.",
-			"Média de CPU dos últimos 15 minutos acima de 85%.")
-	case "warning":
-		add("warning", "warning", "processing", "O uso do computador está elevado.",
-			"Média de CPU dos últimos 15 minutos acima de 75%.")
+	usageThreshold := map[string]int{"maximum": 95, "critical": 85, "warning": 75}
+	if grade := sustainedUsageLevel(cpuUsage.Average, cpuUsage.Samples); grade != "normal" {
+		add(grade, grade, "processing", "cpu_sustained_usage", map[string]any{
+			"threshold_pct": usageThreshold[grade], "average_pct": cpuUsage.Average,
+			"window_minutes": 15,
+		})
 	}
-	switch sustainedUsageLevel(memoryUsage.Average, memoryUsage.Samples) {
-	case "maximum":
-		add("maximum", "maximum", "memory", "A memória permanece no limite.",
-			"Média de RAM dos últimos 15 minutos acima de 95%.")
-	case "critical":
-		add("critical", "critical", "memory", "A memória está sobrecarregada.",
-			"Média de RAM dos últimos 15 minutos acima de 85%.")
-	case "warning":
-		add("warning", "warning", "memory", "O uso de memória está elevado.",
-			"Média de RAM dos últimos 15 minutos acima de 75%.")
+	if grade := sustainedUsageLevel(memoryUsage.Average, memoryUsage.Samples); grade != "normal" {
+		add(grade, grade, "memory", "memory_sustained_usage", map[string]any{
+			"threshold_pct": usageThreshold[grade], "average_pct": memoryUsage.Average,
+			"window_minutes": 15,
+		})
 	}
 
 	for _, d := range h.Storage {
 		if d.SMARTStatus != "" && d.SMARTStatus != "Healthy" {
-			add("critical", "critical", "storage", "O armazenamento precisa de verificação imediata.",
-				"Disco "+d.Model+" reportou SMART/HealthStatus "+d.SMARTStatus+".")
+			add("critical", "critical", "storage", "storage_smart_failing", map[string]any{
+				"device": d.Model, "smart_status": d.SMARTStatus,
+			})
 		}
 		highest := d.UsedPct
 		label := d.Model
@@ -597,58 +532,49 @@ func analyzeHardwareHealth(
 		}
 		switch {
 		case highest >= 95:
-			add("maximum", "maximum", "storage", "O computador está praticamente sem espaço disponível.",
-				label+" está com mais de 95% do espaço ocupado.")
+			add("maximum", "maximum", "storage", "storage_space_low", map[string]any{
+				"volume": label, "used_pct": highest, "threshold_pct": 95,
+			})
 		case highest >= 85:
-			add("warning", "warning", "storage", "O espaço de armazenamento está ficando baixo.",
-				label+" está com mais de 85% do espaço ocupado.")
+			add("warning", "warning", "storage", "storage_space_low", map[string]any{
+				"volume": label, "used_pct": highest, "threshold_pct": 85,
+			})
 		}
 		if d.LifePct != nil && *d.LifePct <= 10 {
-			add("critical", "critical", "storage", "A vida útil do armazenamento está próxima do limite.",
-				"Disco "+d.Model+" reportou no máximo 10% de vida útil restante.")
+			add("critical", "critical", "storage", "storage_life_low", map[string]any{
+				"device": d.Model, "life_pct": *d.LifePct, "threshold_pct": 10,
+			})
 		} else if d.LifePct != nil && *d.LifePct <= 20 {
-			add("warning", "warning", "storage", "O armazenamento apresenta desgaste relevante.",
-				"Disco "+d.Model+" reportou no máximo 20% de vida útil restante.")
+			add("warning", "warning", "storage", "storage_life_low", map[string]any{
+				"device": d.Model, "life_pct": *d.LifePct, "threshold_pct": 20,
+			})
 		}
 	}
 
-	if storageTemperature.Samples >= 3 && storageTemperature.Average >= 65 {
-		add("critical", "critical", "temperature", "O armazenamento permanece em temperatura elevada.",
-			"Média dos discos nos últimos 15 minutos acima de 65 °C.")
-	} else if storageTemperature.Samples >= 3 && storageTemperature.Average >= 55 {
-		add("warning", "warning", "temperature", "A temperatura do armazenamento merece atenção.",
-			"Média dos discos nos últimos 15 minutos acima de 55 °C.")
+	temperature := func(stats metricStats, code string, critical, warning float64) {
+		if stats.Samples < 3 {
+			return
+		}
+		switch {
+		case stats.Average >= critical:
+			add("critical", "critical", "temperature", code, map[string]any{
+				"average_c": stats.Average, "threshold_c": critical, "window_minutes": 15,
+			})
+		case stats.Average >= warning:
+			add("warning", "warning", "temperature", code, map[string]any{
+				"average_c": stats.Average, "threshold_c": warning, "window_minutes": 15,
+			})
+		}
 	}
-	if gpuTemperature.Samples >= 3 && gpuTemperature.Average >= 90 {
-		add("critical", "critical", "temperature", "A temperatura gráfica permanece elevada.",
-			"Média da GPU nos últimos 15 minutos acima de 90 °C.")
-	} else if gpuTemperature.Samples >= 3 && gpuTemperature.Average >= 80 {
-		add("warning", "warning", "temperature", "A temperatura gráfica merece atenção.",
-			"Média da GPU nos últimos 15 minutos acima de 80 °C.")
-	}
-	if cpuTemperature.Samples >= 3 && cpuTemperature.Average >= 90 {
-		add("critical", "critical", "temperature", "O processador permanece em temperatura elevada.",
-			"Média da CPU nos últimos 15 minutos acima de 90 °C.")
-	} else if cpuTemperature.Samples >= 3 && cpuTemperature.Average >= 80 {
-		add("warning", "warning", "temperature", "A temperatura do processador merece atenção.",
-			"Média da CPU nos últimos 15 minutos acima de 80 °C.")
-	}
+	temperature(storageTemperature, "storage_temperature_high", 65, 55)
+	temperature(gpuTemperature, "gpu_temperature_high", 90, 80)
+	temperature(cpuTemperature, "cpu_temperature_high", 90, 80)
 
-	title, summary := "Sistema funcionando normalmente", "Nenhum problema importante foi identificado nesta análise."
-	if level == "warning" {
-		title, summary = "Atenção recomendada", "O TGDesk identificou uma condição sustentada que deve ser acompanhada."
-	} else if level == "critical" || level == "maximum" {
-		title, summary = "Verificação técnica necessária", "O TGDesk identificou uma condição sustentada que pode afetar este computador."
-	}
-	clientTitle, clientSummary := "Tudo certo por aqui", "O TGDesk está monitorando este computador."
-	if clientLevel == "warning" {
-		clientTitle, clientSummary = "Vale falar com seu técnico", "Foi identificada uma condição persistente que merece atenção."
-	} else if clientLevel == "critical" || clientLevel == "maximum" {
-		clientTitle, clientSummary = "Entre em contato com seu técnico", "Foi identificado um problema persistente neste computador."
-	}
+	// Título e resumo saíam daqui em quatro versões — duas para o técnico,
+	// duas para o cliente — e todas eram função apenas do nível. O cliente já
+	// recebe o nível; a frase é dele.
 	return map[string]any{
-		"level": level, "title": title, "summary": summary,
-		"client_level": clientLevel, "client_title": clientTitle, "client_summary": clientSummary,
+		"level": level, "client_level": clientLevel,
 		"issues": issues, "metrics": metrics, "recent_window_minutes": 15,
 		"recent_samples": recentSamples, "evaluated_at": time.Now().UTC().Format(time.RFC3339),
 	}
