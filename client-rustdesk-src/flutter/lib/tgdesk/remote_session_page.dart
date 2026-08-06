@@ -208,6 +208,11 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
       );
     }
     _sendAnnotation(const {'t': 'ClearDrawing'});
+    // Zera o recuo ao sair. Deixá-lo gravado faria a próxima sessão — ou uma
+    // janela solta, que não tem barra lateral nenhuma — nascer com o cursor
+    // deslocado pelo tamanho do Hub que não está mais lá.
+    stateGlobal.tgdeskEmbedTop = 0;
+    stateGlobal.tgdeskEmbedLeft = 0;
     _focusNode.dispose();
     super.dispose();
   }
@@ -432,8 +437,33 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
     );
   }
 
+  /// Onde esta sessão começa dentro da janela, medido depois do layout.
+  ///
+  /// É o que corrige o ponteiro: o mapeamento do mouse trabalha com a posição
+  /// global e desconta este recuo. Medir é a única forma honesta — a barra de
+  /// título tem altura fixa, mas a barra lateral muda de largura conforme os
+  /// destinos visíveis, e cravar números aqui daria um cursor certo hoje e
+  /// errado no primeiro destino novo.
+  final GlobalKey _areaKey = GlobalKey();
+
+  void _medirRecuo() {
+    final render = _areaKey.currentContext?.findRenderObject();
+    if (render is! RenderBox || !render.hasSize) return;
+    final origem = render.localToGlobal(Offset.zero);
+    if (stateGlobal.tgdeskEmbedTop != origem.dy ||
+        stateGlobal.tgdeskEmbedLeft != origem.dx) {
+      stateGlobal.tgdeskEmbedTop = origem.dy;
+      stateGlobal.tgdeskEmbedLeft = origem.dx;
+    }
+  }
+
   Widget _buildContent() {
+    // Medido a cada quadro: a janela muda de tamanho, a barra lateral aparece
+    // e some, e a tela cheia zera os dois. Comparar antes de escrever mantém
+    // isso barato.
+    WidgetsBinding.instance.addPostFrameCallback((_) => _medirRecuo());
     return Container(
+      key: _areaKey,
           color: Colors.black,
           child: Stack(
             fit: StackFit.expand,

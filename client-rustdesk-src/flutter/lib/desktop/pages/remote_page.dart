@@ -89,7 +89,16 @@ class _RemotePageState extends State<RemotePage>
   late RxBool _zoomCursor;
   late RxBool _remoteCursorMoved;
   late RxBool _keyboardEnabled;
-  final RxBool _captureSystemKeys = true.obs;
+  // Começa DESTRAVADO, e Ctrl+Shift+I trava — como no Parsec.
+  //
+  // Começava em true, então o primeiro Ctrl+Shift+I fazia o contrário do que
+  // se espera dele: soltava o teclado em vez de prendê-lo. Quem apertava para
+  // travar destravava, e só percebia isso apertando de novo.
+  //
+  // Destravado por padrão também é o comportamento seguro: com o teclado
+  // preso, Alt+Tab e a tecla Windows deixam de funcionar na máquina do
+  // técnico, e isso precisa ser escolha dele, não estado inicial.
+  final RxBool _captureSystemKeys = false.obs;
   bool _systemKeyShortcutActive = false;
   final _uniqueKey = UniqueKey();
 

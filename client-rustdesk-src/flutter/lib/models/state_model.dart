@@ -42,6 +42,22 @@ class StateGlobal {
   RxBool get fullscreen => _fullscreen;
   bool get isMinimized => _isMinimized;
   double get tabBarHeight => fullscreen.isTrue ? 0 : kDesktopRemoteTabBarHeight;
+
+  // TGDesk: onde a tela remota realmente começa dentro da janela.
+  //
+  // No RustDesk original a sessão ocupa a janela inteira abaixo da barra de
+  // abas, e por isso o mapeamento do mouse trabalha com a posição GLOBAL do
+  // ponteiro descontando só tabBarHeight e as bordas. No TGDesk ela é embutida
+  // no Hub: tem a barra de título por cima e a barra lateral à esquerda.
+  //
+  // Sem informar esse recuo, o ponteiro chega à máquina remota deslocado
+  // exatamente pelo tamanho do que está em volta — o cursor de lá anda longe
+  // de onde o mouse está aqui.
+  //
+  // Zero quando não há embutimento (janela solta, tela cheia), que é quando o
+  // cálculo original já está certo.
+  double tgdeskEmbedTop = 0;
+  double tgdeskEmbedLeft = 0;
   RxBool get showTabBar => _showTabBar;
   RxDouble get resizeEdgeSize => _resizeEdgeSize;
   RxDouble get windowBorderWidth => _windowBorderWidth;

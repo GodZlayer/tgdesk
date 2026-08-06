@@ -2281,12 +2281,21 @@ class CanvasModel with ChangeNotifier {
   double get scrollX => _scrollX;
   double get scrollY => _scrollY;
 
-  static double get leftToEdge =>
-      isDesktop ? windowBorderWidth + kDragToResizeAreaPadding.left : 0;
+  static double get leftToEdge => isDesktop
+      ? windowBorderWidth +
+          kDragToResizeAreaPadding.left +
+          stateGlobal.tgdeskEmbedLeft
+      : 0;
   static double get rightToEdge =>
       isDesktop ? windowBorderWidth + kDragToResizeAreaPadding.right : 0;
+  // tgdeskEmbedTop/Left entram aqui porque este par define onde a tela remota
+  // comeca dentro da janela — e no TGDesk ela comeca depois da barra de titulo
+  // do Hub e da barra lateral. Ver state_model.dart.
   static double get topToEdge => isDesktop
-      ? tabBarHeight + windowBorderWidth + kDragToResizeAreaPadding.top
+      ? tabBarHeight +
+          windowBorderWidth +
+          kDragToResizeAreaPadding.top +
+          stateGlobal.tgdeskEmbedTop
       : 0;
   static double get bottomToEdge =>
       isDesktop ? windowBorderWidth + kDragToResizeAreaPadding.bottom : 0;

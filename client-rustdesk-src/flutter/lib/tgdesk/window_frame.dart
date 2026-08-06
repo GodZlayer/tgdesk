@@ -132,6 +132,26 @@ class _TgdeskWindowScaffoldState extends State<TgdeskWindowScaffold>
     if (_isMainWindow) windowManager.hide();
   }
 
+  // O ícone de maximizar precisa dizer o que o clique VAI fazer, e para isso
+  // ele tem que saber em que estado a janela está. Antes era sempre o quadrado
+  // único, maximizada ou não — o botão mudava a janela e não mudava a si
+  // mesmo, então não havia como saber se o próximo clique ia maximizar ou
+  // restaurar.
+  //
+  // O estado vem dos eventos do windowManager, e não de uma consulta a cada
+  // desenho: isMaximized é assíncrono e a barra é reconstruída o tempo todo.
+  bool _maximized = false;
+
+  @override
+  void onWindowMaximize() {
+    if (mounted) setState(() => _maximized = true);
+  }
+
+  @override
+  void onWindowUnmaximize() {
+    if (mounted) setState(() => _maximized = false);
+  }
+
   void _startDragging() {
     if (_isMainWindow) {
       windowManager.startDragging();
@@ -331,9 +351,11 @@ class _TgdeskWindowScaffoldState extends State<TgdeskWindowScaffold>
             _WindowButton(
                 icon: Icons.remove, onTap: _minimize, tooltip: 'Minimizar'),
             _WindowButton(
-                icon: Icons.crop_square,
+                icon: _maximized
+                    ? Icons.filter_none
+                    : Icons.crop_square,
                 onTap: _toggleMaximize,
-                tooltip: 'Maximizar'),
+                tooltip: _maximized ? 'Restaurar' : 'Maximizar'),
             _WindowButton(
               icon: Icons.close,
               onTap: _close,
