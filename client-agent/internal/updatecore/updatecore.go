@@ -663,6 +663,21 @@ func waitForOperationalReadiness(report ProgressReporter, timeout time.Duration)
 	} else if err != nil {
 		return fmt.Errorf("nao foi possivel validar a identidade administrativa: %w", err)
 	}
+
+	// Identidade de técnico não basta: o dispositivo também precisa estar
+	// vinculado a uma rede, senão não existe rede privada para esperar.
+	//
+	// Uma máquina de técnico recém-instalada fica em 'guest' até alguém
+	// vinculá-la, e nesse estado /api/v1/devices/wg-key responde 403 — ela não
+	// tem IP virtual e não pode ter túnel. Esperar por ele era esperar por algo
+	// que o servidor recusa a dar: dois minutos de espera e a atualização
+	// inteira revertida, repetidamente, numa máquina cujo único "problema" era
+	// não ter sido vinculada ainda.
+	if !dispositivoTemIPVirtual() {
+		log.Println("update: dispositivo sem IP virtual (ainda não vinculado); " +
+			"não há rede privada a esperar")
+		return nil
+	}
 	deadline := time.Now().Add(timeout)
 	var lastError error
 	for time.Now().Before(deadline) {
@@ -1049,4 +1064,28 @@ func downloadVerified(client *http.Client, url, target string, info updateInfo) 
 		return fmt.Errorf("SHA-256 inválido")
 	}
 	return nil
+}
+
+// dispositivoTemIPVirtual diz se este computador já recebeu endereço na rede
+// privada — ou seja, se ele foi vinculado.
+//
+// Lê o mesmo device.json que o agente mantém. Duplicar a struct inteira do
+// agente aqui só para ler um campo criaria uma segunda definição do mesmo
+// arquivo, que é o tipo de coisa que diverge com o tempo.
+//
+// Na dúvida responde true: assim quem NÃO conseguir ler o arquivo continua
+// esperando a rede como antes, e a mudança só afeta o caso que ela existe para
+// tratar — o dispositivo comprovadamente sem IP.
+func dispositivoTemIPVirtual() bool {
+	raw, err := os.ReadFile(filepath.Join(DataDir(), "identity", "device.json"))
+	if err != nil {
+		return true
+	}
+	var cfg struct {
+		VirtualIP string `json:"virtual_ip"`
+	}
+	if json.Unmarshal(raw, &cfg) != nil {
+		return true
+	}
+	return strings.TrimSpace(cfg.VirtualIP) != ""
 }
