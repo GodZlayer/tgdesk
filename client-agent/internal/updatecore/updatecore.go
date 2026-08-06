@@ -611,7 +611,13 @@ func ApplyStagedOfflineWithProgress(staging, installDir string, parentPID uint32
 		return rollbackAndRecover(applied, installDir, rollback, stoppedServices, manifest, err)
 	}
 	reportProgress(report, 78, "Aguardando VPN e telemetria do servico...")
-	if err := waitForOperationalReadiness(report, 2*time.Minute); err != nil {
+	// Eram 2 minutos. Depois de um reinício de serviço o túnel sobe do zero —
+	// o Host precisa pegar o singleton, falar com o servidor e só então criar
+	// o adaptador —, e 2 minutos é apertado o bastante para reverter uma
+	// atualização que estava inteira e verificada. O tempo aqui é espera, não
+	// risco: os arquivos já foram conferidos por hash antes de chegar neste
+	// ponto.
+	if err := waitForOperationalReadiness(report, 6*time.Minute); err != nil {
 		return rollbackAndRecover(applied, installDir, rollback, stoppedServices, manifest, err)
 	}
 	application := manifest.RestartApplication

@@ -72,6 +72,24 @@ class RemoteSessionsManager extends ChangeNotifier {
     notifyListeners();
   }
 
+  /// Move uma aba de lugar, arrastando.
+  ///
+  /// A que estava à frente continua à frente depois da mudança: reordenar é
+  /// arrumar a fileira, não trocar de máquina. Sem isso, arrastar uma aba
+  /// qualquer trocaria a tela por baixo da mão de quem arrasta.
+  void reorder(int from, int to) {
+    if (from < 0 || from >= _entries.length) return;
+    if (to < 0 || to > _entries.length) return;
+    final aFrente = active;
+    final movida = _entries.removeAt(from);
+    if (to > from) to--;
+    _entries.insert(to, movida);
+    if (aFrente != null) {
+      _activeIndex = _entries.indexOf(aFrente);
+    }
+    notifyListeners();
+  }
+
   /// Tira todas as abas da frente sem fechar nenhuma. É o que acontece ao
   /// escolher um destino da barra lateral: a sessão continua viva, apenas
   /// deixa de ser o que está na tela — como trocar de aba no navegador.

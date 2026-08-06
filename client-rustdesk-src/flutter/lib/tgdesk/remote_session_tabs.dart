@@ -30,18 +30,33 @@ class RemoteSessionTabs extends StatelessWidget {
             children: [
               const SizedBox(width: TgdeskSpacing.md),
               Flexible(
-                child: ListView.separated(
+                child: ReorderableListView.builder(
                   scrollDirection: Axis.horizontal,
                   shrinkWrap: true,
+                  buildDefaultDragHandles: false,
+                  onReorder: manager.reorder,
+                  // A alça de arrasto é a aba inteira. Uma alça separada
+                  // exigiria mirar num pedaço de 30 pixels de altura, e a aba
+                  // já é o objeto que se quer mover.
                   itemCount: manager.sessions.length,
-                  separatorBuilder: (_, __) =>
-                      const SizedBox(width: TgdeskSpacing.xs),
-                  itemBuilder: (context, index) => _Tab(
-                    entry: manager.sessions[index],
-                    selected: index == manager.activeIndex,
-                    onSelect: () => manager.focus(index),
-                    onClose: () => manager.closeAt(index),
+                  itemBuilder: (context, index) => ReorderableDragStartListener(
+                    key: ValueKey(manager.sessions[index].deviceId),
+                    index: index,
+                    child: Padding(
+                      padding: const EdgeInsets.only(right: TgdeskSpacing.xs),
+                      child: _Tab(
+                        entry: manager.sessions[index],
+                        selected: index == manager.activeIndex,
+                        onSelect: () => manager.focus(index),
+                        onClose: () => manager.closeAt(index),
+                      ),
+                    ),
                   ),
+                  // Sem a sombra e o realce padrão do Material: a aba
+                  // arrastada some do lugar e reaparece maior no cursor, o que
+                  // numa barra de 30px de altura parece defeito.
+                  proxyDecorator: (child, _, __) =>
+                      Material(color: Colors.transparent, child: child),
                 ),
               ),
             ],

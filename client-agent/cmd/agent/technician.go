@@ -6,9 +6,11 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
 	"path/filepath"
+	"time"
 )
 
 type technicianConfig struct {
@@ -91,5 +93,38 @@ func runTechnician(args []string) int {
 		log.Println("adaptador TGDesk-Tech removido — o técnico passa a usar o túnel do dispositivo")
 	}
 	log.Println("papel de técnico usa o túnel do dispositivo (tgdesk0); nenhum adaptador adicional é criado")
+
+	// Quem sobe o túnel é o Host. Aqui só se confere que ele subiu — e se não
+	// subiu, isso é dito em voz alta.
+	//
+	// O comentário desta função dizia que ela "garante que o túnel do
+	// dispositivo está de pé". Não garantia: removia o adaptador antigo e
+	// retornava sucesso, com ou sem rede. Numa atualização isso apareceu do
+	// pior jeito — o Host tinha morrido por não conseguir o singleton, esta
+	// função declarou tudo certo, e o updater ficou dois minutos esperando uma
+	// rede que ninguém estava subindo.
+	if err := aguardarTunelDoDispositivo(90 * time.Second); err != nil {
+		log.Printf("aviso: o túnel do dispositivo não respondeu: %v", err)
+	} else {
+		log.Println("túnel do dispositivo respondendo — hub alcançável")
+	}
 	return 0
+}
+
+// aguardarTunelDoDispositivo espera o hub responder pelo túnel que o Host
+// mantém. Não cria adaptador nenhum: um segundo adaptador para o mesmo /16 é
+// justamente o que a unificação eliminou.
+func aguardarTunelDoDispositivo(timeout time.Duration) error {
+	deadline := time.Now().Add(timeout)
+	var ultimo error
+	for time.Now().Before(deadline) {
+		conexao, err := net.DialTimeout("tcp", "10.70.0.1:8080", 2*time.Second)
+		if err == nil {
+			conexao.Close()
+			return nil
+		}
+		ultimo = err
+		time.Sleep(time.Second)
+	}
+	return ultimo
 }
