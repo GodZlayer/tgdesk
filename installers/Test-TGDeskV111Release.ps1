@@ -15,6 +15,23 @@ function Add-Check([string]$Name, [bool]$Passed, [string]$Actual) {
 $sourceVersion = (Get-Content (Join-Path $root 'client-rustdesk-src\flutter\version.txt') -Raw).Trim()
 Add-Check 'source.version' ($sourceVersion -eq $ExpectedVersion) $sourceVersion
 
+# O core Rust nao e compilado pelo pipeline: o CMake do Flutter so COPIA
+# target\release\libtgdeskcore.dll. Mudar src\ e rodar so o build publica um
+# tgdesk.exe novo com o core antigo -- foi o que quase saiu na 1.1.51, com o C++
+# registrando a classe de janela nova e o core procurando a velha.
+# Ver BUILD-CORE.md.
+$coreDll = Join-Path $root 'client-rustdesk-src\target\release\libtgdeskcore.dll'
+$coreDllTime = if (Test-Path -LiteralPath $coreDll) {
+    (Get-Item -LiteralPath $coreDll).LastWriteTimeUtc
+} else { [datetime]::MinValue }
+$lastRustCommit = (& git -C $root log -1 --format=%cI -- client-rustdesk-src/src | Out-String).Trim()
+$rustCommitTime = if ($lastRustCommit) {
+    ([datetimeoffset]$lastRustCommit).UtcDateTime
+} else { [datetime]::MinValue }
+Add-Check 'core.dll_newer_than_rust_sources' `
+    ($coreDllTime -gt $rustCommitTime) `
+    ("dll=$($coreDllTime.ToString('s')) rust=$($rustCommitTime.ToString('s'))")
+
 $releaseBuilder = Get-Content (Join-Path $root 'installers\New-TGDeskModuleRelease.ps1') -Raw
 Add-Check 'updater.restarts_interactive_ui' `
     ($releaseBuilder -match "restart_application\s*=\s*'tgdesk\.exe'") 'tgdesk.exe'

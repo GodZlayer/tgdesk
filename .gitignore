@@ -1,3 +1,8 @@
 tmp/
 .godzmind/
 /installers
+
+# Port do ffmpeg fixado no commit de vcpkg que o RustDesk usa (VCPKG_COMMIT_ID).
+# Sao arquivos de terceiros, reproduziveis a partir do proprio vcpkg — ver
+# BUILD-CORE.md para o comando e o motivo.
+/.vcpkg-overlay
