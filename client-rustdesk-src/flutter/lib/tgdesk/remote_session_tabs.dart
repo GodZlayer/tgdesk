@@ -24,13 +24,14 @@ class RemoteSessionTabs extends StatelessWidget {
       animation: manager,
       builder: (context, _) {
         if (manager.sessions.isEmpty) return const SizedBox.shrink();
-        return Flexible(
-          child: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const SizedBox(width: TgdeskSpacing.md),
-              Flexible(
-                child: ReorderableListView.builder(
+        // Sem Flexible aqui: quem decide a largura desta faixa é a barra de
+        // título, que reserva a coluna do meio. Este widget só preenche o que
+        // recebe — e rola por dentro quando as abas não cabem.
+        return Row(
+          children: [
+            const SizedBox(width: TgdeskSpacing.md),
+            Expanded(
+              child: ReorderableListView.builder(
                   scrollDirection: Axis.horizontal,
                   shrinkWrap: true,
                   buildDefaultDragHandles: false,
@@ -56,11 +57,10 @@ class RemoteSessionTabs extends StatelessWidget {
                   // arrastada some do lugar e reaparece maior no cursor, o que
                   // numa barra de 30px de altura parece defeito.
                   proxyDecorator: (child, _, __) =>
-                      Material(color: Colors.transparent, child: child),
-                ),
+                    Material(color: Colors.transparent, child: child),
               ),
-            ],
-          ),
+            ),
+          ],
         );
       },
     );

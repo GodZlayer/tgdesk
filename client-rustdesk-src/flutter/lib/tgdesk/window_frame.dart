@@ -334,16 +334,30 @@ class _TgdeskWindowScaffoldState extends State<TgdeskWindowScaffold>
         height: 40,
         padding: const EdgeInsets.only(left: TgdeskSpacing.md),
         color: Theme.of(context).colorScheme.surface,
+        // Três colunas: marca, abas, janela.
+        //
+        // As laterais ocupam exatamente o que o conteúdo delas pede; o meio
+        // fica com todo o resto e rola por dentro. Assim a quantidade de abas
+        // deixa de ser um problema de desenho: dez sessões abertas não empurram
+        // a versão, o menu nem os botões de janela, e não espremem o logo.
+        //
+        // Antes era uma fileira só com um Spacer no meio, e as abas disputavam
+        // espaço com tudo mais na mesma linha.
         child: Row(
           children: [
+            // Coluna 1 — a marca. Nunca encolhe.
             widget.title ??
                 Image.asset('assets/tgdesk_logo_horizontal.png', height: 22),
-            // As sessões de acesso remoto vivem aqui, como abas de navegador:
+            // Coluna 2 — as sessões de acesso remoto, como abas de navegador:
             // a máquina que se está operando é o assunto da janela, não um
-            // item entre os destinos da barra lateral. Sem sessão aberta não
-            // ocupa espaço nenhum.
-            if (_isMainWindow) const RemoteSessionTabs(),
-            const Spacer(),
+            // item entre os destinos da barra lateral. Sem sessão aberta a
+            // coluna fica vazia e só reserva o espaço, como o Spacer fazia.
+            Expanded(
+              child: _isMainWindow
+                  ? const RemoteSessionTabs()
+                  : const SizedBox.shrink(),
+            ),
+            // Coluna 3 — versão, menu e botões de janela.
             if (widget.actions != null) ...widget.actions!,
             if (widget.updateStatus?.updating == true)
               _buildUpdateIndicator(context, widget.updateStatus!),
