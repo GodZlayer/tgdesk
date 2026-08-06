@@ -3,7 +3,7 @@
 ; uso único validada pelo servidor dentro do próprio TGDesk.
 
 #define MyAppName "TGDesk"
-#define MyAppVersion "1.1.68"
+#define MyAppVersion "1.1.69"
 #define MyAppPublisher "TGDesk"
 #ifndef TGDeskServerHost
   #define TGDeskServerHost "127.0.0.1"
@@ -27,7 +27,7 @@ OutputDir=.\output
 ; esta linha por texto exato para garantir que o instalador esta identificado
 ; com a versao publicada. Derivar aqui apagaria essa verificacao. As duas
 ; versoes deste arquivo sobem juntas, no passo 1 do fluxo de release.
-OutputBaseFilename=tgdesk-installer-1.1.68
+OutputBaseFilename=tgdesk-installer-1.1.69
 Compression=lzma2
 SolidCompression=yes
 ArchitecturesInstallIn64BitMode=x64compatible
@@ -858,6 +858,16 @@ begin
       ExecAsOriginalUser(ExpandConstant('{app}\tgdesk.exe'), '',
         ExpandConstant('{app}'), SW_SHOWNORMAL, ewNoWait, ResultCode);
     end;
+    { O instalador termina mandando o TGDesk se atualizar.
+      O pacote embutido aqui envelhece: quem instala com um instalador de
+      semanas atras nasce naquela versao e so sai dela na proxima verificacao
+      periodica. Pedir a atualizacao no fim da instalacao faz a maquina nova
+      convergir para a versao atual em minutos, e nao em horas.
+      Sem esperar: o download decide sozinho se ha algo novo e nao ha nada que
+      a instalacao precise dele. Se nao houver rede agora, a verificacao
+      periodica do agente resolve depois. }
+    Exec(ExpandConstant('{app}\tgdesk.exe'), '--tgdesk-update',
+      ExpandConstant('{app}'), SW_HIDE, ewNoWait, ResultCode);
   end;
 end;
 

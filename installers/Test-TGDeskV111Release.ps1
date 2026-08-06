@@ -77,6 +77,33 @@ Add-Check 'update.agent_self_check_exists' `
 # estado do dispositivo. O laco do canal de controle so existe depois da
 # vinculacao -- uma maquina recem-instalada fica em 'guest' ate um tecnico
 # vincula-la, e sem isto ela congela na versao do instalador para sempre.
+# Toda flag que o agente passa ao nucleo tem que estar na lista de excecoes do
+# bloqueio de instancia unica. Sem isso, o processo do nucleo bate no mutex da
+# UI e sai ANTES de imprimir a resposta -- mas so quando a janela do TGDesk
+# esta aberta, entao o defeito e intermitente e parece outra coisa.
+#
+# Ja aconteceu duas vezes seguidas: --option deixava o acesso remoto sem
+# configuracao, e --get-id deixava o ID vazio. Esta checagem le as flags do
+# proprio codigo do agente em vez de depender de alguem lembrar de atualizar a
+# lista.
+$agentSources = Get-ChildItem (Join-Path $root 'client-agent') -Filter *.go -Recurse |
+    ForEach-Object { Get-Content $_.FullName -Raw }
+$coreFlags = [regex]::Matches(($agentSources -join "`n"),
+    '(?:exePath|coreExe)\s*,\s*"(--[a-z-]+)"') |
+    ForEach-Object { $_.Groups[1].Value } | Sort-Object -Unique
+# Le o main.cpp aqui em vez de reaproveitar $runnerMain: aquela variavel so e
+# preenchida mais abaixo, e comparar contra ela vazia reprovava TODAS as flags
+# — inclusive as que acabaram de ser adicionadas. Um teste que acusa erro onde
+# nao ha e pior que teste nenhum: ensina a ignorar o resultado.
+$whiteList = [regex]::Match(
+    (Get-Content (Join-Path $root 'client-rustdesk-src\flutter\windows\runner\main.cpp') -Raw),
+    'parameters_white_list\s*=\s*\{([\s\S]*?)\}').Groups[1].Value
+$missingFlags = @($coreFlags | Where-Object { $whiteList -notmatch [regex]::Escape("`"$_`"") })
+Add-Check 'core.cli_flags_bypass_ui_mutex' `
+    ($missingFlags.Count -eq 0) `
+    $(if ($missingFlags.Count) { "faltando: $($missingFlags -join ',')" }
+      else { "todas as $($coreFlags.Count) na lista" })
+
 $agentHost = Get-Content (Join-Path $root 'client-agent\cmd\agent\host.go') -Raw
 Add-Check 'update.reaches_unbound_devices' `
     ($agentHost -match 'verificarAtualizacaoPeriodica\(\)') 'guest devices update too'

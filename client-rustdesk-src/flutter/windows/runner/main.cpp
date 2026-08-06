@@ -38,7 +38,8 @@ typedef int (*FUNC_TGDESK_AGENT_APPLY_STAGED)(const char*, const char*, int);
 // simplesmente sumia da lista, e so voltava se ninguem estivesse com o TGDesk
 // aberto na hora certa.
 const std::vector<std::string> parameters_white_list = {
-    "--install", "--cm", "--server", "--tray", "--option", "--password"};
+    "--install", "--cm",     "--server",   "--tray",
+    "--option",  "--password", "--get-id"};
 
 const wchar_t* getWindowClassName();
 
