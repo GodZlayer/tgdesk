@@ -13,6 +13,8 @@ import 'client_home_page.dart';
 import 'agent_deploy.dart';
 import 'branding_page.dart';
 import 'control_channel.dart';
+import 'remote_session_page.dart';
+import 'remote_sessions_pane.dart';
 import 'support_page.dart';
 
 class HubHomePage extends StatefulWidget {
@@ -64,6 +66,24 @@ class _HubHomePageState extends State<HubHomePage> {
     _readBrandingAccess();
     _updateTimer =
         Timer.periodic(const Duration(seconds: 2), (_) => _readUpdateState());
+    RemoteSessionsManager.instance.addListener(_onRemoteSessionsChanged);
+  }
+
+  void _onRemoteSessionsChanged() {
+    if (!mounted) return;
+    final target = _remoteSessionsIndex;
+    if (RemoteSessionsManager.instance.hasEntries && _index != target) {
+      setState(() => _index = target);
+    }
+  }
+
+  int get _remoteSessionsIndex {
+    var i = 0;
+    if (AppState.canManageNetworks) i++;
+    i++; // Cliente
+    i++; // Chamados
+    if (AppState.isSuperAdmin) i += 2; // Admin + Técnicos
+    return i;
   }
 
   Future<void> _readBrandingAccess() async {
@@ -79,6 +99,7 @@ class _HubHomePageState extends State<HubHomePage> {
   @override
   void dispose() {
     _control.removeListener(_onControl);
+    RemoteSessionsManager.instance.removeListener(_onRemoteSessionsChanged);
     _updateTimer?.cancel();
     super.dispose();
   }
@@ -146,6 +167,9 @@ class _HubHomePageState extends State<HubHomePage> {
       if (isSuperAdmin)
         const NavigationRailDestination(
             icon: Icon(Icons.badge), label: Text('Técnicos')),
+      const NavigationRailDestination(
+          icon: Icon(Icons.desktop_windows_outlined),
+          label: Text('Acesso remoto')),
       if (!isSuperAdmin && _brandingEnabled)
         const NavigationRailDestination(
             icon: Icon(Icons.palette_outlined), label: Text('Minha marca')),
@@ -157,6 +181,7 @@ class _HubHomePageState extends State<HubHomePage> {
       const SupportPage(),
       if (isSuperAdmin) const AdminPage(),
       if (isSuperAdmin) const TechniciansPage(),
+      const RemoteSessionsPane(),
       if (!isSuperAdmin && _brandingEnabled) const BrandingPage(),
     ];
 

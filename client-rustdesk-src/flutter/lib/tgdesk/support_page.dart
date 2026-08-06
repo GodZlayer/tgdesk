@@ -1077,8 +1077,8 @@ class _SupportPageState extends State<SupportPage> {
 
   /// Botão "Acesso temporário": confirma junto ao servidor que a permissão
   /// temporária (temporary_ticket_permissions.allow_remote) está ativa antes
-  /// de abrir a sessão — reaproveita a mesma navegação usada em
-  /// devices_page.dart (TgdeskRemoteSessionPage + remoteCredential).
+  /// de abrir a sessão — reaproveita o mesmo manager usado em
+  /// devices_page.dart (RemoteSessionsManager + remoteCredential).
   Future<void> _openTemporaryRemote(Map<String, dynamic> ticket) async {
     await _action(() async {
       final ticketId = ticket['id'].toString();
@@ -1105,13 +1105,11 @@ class _SupportPageState extends State<SupportPage> {
           device?['display_name']?.toString().trim().isNotEmpty == true
               ? device!['display_name'].toString()
               : (device?['hostname']?.toString() ?? 'Dispositivo');
-      Navigator.of(context).push(MaterialPageRoute(
-        builder: (_) => TgdeskRemoteSessionPage(
-          deviceId: deviceId,
-          remoteId: device?['rustdesk_id']?.toString() ?? '',
-          hostname: hostname,
-          credential: credential,
-        ),
+      RemoteSessionsManager.instance.open(RemoteSessionEntry(
+        deviceId: deviceId,
+        remoteId: device?['rustdesk_id']?.toString() ?? '',
+        hostname: hostname,
+        credential: credential,
       ));
     });
   }

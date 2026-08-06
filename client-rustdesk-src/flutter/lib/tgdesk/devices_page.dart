@@ -1004,14 +1004,12 @@ class _DevicesPageState extends State<DevicesPage> {
                 if (credential.isEmpty) {
                   throw Exception('autorização remota indisponível');
                 }
-                if (!context.mounted) return;
-                Navigator.of(context).push(MaterialPageRoute(
-                  builder: (_) => TgdeskRemoteSessionPage(
-                    deviceId: d['id'] as String,
-                    remoteId: d['rustdesk_id'] as String,
-                    hostname: displayName,
-                    credential: credential,
-                  ),
+                if (!mounted) return;
+                RemoteSessionsManager.instance.open(RemoteSessionEntry(
+                  deviceId: d['id'] as String,
+                  remoteId: d['rustdesk_id'] as String,
+                  hostname: displayName,
+                  credential: credential,
                 ));
               } catch (e) {
                 if (context.mounted) {
@@ -1394,46 +1392,6 @@ class _DevicesPageState extends State<DevicesPage> {
     );
   }
 
-  Widget _storageTechnical(Map<String, dynamic> disk) {
-    final rows = <Widget>[
-      _technicalRow('Tipo',
-          '${disk['media_type'] ?? ""} ${disk['bus_type'] ?? ""}'.trim()),
-      _technicalRow('Capacidade física', _bytes(disk['total_bytes'])),
-      _technicalRow(
-          'Saúde informada', disk['smart_status']?.toString() ?? 'N/D'),
-      _technicalRow('Vida útil restante',
-          disk['life_pct'] is num ? _optionalPct(disk['life_pct']) : 'N/D'),
-      _technicalRow('Temperatura',
-          disk['temperature'] is num ? '${disk['temperature']} °C' : 'N/D'),
-    ];
-    for (final raw in _list(disk['volumes'])) {
-      final volume = _map(raw);
-      rows.add(_technicalRow(
-          'Volume ${volume['label'] ?? ""}',
-          '${_optionalPct(volume['used_pct'])} usado • '
-              '${_bytes(volume['available_bytes'])} livres'));
-    }
-    return _technicalSection(
-        'Armazenamento — ${disk['model'] ?? "Não identificado"}', rows);
-  }
-
-  Widget _networkTechnical(
-      Map<String, dynamic> network, Map<String, dynamic> statistics) {
-    final id = network['id']?.toString() ?? '';
-    final netStats = _map(_map(statistics['networks'])[id]);
-    return _technicalSection('Rede — ${network['name'] ?? "Adaptador"}', [
-      _technicalRow('Dispositivo', network['description']?.toString() ?? 'N/D'),
-      _technicalRow('Estado', network['status']?.toString() ?? 'N/D'),
-      _technicalRow(
-          'Velocidade negociada', _bitSpeed(network['link_speed_bps'])),
-      _technicalRow(
-          'Tráfego médio observado', _byteRate(netStats['average_bps'])),
-      _technicalRow('Maior tráfego observado', _byteRate(netStats['max_bps'])),
-      _technicalRow('Tempo indisponível',
-          '${_num(netStats['downtime_seconds']).round()} s'),
-    ]);
-  }
-
   Widget _componentVisualCard(String title, String subtitle, IconData icon,
       double usage, List<String> facts) {
     final level = usage >= 95
@@ -1717,38 +1675,11 @@ class _DevicesPageState extends State<DevicesPage> {
     );
   }
 
-  Widget _technicalSection(String title, List<Widget> rows) => Card(
-        margin: const EdgeInsets.only(bottom: 12),
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(title,
-                  style: const TextStyle(
-                      fontSize: 16, fontWeight: FontWeight.w600)),
-              const Divider(),
-              Wrap(spacing: 24, runSpacing: 10, children: rows),
-            ],
-          ),
-        ),
-      );
-
-  Widget _technicalRow(String label, String value) => SizedBox(
-        width: 220,
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text(label, style: const TextStyle(fontSize: 11, color: Colors.grey)),
-          Text(value),
-        ]),
-      );
-
   Map<String, dynamic> _map(dynamic value) =>
       value is Map ? Map<String, dynamic>.from(value) : <String, dynamic>{};
   List<dynamic> _list(dynamic value) => value is List ? value : const [];
   double _num(dynamic value) =>
       value is num ? value.toDouble() : double.tryParse('$value') ?? 0;
-  String _optional(dynamic value) =>
-      value is num ? value.toDouble().toStringAsFixed(1) : 'N/D';
   String _optionalPct(dynamic value) =>
       value is num ? '${value.toDouble().toStringAsFixed(1)}%' : 'N/D';
   String _clock(dynamic value) {
@@ -1768,11 +1699,9 @@ class _DevicesPageState extends State<DevicesPage> {
       bytes /= 1024;
       unit++;
     }
-    return '${bytes.toStringAsFixed(unit < 3 ? 0 : 1)} ${units[unit]}';
+       return '${bytes.toStringAsFixed(unit < 3 ? 0 : 1)} ${units[unit]}';
   }
 
-  String _bytesOrUnavailable(dynamic value) =>
-      value is num ? _bytes(value) : 'N/D';
   String _bitSpeed(dynamic value) {
     final bps = _num(value);
     if (bps >= 1e9) return '${(bps / 1e9).toStringAsFixed(1)} Gbps';

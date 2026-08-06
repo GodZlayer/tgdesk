@@ -9,8 +9,46 @@ import 'package:flutter_hbb/models/platform_model.dart';
 import 'package:flutter_hbb/models/state_model.dart';
 
 import 'diagnostics_dialog.dart';
+import 'window_frame.dart';
 
 const _annotationPrefix = '__TGDESK_ANNOTATION__:';
+
+class RemoteSessionEntry {
+  const RemoteSessionEntry({
+    required this.deviceId,
+    required this.remoteId,
+    required this.hostname,
+    required this.credential,
+  });
+
+  final String deviceId;
+  final String remoteId;
+  final String hostname;
+  final String credential;
+}
+
+class RemoteSessionsManager extends ChangeNotifier {
+  RemoteSessionsManager._();
+  static final RemoteSessionsManager instance = RemoteSessionsManager._();
+
+  final List<RemoteSessionEntry> _entries = [];
+  List<RemoteSessionEntry> get entries => List.unmodifiable(_entries);
+  bool get hasEntries => _entries.isNotEmpty;
+
+  bool isOpen(String deviceId) => _entries.any((e) => e.deviceId == deviceId);
+
+  void open(RemoteSessionEntry entry) {
+    if (_entries.any((e) => e.deviceId == entry.deviceId)) return;
+    _entries.add(entry);
+    notifyListeners();
+  }
+
+  void close(String deviceId) {
+    final before = _entries.length;
+    _entries.removeWhere((e) => e.deviceId == deviceId);
+    if (_entries.length != before) notifyListeners();
+  }
+}
 
 class TgdeskRemoteSessionPage extends StatefulWidget {
   const TgdeskRemoteSessionPage({
@@ -301,11 +339,14 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
       focusNode: _focusNode,
       autofocus: true,
       onKeyEvent: _handleKey,
-      child: Scaffold(
-        backgroundColor: Colors.black,
-        body: Stack(
-          fit: StackFit.expand,
-          children: [
+      child: TgdeskWindowScaffold(
+        title: Text(widget.hostname,
+            style: const TextStyle(fontWeight: FontWeight.w600)),
+        child: Container(
+          color: Colors.black,
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
             DesktopRemoteScreen(params: {
               'id': widget.remoteId,
               'windowId': 0,
@@ -362,6 +403,7 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
                 ),
               ),
           ],
+        ),
         ),
       ),
     );
