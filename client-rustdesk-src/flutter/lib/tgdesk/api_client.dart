@@ -564,6 +564,26 @@ class TgdeskApi {
   static Future<void> deletePricingRule(String id) async =>
       await _send('DELETE', '/api/v1/admin/pricing-rules/$id');
 
+  // Localidade. As regiões chegam pelo canal; estas rotas são o cadastro.
+  static Future<List<dynamic>> regions() async =>
+      await _send('GET', '/api/v1/support/regions') as List<dynamic>;
+
+  static Future<void> saveRegion(Map<String, dynamic> region) async =>
+      await _send('POST', '/api/v1/admin/regions', body: region);
+
+  static Future<void> deleteRegion(String id) async =>
+      await _send('DELETE', '/api/v1/admin/regions/$id');
+
+  /// Põe uma empresa, uma máquina ou um técnico numa região. `target` é
+  /// 'organization', 'device' ou 'technician'; `regionId` nulo tira da região.
+  static Future<void> assignRegion(
+          String target, String targetId, String? regionId) async =>
+      await _send('POST', '/api/v1/admin/regions/assign', body: {
+        'target': target,
+        'target_id': targetId,
+        'region_id': regionId,
+      });
+
   // Construtor de OS. O catálogo normalmente chega pelo canal, junto do
   // snapshot; este GET existe para a tela do admin reler depois de editar.
   static Future<Map<String, dynamic>> osCatalog() async =>

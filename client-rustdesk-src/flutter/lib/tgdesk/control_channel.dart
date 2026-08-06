@@ -31,6 +31,19 @@ class TgdeskControlChannel extends ChangeNotifier {
   /// produto, e as demais telas não têm o que fazer com elas.
   List<Map<String, dynamic>> pricingRules = const [];
 
+  /// Regiões cadastradas. É o recorte de localidade do produto: o preço
+  /// dinâmico mede demanda, técnicos e clientes por região, e não por rede —
+  /// rede é fronteira administrativa, região é o lugar.
+  List<Map<String, dynamic>> regions = const [];
+
+  Map<String, dynamic>? regionOf(String? id) {
+    if (id == null) return null;
+    for (final region in regions) {
+      if (region['id']?.toString() == id) return region;
+    }
+    return null;
+  }
+
   /// Catálogo de peças e de serviços com preço. É o que o construtor de OS
   /// oferece ao técnico: ele escolhe da lista em vez de arbitrar o valor.
   List<Map<String, dynamic>> parts = const [];
@@ -254,6 +267,10 @@ class TgdeskControlChannel extends ChangeNotifier {
       if (event['os_catalog'] is Map) {
         _readOsCatalog(event['os_catalog'] as Map);
       }
+      regions = (event['regions'] as List? ?? const [])
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList(growable: false);
       serviceOrders.clear();
       for (final item in (event['service_orders'] as List? ?? const [])) {
         if (item is! Map) continue;
@@ -317,6 +334,14 @@ class TgdeskControlChannel extends ChangeNotifier {
     // mexer em vários campos de uma vez, e ele é pequeno.
     if (event['type'] == 'ticket_catalog' && event['payload'] is List) {
       ticketTypes = (event['payload'] as List)
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .toList(growable: false);
+      notifyListeners();
+      return;
+    }
+    if (event['type'] == 'regions' && event['payload'] is List) {
+      regions = (event['payload'] as List)
           .whereType<Map>()
           .map((item) => Map<String, dynamic>.from(item))
           .toList(growable: false);

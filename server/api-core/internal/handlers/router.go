@@ -224,6 +224,18 @@ func NewRouter(s *Server) http.Handler {
 		s.DeletePricingRule(w, r, r.PathValue("id"))
 	}))
 
+	// Localidade. A leitura é de qualquer autenticado — as telas mostram a
+	// região de técnico, dispositivo e chamado — e o cadastro é do admin,
+	// porque é ele quem decide onde o produto opera.
+	mux.Handle("GET /api/v1/support/regions", private(auth(http.HandlerFunc(s.Regions))))
+	mux.Handle("POST /api/v1/admin/regions", admin(s.SaveRegion))
+	mux.Handle("DELETE /api/v1/admin/regions/{id}", admin(func(w http.ResponseWriter, r *http.Request) {
+		s.DeleteRegion(w, r, r.PathValue("id"))
+	}))
+	// Pôr uma empresa, uma máquina ou um técnico numa região. O técnico que
+	// informou coordenada já entra na certa sozinho; isto é para o resto.
+	mux.Handle("POST /api/v1/admin/regions/assign", admin(s.AssignRegion))
+
 	// Construtor de OS. O catálogo de peças e serviços é lido por qualquer
 	// autenticado — é o que o técnico escolhe ao montar o orçamento — e
 	// cadastrado só pelo admin, como o resto do que define dinheiro.

@@ -84,7 +84,7 @@ func (s *Server) eventVisibleTo(ctx context.Context, claims *tgauth.Claims, evt 
 		// Quem monta a mensagem já só a escreve para o super_admin; a
 		// conexão dele nem passa por aqui.
 		return false
-	case "os_catalog":
+	case "regions", "os_catalog":
 		// Peças e serviços seguem o catálogo de tipos: é o que o técnico
 		// escolhe ao orçar, então vale para qualquer autenticado, e o que
 		// aparece de item desativado se resolve ao montar a mensagem.

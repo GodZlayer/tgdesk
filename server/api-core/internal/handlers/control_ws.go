@@ -510,6 +510,14 @@ func (s *Server) TechnicianControlWS(w http.ResponseWriter, r *http.Request) {
 			}
 			// Preço é configuração do dono do produto: só a tela dele
 			// recebe, e por isso não passa por deltaFor.
+			if evt.Type == "regions" {
+				if write(map[string]any{"type": "regions",
+					"payload": s.regionCatalog(r.Context(),
+						claims.Role == models.RoleSuperAdmin)}) != nil {
+					return
+				}
+				continue
+			}
 			if evt.Type == "os_catalog" {
 				if write(map[string]any{"type": "os_catalog",
 					"payload": s.osCatalog(r.Context(),
@@ -762,7 +770,11 @@ func (s *Server) controlSnapshot(ctx context.Context, technicianID, role string)
 		// O catálogo de peças e serviços entra na abertura pela mesma razão do
 		// de tipos: a tela que monta o orçamento se monta do canal, e pedir o
 		// catálogo ao abrir a OS seria a busca ao montar de novo.
-		"os_catalog":      s.osCatalog(ctx, role == models.RoleSuperAdmin),
-		"service_orders":  s.serviceOrdersForSnapshot(ctx, ids),
+		"os_catalog":     s.osCatalog(ctx, role == models.RoleSuperAdmin),
+		"service_orders": s.serviceOrdersForSnapshot(ctx, ids),
+		// As regiões entram na abertura pela mesma razão: é o recorte que as
+		// telas usam para dizer de onde é um chamado, e o que o admin edita
+		// para definir onde o produto opera.
+		"regions":         s.regionCatalog(ctx, role == models.RoleSuperAdmin),
 		"dispatch_offers": offers, "pricing_rules": pricing}, nil
 }

@@ -401,7 +401,6 @@ class _AdminPricingTabState extends State<AdminPricingTab> {
     'fee': 'Taxa do admin',
     'promo': 'Promoção',
     'bounds': 'Limites do valor dinâmico',
-    'demand': 'Folga do ajuste por demanda',
   };
 
   static const _roles = {
@@ -531,6 +530,9 @@ class _AdminPricingTabState extends State<AdminPricingTab> {
     final partes = <String>[
       if (rule['ticket_type_key'] != null) 'tipo ${rule['ticket_type_key']}',
       if (rule['organization_id'] != null) 'organização',
+      if (rule['region_id'] != null)
+        'região ${_channel.regionOf(rule['region_id']?.toString())?['label'] ?? ''}'
+            .trim(),
       if (rule['network_id'] != null) 'rede',
       if (rule['subnetwork_id'] != null) 'subrede',
       if (rule['technician_id'] != null) 'técnico',
@@ -553,6 +555,7 @@ class _AdminPricingTabState extends State<AdminPricingTab> {
     var kind = rule?['kind']?.toString() ?? 'share';
     var role = rule?['role']?.toString();
     String? typeKey = rule?['ticket_type_key']?.toString();
+    String? regionId = rule?['region_id']?.toString();
     // 'null' = os dois; true = só avulso; false = só empresarial.
     bool? standalone = rule?['standalone'] as bool?;
     var ativo = rule?['active'] != false;
@@ -659,6 +662,22 @@ class _AdminPricingTabState extends State<AdminPricingTab> {
                   onChanged: (value) =>
                       setDialogState(() => standalone = value),
                 ),
+                // A região entra aqui, e não fica de fora como as demais, por
+                // ser o recorte que a dinâmica de preço de fato mede: uma
+                // regra por cidade é o caso comum, e a lista é curta o
+                // bastante para um menu.
+                DropdownButtonFormField<String?>(
+                  value: regionId,
+                  decoration:
+                      const InputDecoration(labelText: 'Região (opcional)'),
+                  items: [
+                    const DropdownMenuItem(value: null, child: Text('Todas')),
+                    ..._channel.regions.map((regiao) => DropdownMenuItem(
+                        value: regiao['id']?.toString(),
+                        child: Text(regiao['label']?.toString() ?? ''))),
+                  ],
+                  onChanged: (value) => setDialogState(() => regionId = value),
+                ),
                 // Organização, rede, subrede e técnico ficam de fora deste
                 // diálogo por enquanto: escolhê-los pede um seletor com busca,
                 // e o esquema já aceita os quatro — é tela, não modelo.
@@ -701,6 +720,7 @@ class _AdminPricingTabState extends State<AdminPricingTab> {
                       'kind': kind,
                       'role': kind == 'share' ? role : null,
                       'ticket_type_key': typeKey,
+                      'region_id': regionId,
                       'standalone': standalone,
                       'percent': double.tryParse(percent.text.trim()),
                       'amount_cents': _cents(amount.text),

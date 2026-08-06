@@ -415,6 +415,7 @@ type pricingRuleRequest struct {
 	Role           *string    `json:"role"`
 	TicketTypeKey  *string    `json:"ticket_type_key"`
 	OrganizationID *string    `json:"organization_id"`
+	RegionID       *string    `json:"region_id"`
 	NetworkID      *string    `json:"network_id"`
 	SubnetworkID   *string    `json:"subnetwork_id"`
 	TechnicianID   *string    `json:"technician_id"`
@@ -442,7 +443,7 @@ func (s *Server) pricingRules(ctx context.Context) []map[string]any {
 		SELECT id,kind,role,ticket_type_key,organization_id,network_id,
 		       subnetwork_id,technician_id,standalone,percent,amount_cents,
 		       min_cents,max_cents,valid_from,valid_until,note,active,
-		       specificity,created_at,updated_at
+		       specificity,created_at,updated_at,region_id
 		FROM pricing_rules ORDER BY kind,specificity DESC,updated_at DESC`)
 	if err != nil {
 		return out
@@ -450,7 +451,7 @@ func (s *Server) pricingRules(ctx context.Context) []map[string]any {
 	defer rows.Close()
 	for rows.Next() {
 		var id, kind, note string
-		var role, typeKey, org, net, sub, tech *string
+		var role, typeKey, org, net, sub, tech, regionID *string
 		var standalone, active *bool
 		var percent *float64
 		var amount, minC, maxC *int64
@@ -459,12 +460,13 @@ func (s *Server) pricingRules(ctx context.Context) []map[string]any {
 		var created, updated time.Time
 		if rows.Scan(&id, &kind, &role, &typeKey, &org, &net, &sub, &tech,
 			&standalone, &percent, &amount, &minC, &maxC, &from, &until,
-			&note, &active, &specificity, &created, &updated) != nil {
+			&note, &active, &specificity, &created, &updated, &regionID) != nil {
 			continue
 		}
 		out = append(out, map[string]any{
 			"id": id, "kind": kind, "role": role, "ticket_type_key": typeKey,
-			"organization_id": org, "network_id": net, "subnetwork_id": sub,
+			"organization_id": org, "region_id": regionID,
+			"network_id": net, "subnetwork_id": sub,
 			"technician_id": tech, "standalone": standalone, "percent": percent,
 			"amount_cents": amount, "min_cents": minC, "max_cents": maxC,
 			"valid_from": from, "valid_until": until, "note": note,
@@ -495,10 +497,10 @@ func (s *Server) SavePricingRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch req.Kind {
-	case "share", "fee", "promo", "bounds", "demand":
+	case "share", "fee", "promo", "bounds":
 	default:
 		writeErrCode(w, 400, "tipo_de_regra_invalido",
-			"a regra deve ser share, fee, promo, bounds ou demand")
+			"a regra deve ser share, fee, promo ou bounds")
 		return
 	}
 	active := true
@@ -518,24 +520,26 @@ func (s *Server) SavePricingRule(w http.ResponseWriter, r *http.Request) {
 				kind=$2,role=$3,ticket_type_key=$4,organization_id=$5,network_id=$6,
 				subnetwork_id=$7,technician_id=$8,standalone=$9,percent=$10,
 				amount_cents=$11,min_cents=$12,max_cents=$13,valid_from=$14,
-				valid_until=$15,note=$16,active=$17,updated_at=now()
+				valid_until=$15,note=$16,active=$17,region_id=$18,updated_at=now()
 			WHERE id=$1 RETURNING id`,
 			req.ID, req.Kind, req.Role, req.TicketTypeKey, req.OrganizationID,
 			req.NetworkID, req.SubnetworkID, req.TechnicianID, req.Standalone,
 			req.Percent, req.AmountCents, req.MinCents, req.MaxCents,
-			req.ValidFrom, req.ValidUntil, strings.TrimSpace(req.Note), active).Scan(&id)
+			req.ValidFrom, req.ValidUntil, strings.TrimSpace(req.Note), active,
+			req.RegionID).Scan(&id)
 	} else {
 		err = s.Pool.QueryRow(r.Context(), `
 			INSERT INTO pricing_rules
 				(kind,role,ticket_type_key,organization_id,network_id,subnetwork_id,
 				 technician_id,standalone,percent,amount_cents,min_cents,max_cents,
-				 valid_from,valid_until,note,active,created_by)
-			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17)
+				 valid_from,valid_until,note,active,created_by,region_id)
+			VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
 			RETURNING id`,
 			req.Kind, req.Role, req.TicketTypeKey, req.OrganizationID, req.NetworkID,
 			req.SubnetworkID, req.TechnicianID, req.Standalone, req.Percent,
 			req.AmountCents, req.MinCents, req.MaxCents, req.ValidFrom,
-			req.ValidUntil, strings.TrimSpace(req.Note), active, criador).Scan(&id)
+			req.ValidUntil, strings.TrimSpace(req.Note), active, criador,
+			req.RegionID).Scan(&id)
 	}
 	if err != nil {
 		// A promoção única por escopo é a violação que o admin mais vai
@@ -565,11 +569,14 @@ func (s *Server) DeletePricingRule(w http.ResponseWriter, r *http.Request, id st
 type pricingScope struct {
 	TicketType     string
 	OrganizationID *string
-	NetworkID      *string
-	SubnetworkID   *string
-	TechnicianID   *string
-	Standalone     bool
-	At             time.Time
+	// A região do chamado, congelada na abertura. É o recorte que o preço
+	// dinâmico mede: rede é fronteira administrativa, região é o lugar.
+	RegionID     *string
+	NetworkID    *string
+	SubnetworkID *string
+	TechnicianID *string
+	Standalone   bool
+	At           time.Time
 }
 
 // ResolvedPricing é o que sobra depois da disputa entre as regras: um valor por
@@ -582,10 +589,6 @@ type ResolvedPricing struct {
 	PromoCents  *int64             `json:"promo_cents,omitempty"`
 	MinCents    *int64             `json:"min_cents,omitempty"`
 	MaxCents    *int64             `json:"max_cents,omitempty"`
-	// Limites do multiplicador de demanda, em centésimos: 100 é preço cheio.
-	// Nulos significam que ninguém cadastrou folga e o preço não varia.
-	DemandMin *int64 `json:"demand_min,omitempty"`
-	DemandMax *int64 `json:"demand_max,omitempty"`
 }
 
 // resolvePricing escolhe, para cada natureza de regra, a linha mais específica
@@ -611,9 +614,11 @@ func (s *Server) resolvePricing(ctx context.Context, scope pricingScope) Resolve
 		  AND (subnetwork_id   IS NULL OR subnetwork_id   = $4)
 		  AND (technician_id   IS NULL OR technician_id   = $5)
 		  AND (standalone      IS NULL OR standalone      = $6)
+		  AND (region_id       IS NULL OR region_id       = $8)
 		ORDER BY kind,coalesce(role,''),specificity DESC,updated_at DESC`,
 		scope.TicketType, scope.OrganizationID, scope.NetworkID,
-		scope.SubnetworkID, scope.TechnicianID, scope.Standalone, at)
+		scope.SubnetworkID, scope.TechnicianID, scope.Standalone, at,
+		scope.RegionID)
 	if err != nil {
 		return out
 	}
@@ -637,8 +642,6 @@ func (s *Server) resolvePricing(ctx context.Context, scope pricingScope) Resolve
 			out.PromoPercnt, out.PromoCents = percent, amount
 		case "bounds":
 			out.MinCents, out.MaxCents = minC, maxC
-		case "demand":
-			out.DemandMin, out.DemandMax = minC, maxC
 		}
 	}
 	return out

@@ -300,70 +300,123 @@ func (s *Server) DeleteService(w http.ResponseWriter, r *http.Request, id string
 // O orçamento.
 // ---------------------------------------------------------------------------
 
-// demandMultiplier é o quanto a demanda do recorte empurra o preço, em
+// As constantes da fórmula do preço dinâmico.
+//
+// Estas NÃO são configuração do admin, e a separação é deliberada: o admin
+// edita os percentuais das classes, a taxa, a promoção e o piso e o teto do
+// VALOR — tudo isso é pricing_rules. O que ele não edita é a fórmula e os
+// números que a fazem funcionar. São decisão de produto: mudá-los muda como o
+// TGDesk se comporta como mercado, não quanto uma empresa paga.
+//
+// Estão todos aqui, juntos, para que essa decisão tenha um lugar só.
+const (
+	// Preço cheio, sem ajuste. É de onde a conta parte.
+	multiplicadorBase = 100.0
+
+	// Até onde o ajuste pode ir, para baixo e para cima. O piso existe para
+	// que região parada não zere o valor do trabalho; o teto, para que um pico
+	// não vire preço extorsivo — que é o erro que este modelo comete quando
+	// ninguém o freia.
+	multiplicadorPiso = 70.0
+	multiplicadorTeto = 250.0
+
+	// Quantos clientes por técnico o produto considera saudável. É o ponto em
+	// que a pressão estrutural vale 1 — nem sobra nem falta técnico para o
+	// tamanho do lugar.
+	clientesPorTecnicoAlvo = 40.0
+
+	// Como as duas pressões se dividem no ajuste. A imediata pesa mais porque
+	// é a que o cliente sente: fila grande agora encarece agora. A estrutural
+	// é o pano de fundo — um lugar cronicamente mal atendido é caro mesmo num
+	// dia calmo.
+	pesoPressaoImediata   = 0.6
+	pesoPressaoEstrutural = 0.4
+)
+
+// demandMultiplier é o quanto o mercado da região empurra o preço, em
 // centésimos — 100 é preço cheio.
 //
-// A conta é a razão entre chamados esperando e técnicos disponíveis no mesmo
-// recorte. Um técnico livre por chamado aberto é o equilíbrio, e vale 100; o
-// dobro de chamados por técnico empurra para cima, e sobra de técnico empurra
-// para baixo. O resultado é sempre travado pelos limites cadastrados, então
-// sem regra de demanda nada varia.
+// As três entradas são as que definem o lugar: quantos chamados estão
+// esperando, quantos técnicos existem para atendê-los, e quantos clientes
+// (empresariais e avulsos) a região tem.
 //
-// Não é dado guardado de propósito: a razão muda em minutos, e um número
-// gravado ontem descreveria um mercado que não existe mais.
-func (s *Server) demandMultiplier(ctx context.Context, scope pricingScope,
-	price ResolvedPricing) int64 {
-	if price.DemandMin == nil || price.DemandMax == nil {
-		return 100
-	}
-	min, max := *price.DemandMin, *price.DemandMax
-	if min == max {
-		return min
+// Delas saem duas pressões:
+//
+//	imediata   = chamados esperando / técnicos disponíveis
+//	estrutural = (clientes / técnicos) / clientesPorTecnicoAlvo
+//
+// Ambas valem 1 no equilíbrio. O ajuste é a média ponderada do quanto cada uma
+// se afasta de 1, e o resultado é travado entre o piso e o teto.
+//
+// A distinção entre as duas importa: a imediata é volátil e responde à fila de
+// agora; a estrutural é lenta e descreve se o lugar tem gente suficiente para
+// dar conta de si. Um lugar com dois chamados abertos e um técnico para
+// duzentos clientes não é barato só porque hoje está calmo.
+//
+// Nada disto é guardado, de propósito: as contagens mudam em minutos, e um
+// número gravado ontem descreveria um mercado que não existe mais. O que se
+// guarda é o resultado, no orçamento fechado — porque aí ele virou compromisso.
+func (s *Server) demandMultiplier(ctx context.Context, scope pricingScope) int64 {
+	// Sem região não há mercado a medir. Cobrar pela demanda de um lugar que
+	// não se sabe qual é seria pior do que não ajustar: o avulso que não
+	// informou onde está pagaria pelo mercado de outra pessoa.
+	if scope.RegionID == nil {
+		return int64(multiplicadorBase)
 	}
 
-	var esperando, disponiveis int64
-	// Chamados esperando atendimento no recorte. O recorte usa rede quando ela
-	// existe: é a fronteira que o produto já usa para visibilidade, e preço não
-	// pode enxergar mais longe do que quem o paga.
+	var esperando, tecnicos, clientes int64
+
+	// Chamados esperando atendimento na região.
 	_ = s.Pool.QueryRow(ctx, `
 		SELECT count(*) FROM support_tickets
-		WHERE status IN ('open','accepted')
-		  AND ($1::uuid IS NULL OR network_id      = $1)
-		  AND ($2::text IS NULL OR type_key        = $2)`,
-		scope.NetworkID, nullIfEmpty(scope.TicketType)).Scan(&esperando)
+		WHERE region_id=$1 AND status IN ('open','accepted','offered')`,
+		*scope.RegionID).Scan(&esperando)
 
-	// Técnicos que podem pegar: freelancer disponível dentro do recorte.
+	// Técnicos disponíveis na região.
 	_ = s.Pool.QueryRow(ctx, `
-		SELECT count(*) FROM freelancer_profiles f
-		JOIN technicians t ON t.id = f.technician_id
-		WHERE f.availability
-		  AND ($1::uuid IS NULL OR f.organization_id = $1)`,
-		scope.OrganizationID).Scan(&disponiveis)
+		SELECT count(*) FROM freelancer_profiles
+		WHERE region_id=$1 AND availability`, *scope.RegionID).Scan(&tecnicos)
 
-	if disponiveis == 0 {
-		// Ninguém para atender não é demanda infinita: é o teto, e o teto é
-		// justamente o freio que o admin cadastrou para este caso.
-		if esperando == 0 {
-			return 100
-		}
-		return max
-	}
-	ratio := float64(esperando) / float64(disponiveis)
-	mult := int64(math.Round(ratio * 100))
-	if mult < min {
-		return min
-	}
-	if mult > max {
-		return max
-	}
-	return mult
+	// Clientes na região: empresariais e avulsos na mesma contagem, porque
+	// para o mercado local os dois são a mesma coisa — máquina que pode
+	// precisar de atendimento.
+	_ = s.Pool.QueryRow(ctx, `
+		SELECT count(*) FROM devices
+		WHERE region_id=$1 AND state='ativo'`, *scope.RegionID).Scan(&clientes)
+
+	return ajusteDeDemanda(esperando, tecnicos, clientes)
 }
 
-func nullIfEmpty(v string) *string {
-	if strings.TrimSpace(v) == "" {
-		return nil
+// ajusteDeDemanda é a fórmula em si, separada das consultas.
+//
+// Fica separada para poder ser conferida com números na mão: é a linha que
+// decide quanto alguém paga, e uma conta dessas não deve depender de subir um
+// banco para se saber se está certa.
+func ajusteDeDemanda(esperando, tecnicos, clientes int64) int64 {
+	if tecnicos == 0 {
+		// Nenhum técnico na região. Se também não há fila, não há mercado a
+		// precificar e o preço é o cheio; se há fila, é escassez completa, e
+		// escassez completa é o teto — sem o freio, a divisão por zero viraria
+		// preço infinito.
+		if esperando == 0 {
+			return int64(multiplicadorBase)
+		}
+		return int64(multiplicadorTeto)
 	}
-	return &v
+
+	imediata := float64(esperando) / float64(tecnicos)
+	estrutural := (float64(clientes) / float64(tecnicos)) / clientesPorTecnicoAlvo
+
+	ajuste := pesoPressaoImediata*(imediata-1) + pesoPressaoEstrutural*(estrutural-1)
+	mult := multiplicadorBase * (1 + ajuste)
+
+	if mult < multiplicadorPiso {
+		mult = multiplicadorPiso
+	}
+	if mult > multiplicadorTeto {
+		mult = multiplicadorTeto
+	}
+	return int64(math.Round(mult))
 }
 
 // osQuote é o orçamento fechado: o que cada linha somou, o que a demanda
@@ -402,7 +455,7 @@ func (s *Server) buildQuote(ctx context.Context, osID string,
 
 	price := s.resolvePricing(ctx, scope)
 	q.Pricing = price
-	q.DemandMultiple = s.demandMultiplier(ctx, scope, price)
+	q.DemandMultiple = s.demandMultiplier(ctx, scope)
 	q.AdjustedCents = q.SubtotalCents * q.DemandMultiple / 100
 
 	// Os limites de 'bounds' travam o valor do chamado, não o multiplicador:
@@ -459,15 +512,27 @@ func (s *Server) buildQuote(ctx context.Context, osID string,
 func (s *Server) osScope(ctx context.Context, ticketID string) (pricingScope, error) {
 	var scope pricingScope
 	err := s.Pool.QueryRow(ctx, `
-		SELECT t.type_key, t.organization_id, t.network_id, t.standalone,
-		       d.subnetwork_id, o.assigned_technician_id
+		SELECT t.type_key, t.organization_id, t.region_id, t.network_id,
+		       t.standalone, d.subnetwork_id, o.assigned_technician_id
 		FROM support_tickets t
 		LEFT JOIN devices d        ON d.id = t.device_id
 		LEFT JOIN service_orders o ON o.ticket_id = t.id
 		WHERE t.id=$1`, ticketID).Scan(&scope.TicketType, &scope.OrganizationID,
-		&scope.NetworkID, &scope.Standalone, &scope.SubnetworkID,
-		&scope.TechnicianID)
-	return scope, err
+		&scope.RegionID, &scope.NetworkID, &scope.Standalone,
+		&scope.SubnetworkID, &scope.TechnicianID)
+	if err != nil {
+		return scope, err
+	}
+	// Chamado aberto antes de a região existir, ou antes de o admin cadastrar
+	// a dele: resolve agora e congela, para que a próxima conta não precise
+	// refazer o mesmo caminho.
+	if scope.RegionID == nil {
+		s.StampTicketRegion(ctx, ticketID)
+		_ = s.Pool.QueryRow(ctx,
+			`SELECT region_id FROM support_tickets WHERE id=$1`,
+			ticketID).Scan(&scope.RegionID)
+	}
+	return scope, nil
 }
 
 // OsQuote devolve o orçamento de uma OS sem gravá-lo — é o que a tela mostra

@@ -231,6 +231,10 @@ func (s *Server) ClientOpenTicket(w http.ResponseWriter, r *http.Request) {
 		writeErrCode(w, 500, "falha_abrir_chamado", "falha ao abrir chamado")
 		return
 	}
+	// A região é congelada agora, na abertura, e não lida da organização na
+	// hora de cobrar: a empresa pode mudar de região amanhã, mas o que
+	// precificou este chamado foi onde ele nasceu.
+	s.StampTicketRegion(r.Context(), id)
 	_, _ = s.Pool.Exec(r.Context(), `INSERT INTO ticket_events(ticket_id,actor_device_id,event_type,payload) VALUES($1,$2,'opened',$3)`, id, req.DeviceID, map[string]any{"standalone": standalone})
 	// O diagnóstico entra como evento estruturado em vez de parágrafo na
 	// descrição: quem exibe decide como dizer, e o chamado já nasce com o
@@ -487,11 +491,11 @@ func (s *Server) ConvertServiceOrder(w http.ResponseWriter, r *http.Request, id 
 		return
 	}
 	var req struct {
-		Items             any    `json:"items"`
-		Values            any    `json:"values"`
-		ScopeNotes        string `json:"scope_notes"`
-		OsType            string `json:"os_type"`
-		OsTypeKey         string `json:"os_type_key"`
+		Items             any            `json:"items"`
+		Values            any            `json:"values"`
+		ScopeNotes        string         `json:"scope_notes"`
+		OsType            string         `json:"os_type"`
+		OsTypeKey         string         `json:"os_type_key"`
 		OsStructuredData  map[string]any `json:"os_structured_data"`
 		ScheduledAt       *time.Time     `json:"scheduled_at"`
 		ScheduledLocation map[string]any `json:"scheduled_location"`
@@ -507,9 +511,9 @@ func (s *Server) ConvertServiceOrder(w http.ResponseWriter, r *http.Request, id 
 	}
 	if req.OsTypeKey != "" && req.OsStructuredData != nil {
 		ambient := map[string]string{
-			"modality":  req.OsType,
+			"modality":   req.OsType,
 			"standalone": "false",
-			"priority":  "2",
+			"priority":   "2",
 		}
 		if err := s.validateStructuredData(r.Context(), req.OsTypeKey, req.OsStructuredData, ambient); err != nil {
 			writeErrCode(w, 400, "dados_os_invalidos", err.Error())
@@ -606,7 +610,14 @@ func (s *Server) CreateFreelancer(w http.ResponseWriter, r *http.Request) {
 	var id string
 	err = tx.QueryRow(r.Context(), `INSERT INTO technicians(username,password_hash,role) VALUES($1,'!key-only!','freelancer') RETURNING id`, strings.TrimSpace(req.Name)).Scan(&id)
 	if err == nil {
-		_, err = tx.Exec(r.Context(), `INSERT INTO freelancer_profiles(technician_id,supervisor_id,organization_id,quality_score,latitude,longitude) VALUES($1,$2,$3,$4,$5,$6)`, id, req.SupervisorID, req.OrganizationID, req.Quality, req.Latitude, req.Longitude)
+		// O técnico informa onde fica, então a região dele sai da coordenada —
+		// não precisa de atribuição. Sem coordenada, fica sem região até
+		// alguém pô-lo numa, e ele não entra em contagem nenhuma.
+		var regiao *string
+		if req.Latitude != nil && req.Longitude != nil {
+			regiao = s.regionAt(r.Context(), *req.Latitude, *req.Longitude)
+		}
+		_, err = tx.Exec(r.Context(), `INSERT INTO freelancer_profiles(technician_id,supervisor_id,organization_id,quality_score,latitude,longitude,region_id) VALUES($1,$2,$3,$4,$5,$6,$7)`, id, req.SupervisorID, req.OrganizationID, req.Quality, req.Latitude, req.Longitude, regiao)
 	}
 	if err != nil || tx.Commit(r.Context()) != nil {
 		writeErrCode(w, 409, "falha_criar_freelancer", "falha ao criar freelancer")
@@ -1304,6 +1315,7 @@ func (s *Server) SupervisorOpenTicket(w http.ResponseWriter, r *http.Request) {
 		writeErrCode(w, 500, "falha_abrir_chamado", "falha ao abrir chamado")
 		return
 	}
+	s.StampTicketRegion(r.Context(), id)
 	_, _ = s.Pool.Exec(r.Context(), `INSERT INTO ticket_events(ticket_id,actor_technician_id,event_type,payload) VALUES($1,$2,'opened',$3)`, id, c.TechnicianID, map[string]any{"modality": req.Modality, "standalone": false, "origem": "supervisor"})
 
 	// Já vira OS e entra na fila dos técnicos: um chamado aberto pelo
