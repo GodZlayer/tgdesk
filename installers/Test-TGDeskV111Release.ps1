@@ -59,6 +59,20 @@ if (Test-Path -LiteralPath $agentDll) {
 }
 Add-Check 'agent.reports_client_version' $agentReportsVersion ([string]$agentReportsVersion)
 
+# O TGDesk atualiza sozinho -- e principio, nao recurso. Sao dois caminhos, e
+# os dois tem que existir: a ordem do servidor (update_now), que serializa a
+# fila e limita a banda, e a verificacao periodica do agente, que e o piso.
+#
+# Sem o piso a frota fica presa quando o agente empacotado nao entende a ordem.
+# Foi o que aconteceu: o push entrou no codigo, o agente ficou parado numa
+# versao anterior a ele, e ninguem atualizou mais sem nenhum erro aparecer.
+$agentControl = Get-Content (Join-Path $root 'client-agent\cmd\agent\control.go') -Raw
+Add-Check 'update.server_push_exists' `
+    ($agentControl -match 'msg\.Type == "update_now"') 'update_now handled'
+Add-Check 'update.agent_self_check_exists' `
+    (($agentControl -match 'updateCheckTick\s*:=\s*time\.NewTicker') -and
+     ($agentControl -match 'case <-updateCheckTick\.C:')) 'periodic self-check'
+
 $releaseBuilder = Get-Content (Join-Path $root 'installers\New-TGDeskModuleRelease.ps1') -Raw
 Add-Check 'updater.restarts_interactive_ui' `
     ($releaseBuilder -match "restart_application\s*=\s*'tgdesk\.exe'") 'tgdesk.exe'

@@ -71,8 +71,14 @@ func startForcedUpdate(order updateOrder, onProgress func(updatecore.Progress),
 			forcedUpdate.running = false
 			forcedUpdate.Unlock()
 		}()
-		log.Printf("atualização ordenada pelo servidor: versão %s, teto %d kbps",
-			order.Version, order.ThrottleKbps)
+		// Ordem vazia é a verificação periódica do próprio agente, não um
+		// update_now: sem versão nem teto, ela pergunta ao servidor o que há.
+		if order.Version == "" {
+			log.Println("verificação periódica de atualização")
+		} else {
+			log.Printf("atualização ordenada pelo servidor: versão %s, teto %d kbps",
+				order.Version, order.ThrottleKbps)
+		}
 		// 0 = já atualizado, 10 = atualização iniciada, 1 = erro. Nos dois
 		// primeiros a vaga na fila pode ser liberada; no terceiro o servidor
 		// devolve o dispositivo para a fila e tenta de novo mais tarde.

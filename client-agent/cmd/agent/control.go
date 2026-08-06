@@ -161,9 +161,23 @@ func runDeviceControlLoop(cfg *agentConfig, remoteReady bool) error {
 	heartbeatTick := time.NewTicker(5 * time.Second)
 	telemetryTick := time.NewTicker(30 * time.Second)
 	remoteRetryTick := time.NewTicker(15 * time.Second)
+	// O TGDesk se atualiza sozinho. Este ticker é o piso que garante isso.
+	//
+	// A ordem do servidor (update_now) continua sendo o caminho normal, e é
+	// ela que serializa a fila e limita a banda. Mas depender só dela deixa a
+	// máquina presa quando o agente instalado não entende a ordem — foi
+	// exatamente o que aconteceu: o push entrou no código, o agente empacotado
+	// ficou parado numa versão anterior a ele, e a frota inteira parou de
+	// atualizar sem nenhum erro aparecer.
+	//
+	// Aqui o dispositivo pergunta, mas quem decide continua sendo o servidor:
+	// o manifesto que ele devolve é para a versão que ele anuncia, e se não há
+	// nada mais novo a resposta é vazia. Nenhuma decisão passa para o cliente.
+	updateCheckTick := time.NewTicker(10 * time.Minute)
 	defer heartbeatTick.Stop()
 	defer telemetryTick.Stop()
 	defer remoteRetryTick.Stop()
+	defer updateCheckTick.Stop()
 
 	sendHeartbeat := func() error {
 		return conn.WriteJSON(deviceControlMessage{
@@ -280,6 +294,25 @@ func runDeviceControlLoop(cfg *agentConfig, remoteReady bool) error {
 				return err
 			}
 			writeCurrentStatus()
+		case <-updateCheckTick.C:
+			// Mesma trava do push: se uma atualização já está rodando, esta
+			// passa. As duas entradas levam ao mesmo lugar, e baixar a mesma
+			// versão duas vezes seria gastar a banda que a fila protege.
+			if !updateInProgress() {
+				startForcedUpdate(updateOrder{},
+					func(progress updatecore.Progress) {
+						select {
+						case updateProgressCh <- progress:
+						default:
+						}
+					},
+					func(outcome updateOutcome) {
+						select {
+						case updateResultCh <- outcome:
+						default:
+						}
+					})
+			}
 		case <-remoteRetryTick.C:
 			if !remoteReady {
 				if err := setupRemoteAccess(cfg); err != nil {
