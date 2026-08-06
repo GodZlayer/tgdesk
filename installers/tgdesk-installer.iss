@@ -3,7 +3,7 @@
 ; uso único validada pelo servidor dentro do próprio TGDesk.
 
 #define MyAppName "TGDesk"
-#define MyAppVersion "1.1.69"
+#define MyAppVersion "1.1.70"
 #define MyAppPublisher "TGDesk"
 #ifndef TGDeskServerHost
   #define TGDeskServerHost "127.0.0.1"
@@ -27,7 +27,7 @@ OutputDir=.\output
 ; esta linha por texto exato para garantir que o instalador esta identificado
 ; com a versao publicada. Derivar aqui apagaria essa verificacao. As duas
 ; versoes deste arquivo sobem juntas, no passo 1 do fluxo de release.
-OutputBaseFilename=tgdesk-installer-1.1.69
+OutputBaseFilename=tgdesk-installer-1.1.70
 Compression=lzma2
 SolidCompression=yes
 ArchitecturesInstallIn64BitMode=x64compatible
@@ -818,7 +818,21 @@ begin
       offline sem destino. O agente materializa na primeira conexao, e tenta
       de novo enquanto nao conseguir. Instalacao de tecnico nao passa por
       aqui - la a chave e obrigatoria e a falta de rede aborta mesmo. }
-    if not IsTechnicianInstall then
+    if IsTechnicianInstall then
+    begin
+      { A maquina do tecnico tambem tem destino, e ate agora nao tinha nenhum:
+        redimir a chave criava a credencial e nao tocava no cadastro do
+        dispositivo, entao o computador ficava 'guest' para sempre e fora de
+        tudo que depende de estar numa rede — inclusive de receber atualizacao.
+
+        O instalador nao decide QUAL rede: ele so diz que e instalacao de
+        tecnico. O nivel (tecnico, supervisor, admin) vem da credencial, e quem
+        escolhe a rede de sistema correspondente e o servidor. }
+      SaveStringToFile(ExpandConstant(
+        '{commonappdata}\TGDesk\identity\install-intent.json'),
+        '{"kind":"tecnico"}', False);
+    end
+    else
     begin
       if IsCorporateClient then
         SaveStringToFile(ExpandConstant(

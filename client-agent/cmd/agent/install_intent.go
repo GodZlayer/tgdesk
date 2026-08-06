@@ -1,7 +1,9 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"fmt"
 	"log"
 	"net/http"
 	"os"
@@ -80,6 +82,12 @@ func applyInstallIntent(cfg *agentConfig) {
 			"device_token":  cfg.DeviceToken,
 			"technician_id": intent.TechnicianID,
 		}, nil)
+	case "tecnico":
+		// A máquina do técnico entra sozinha, como a do cliente avulso. Quem
+		// diz o papel — e portanto a rede de sistema de destino — é a
+		// credencial de técnico desta máquina, não o instalador: o instalador
+		// só sabe que é uma instalação de técnico, e o nível vem do servidor.
+		status, err = postTechnicianSelfBind(cfg)
 	default:
 		log.Printf("intenção de instalação desconhecida (%q) — descartando", intent.Kind)
 		_ = os.Remove(installIntentPath())
@@ -97,4 +105,44 @@ func applyInstallIntent(cfg *agentConfig) {
 		return
 	}
 	log.Printf("intenção de instalação recusada (status %d) — nova tentativa na próxima inicialização", status)
+}
+
+// postTechnicianSelfBind coloca esta máquina na rede de sistema do papel do
+// técnico que a instalou.
+//
+// Precisa de duas provas ao mesmo tempo: a credencial de técnico, que diz QUEM
+// é e portanto qual o papel, e o par dispositivo/token, que diz QUAL máquina é.
+// Uma sem a outra não basta — a primeira não identifica o computador, e a
+// segunda não identifica o nível.
+//
+// A credencial é renovada aqui em vez de reaproveitar alguma sessão aberta: a
+// vinculação acontece na primeira conexão depois da instalação, quando ainda
+// não há sessão nenhuma.
+func postTechnicianSelfBind(cfg *agentConfig) (int, error) {
+	credentialPath := filepath.Join(tgdeskDataDir(), "identity", "technician.dat")
+	credential, err := unprotectMachineCredential(credentialPath)
+	if err != nil {
+		return 0, fmt.Errorf("credencial de técnico indisponível: %w", err)
+	}
+	token, err := refreshMachineSession(baseURL(), credential)
+	if err != nil {
+		return 0, fmt.Errorf("sessão de técnico: %w", err)
+	}
+	body, _ := json.Marshal(map[string]string{
+		"device_id":    cfg.DeviceID,
+		"device_token": cfg.DeviceToken,
+	})
+	req, err := http.NewRequest(http.MethodPost,
+		baseURL()+"/api/v1/pairing/technician-self-bind", bytes.NewReader(body))
+	if err != nil {
+		return 0, err
+	}
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Authorization", "Bearer "+token)
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return 0, err
+	}
+	defer resp.Body.Close()
+	return resp.StatusCode, nil
 }

@@ -136,6 +136,12 @@ func NewRouter(s *Server) http.Handler {
 		s.RenameNetwork(w, r, r.PathValue("id"))
 	}))))
 	mux.Handle("POST /api/v1/technicians/wg-key", auth(http.HandlerFunc(s.TechnicianWGKey)))
+	// auth sem private, como o wg-key acima e pelo mesmo motivo: a máquina do
+	// técnico chama isto ANTES de ter rede privada — é justamente esta chamada
+	// que a coloca numa rede e lhe dá direito a um IP. Exigir a VPN aqui seria
+	// exigir o resultado como pré-requisito de si mesmo.
+	mux.Handle("POST /api/v1/pairing/technician-self-bind",
+		auth(http.HandlerFunc(s.TechnicianSelfBindDevice)))
 	mux.Handle("GET /api/v1/branding/me", private(auth(http.HandlerFunc(s.GetMyBranding))))
 	mux.Handle("PUT /api/v1/branding/me", private(auth(http.HandlerFunc(s.UpdateMyBranding))))
 	mux.Handle("GET /api/v1/devices/{id}/health", private(auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
