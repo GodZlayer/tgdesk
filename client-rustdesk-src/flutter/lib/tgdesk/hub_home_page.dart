@@ -111,8 +111,8 @@ class _HubHomePageState extends State<HubHomePage> {
       // da rede do dispositivo, que no caso dele é a própria.
       final branding = status['branding'];
       if (branding is Map) {
-        unawaited(applyClientBrandingWindowIcon(
-            Map<String, dynamic>.from(branding)));
+        unawaited(
+            applyClientBrandingWindowIcon(Map<String, dynamic>.from(branding)));
       }
       setState(() {
         _branding = branding is Map ? Map<String, dynamic>.from(branding) : {};
@@ -192,56 +192,66 @@ class _HubHomePageState extends State<HubHomePage> {
       // Obx por fora do AnimatedBuilder: um escuta a tela cheia (observável do
       // core), o outro escuta as abas. Sem o Obx aqui, sair da tela cheia
       // devolvia a barra de título mas deixava o corpo como estava.
-      child: Obx(() => AnimatedBuilder(
-        animation: RemoteSessionsManager.instance,
-        builder: (context, _) {
-          final sessao = RemoteSessionsManager.instance.active;
-          if (sessao != null && stateGlobal.fullscreen.isTrue) {
-            return TgdeskRemoteSessionPage(
-              key: ValueKey(sessao.deviceId),
-              deviceId: sessao.deviceId,
-              remoteId: sessao.remoteId,
-              hostname: sessao.hostname,
-              credential: sessao.credential,
-              embedded: true,
+      child: Obx(() {
+        // A leitura tem que acontecer AQUI, no corpo do Obx.
+        //
+        // Obx registra o observável pelo ato de lê-lo enquanto o próprio
+        // callback roda. O builder do AnimatedBuilder roda depois, já fora
+        // desse escopo — ler lá dentro não registra nada, e Obx que não lê
+        // observável nenhum não emite aviso: lança exceção, e a janela inteira
+        // fica cinza. Foi o que aconteceu na 1.1.61.
+        final emTelaCheia = stateGlobal.fullscreen.isTrue;
+        return AnimatedBuilder(
+          animation: RemoteSessionsManager.instance,
+          builder: (context, _) {
+            final sessao = RemoteSessionsManager.instance.active;
+            if (sessao != null && emTelaCheia) {
+              return TgdeskRemoteSessionPage(
+                key: ValueKey(sessao.deviceId),
+                deviceId: sessao.deviceId,
+                remoteId: sessao.remoteId,
+                hostname: sessao.hostname,
+                credential: sessao.credential,
+                embedded: true,
+              );
+            }
+            return Row(
+              children: [
+                NavigationRail(
+                  // Com uma sessão à frente, nenhum destino está selecionado: o
+                  // que a tela mostra é a máquina remota, não uma das telas do
+                  // Hub. Marcar um destino ali seria dizer que o usuário está
+                  // num lugar em que ele não está.
+                  selectedIndex: sessao == null ? _index : null,
+                  onDestinationSelected: (i) {
+                    RemoteSessionsManager.instance.blur();
+                    setState(() => _index = i);
+                  },
+                  labelType: NavigationRailLabelType.all,
+                  destinations: destinations,
+                ),
+                const VerticalDivider(width: 1),
+                Expanded(
+                  child: sessao == null
+                      ? pages[_index]
+                      // A sessão é mantida viva por chave: trocar de aba não
+                      // pode derrubar a conexão da que sai de cena, e sem chave
+                      // o Flutter reaproveitaria o estado da anterior para a
+                      // seguinte — duas máquinas na mesma tela.
+                      : TgdeskRemoteSessionPage(
+                          key: ValueKey(sessao.deviceId),
+                          deviceId: sessao.deviceId,
+                          remoteId: sessao.remoteId,
+                          hostname: sessao.hostname,
+                          credential: sessao.credential,
+                          embedded: true,
+                        ),
+                ),
+              ],
             );
-          }
-          return Row(
-            children: [
-              NavigationRail(
-                // Com uma sessão à frente, nenhum destino está selecionado: o
-                // que a tela mostra é a máquina remota, não uma das telas do
-                // Hub. Marcar um destino ali seria dizer que o usuário está
-                // num lugar em que ele não está.
-                selectedIndex: sessao == null ? _index : null,
-                onDestinationSelected: (i) {
-                  RemoteSessionsManager.instance.blur();
-                  setState(() => _index = i);
-                },
-                labelType: NavigationRailLabelType.all,
-                destinations: destinations,
-              ),
-              const VerticalDivider(width: 1),
-              Expanded(
-                child: sessao == null
-                    ? pages[_index]
-                    // A sessão é mantida viva por chave: trocar de aba não
-                    // pode derrubar a conexão da que sai de cena, e sem chave
-                    // o Flutter reaproveitaria o estado da anterior para a
-                    // seguinte — duas máquinas na mesma tela.
-                    : TgdeskRemoteSessionPage(
-                        key: ValueKey(sessao.deviceId),
-                        deviceId: sessao.deviceId,
-                        remoteId: sessao.remoteId,
-                        hostname: sessao.hostname,
-                        credential: sessao.credential,
-                        embedded: true,
-                      ),
-              ),
-            ],
-          );
-        },
-      )),
+          },
+        );
+      }),
     );
   }
 }

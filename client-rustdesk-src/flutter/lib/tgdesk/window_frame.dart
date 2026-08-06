@@ -1,4 +1,3 @@
-
 import 'package:flutter/material.dart';
 import 'package:get/get.dart';
 import 'package:window_manager/window_manager.dart';
@@ -171,7 +170,6 @@ class _TgdeskWindowScaffoldState extends State<TgdeskWindowScaffold>
     }
   }
 
-
   Future<void> _promptRename() async {
     final controller = TextEditingController(text: widget.deviceName ?? '');
     final novo = await showDialog<String>(
@@ -254,7 +252,8 @@ class _TgdeskWindowScaffoldState extends State<TgdeskWindowScaffold>
   /// Indicador, não botão. A atualização é empurrada pelo servidor e não há o
   /// que clicar — o que a tela deve é explicar o que está acontecendo,
   /// inclusive por que está devagar quando a fila está grande.
-  Widget _buildUpdateIndicator(BuildContext context, TgdeskUpdateStatus status) {
+  Widget _buildUpdateIndicator(
+      BuildContext context, TgdeskUpdateStatus status) {
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: TgdeskSpacing.sm),
       child: Tooltip(
@@ -283,20 +282,26 @@ class _TgdeskWindowScaffoldState extends State<TgdeskWindowScaffold>
 
   @override
   Widget build(BuildContext context) {
+    // Obx SÓ quando há hideChrome. Ele existe para que a leitura de estado
+    // observável dentro do callback faça a barra aparecer e sumir sozinha —
+    // mas Obx que não lê observável nenhum lança exceção, e sem hideChrome não
+    // há o que ler. Envolver sempre deixava cinza toda tela que não usa o
+    // recurso: a do cliente, a da sessão solta, as sub-janelas.
+    if (widget.hideChrome == null) {
+      return Scaffold(body: _buildFrame(context, semBarra: false));
+    }
     return Scaffold(
-      body: Obx(() {
-        // Obx e não um bool cru: hideChrome lê estado observável (a tela cheia
-        // do acesso remoto), e é a leitura aqui dentro que faz a barra
-        // aparecer e sumir sozinha quando ele muda.
-        final semBarra = widget.hideChrome?.call() ?? false;
-        return Column(
-          children: [
-            if (!semBarra) _buildTitleBar(context),
-            if (!semBarra) const Divider(height: 1),
-            Expanded(child: widget.child),
-          ],
-        );
-      }),
+      body: Obx(() => _buildFrame(context, semBarra: widget.hideChrome!())),
+    );
+  }
+
+  Widget _buildFrame(BuildContext context, {required bool semBarra}) {
+    return Column(
+      children: [
+        if (!semBarra) _buildTitleBar(context),
+        if (!semBarra) const Divider(height: 1),
+        Expanded(child: widget.child),
+      ],
     );
   }
 
