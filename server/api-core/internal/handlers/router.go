@@ -298,13 +298,30 @@ func NewRouter(s *Server) http.Handler {
 	mux.Handle("POST /api/v1/technicians", admin(s.CreateTechnician))
 	mux.Handle("GET /api/v1/technicians/name-styles", admin(s.ListTechnicianNameStyles))
 	mux.Handle("POST /api/v1/technicians/name-styles", admin(s.SaveTechnicianNameStyle))
-	mux.Handle("PUT /api/v1/technicians/{id}/name-style", admin(func(w http.ResponseWriter, r *http.Request) {
+	// Sob /admin/technicians/, e não /technicians/, porque
+	// "DELETE /api/v1/technicians/{id}/name-style" colide com
+	// "DELETE /api/v1/technicians/assignments/{id}", que já existia: para o
+	// roteador, "assignments" casa com {id} e "name-style" casa com o {id} do
+	// outro padrão, e nenhum dos dois é mais específico.
+	//
+	// Quem cedeu foi o name-style, por ser o novo: assignments é contrato que
+	// os clientes instalados já chamam.
+	mux.Handle("PUT /api/v1/admin/technicians/{id}/name-style", admin(func(w http.ResponseWriter, r *http.Request) {
 		s.SetTechnicianNameStyle(w, r, r.PathValue("id"))
 	}))
-	mux.Handle("DELETE /api/v1/technicians/{id}/name-style", admin(func(w http.ResponseWriter, r *http.Request) {
+	mux.Handle("DELETE /api/v1/admin/technicians/{id}/name-style", admin(func(w http.ResponseWriter, r *http.Request) {
 		s.ClearTechnicianNameStyle(w, r, r.PathValue("id"))
 	}))
-	mux.Handle("DELETE /api/v1/technicians/name-styles/{key}", admin(func(w http.ResponseWriter, r *http.Request) {
+	// Apagar um estilo do catálogo mora sob /admin/, e não sob /technicians/,
+	// porque lá ela colidia: para o roteador do Go, "name-styles" também casa
+	// com o {id} de DELETE /api/v1/technicians/{id}/name-style, e os dois
+	// padrões têm a mesma forma — um segmento variável seguido de um fixo.
+	// Padrões ambíguos não são erro de requisição, são pânico no registro: o
+	// servidor inteiro não sobe.
+	//
+	// O endereço novo também é o dos outros catálogos — ticket-types, parts,
+	// services, regions —, que é onde ele deveria estar desde o início.
+	mux.Handle("DELETE /api/v1/admin/name-styles/{key}", admin(func(w http.ResponseWriter, r *http.Request) {
 		s.DeleteTechnicianNameStyle(w, r, r.PathValue("key"))
 	}))
 	mux.Handle("POST /api/v1/admin/freelancers", admin(s.CreateFreelancer))

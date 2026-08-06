@@ -378,13 +378,17 @@ class TgdeskApi {
   static Future<List<dynamic>> technicianNameStyles() async =>
       await _send('GET', '/api/v1/technicians/name-styles') as List<dynamic>;
 
+  // Sob /admin/technicians/ porque /technicians/{id}/name-style colidia com
+  // /technicians/assignments/{id} no roteador do servidor — e padrão ambíguo
+  // lá não é erro de requisição, é o servidor não subir.
   static Future<void> setTechnicianNameStyle(
           String technicianId, String styleKey) async =>
-      await _send('PUT', '/api/v1/technicians/$technicianId/name-style',
+      await _send('PUT', '/api/v1/admin/technicians/$technicianId/name-style',
           body: {'style': styleKey});
 
   static Future<void> clearTechnicianNameStyle(String technicianId) async =>
-      await _send('DELETE', '/api/v1/technicians/$technicianId/name-style');
+      await _send(
+          'DELETE', '/api/v1/admin/technicians/$technicianId/name-style');
 
   static Future<Map<String, dynamic>> createTechnician(String name) async {
     final res =

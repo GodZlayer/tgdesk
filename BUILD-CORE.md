@@ -32,35 +32,39 @@ cargo build --release --lib --features flutter,hwcodec
 Depois rode o pipeline (`Invoke-TGDeskBuild.ps1 -Scope Full`), que copia a DLL
 nova para o stage.
 
-## A dependência que trava: ffmpeg 7.x
+## A dependência que trava: o ffmpeg tem que ser o do RustDesk
 
-`hwcodec` usa `FF_PROFILE_H264_HIGH`, `FF_PROFILE_HEVC_MAIN` e
-`AVFrame::key_frame` — os três removidos no ffmpeg 8. Com ffmpeg 8 o build
-falha em `util.cpp` e `ffmpeg_ram_decode.cpp`.
+O ffmpeg do vcpkg **não serve**, e por dois motivos independentes.
 
-O vcpkg de hoje instala 8.x. O RustDesk fixa o commit de vcpkg em
-`VCPKG_COMMIT_ID` (`.github/workflows/flutter-build.yml`) exatamente para
-evitar isso; naquele commit o port é 7.1.1.
+**Versão.** `hwcodec` usa `FF_PROFILE_H264_HIGH`, `FF_PROFILE_HEVC_MAIN` e
+`AVFrame::key_frame`, os três removidos no ffmpeg 8. O vcpkg de hoje instala
+8.x, e a compilação morre em `util.cpp` e `ffmpeg_ram_decode.cpp`.
 
-Sem mover a árvore inteira do vcpkg — o que invalidaria libyuv, opus, aom, vpx
-e libjpeg-turbo já instalados —, extraia só o port do ffmpeg como overlay:
+**Configuração.** Instalar o 7.1.1 do vcpkg faz compilar, e então o link falha
+com `swr_alloc`, `swr_convert` e mais quatro símbolos de `libswresample`,
+além de `IID_ICodecAPI` e `IID_IMFTransform`. O motivo é que
+`build.rs` do hwcodec linka apenas `avcodec`, `avutil`, `avformat` e `libmfx`
+— ele foi escrito para a build **mínima** que o RustDesk mantém, com
+`--disable-everything` e `--disable-swresample`. A build completa do vcpkg
+compila caminhos de código que aquela lista de bibliotecas não cobre.
+
+O port certo está no próprio repositório, em
+`client-rustdesk-src/res/vcpkg/ffmpeg` — é para ele que o comentário do
+`build.rs` do hwcodec aponta. Junto dele vêm `aom`, `libvpx`, `libyuv`,
+`mfx-dispatch` e `opus`, pela mesma razão.
 
 ```
-mkdir -p .vcpkg-overlay
-git -C C:/vcpkg archive 120deac3062162151622ca4860575a33844ba10b ports/ffmpeg \
-  | tar -x -C .vcpkg-overlay --strip-components=1
-
 cd C:/vcpkg
 ./vcpkg.exe remove ffmpeg:x64-windows-static --recurse
 ./vcpkg.exe install "ffmpeg[amf,nvcodec,qsv]:x64-windows-static" \
-  --overlay-ports=C:/Users/santo/Documents/TGDESK/.vcpkg-overlay --recurse
+  --overlay-ports=C:/Users/santo/Documents/TGDESK/client-rustdesk-src/res/vcpkg \
+  --recurse
 ```
 
 O triplet é `x64-windows-static` porque `.cargo/config.toml` compila com
 `+crt-static`, e o crate `vcpkg` escolhe o triplet a partir disso. O ffmpeg
 instalado em `x64-windows` (dinâmico) não serve.
 
-As features `amf,nvcodec,qsv` são as mesmas do triplet dinâmico: são a
-aceleração por hardware da AMD, da NVIDIA e da Intel. Compilar sem `hwcodec`
-resolveria o erro e publicaria uma regressão silenciosa — a DLL em produção
-tem hwcodec.
+As features `amf,nvcodec,qsv` são a aceleração por hardware da AMD, da NVIDIA e
+da Intel. Compilar sem `hwcodec` resolveria o erro e publicaria uma regressão
+silenciosa — a DLL em produção tem hwcodec.
