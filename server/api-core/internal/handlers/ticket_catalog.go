@@ -495,10 +495,10 @@ func (s *Server) SavePricingRule(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	switch req.Kind {
-	case "share", "fee", "promo", "bounds":
+	case "share", "fee", "promo", "bounds", "demand":
 	default:
 		writeErrCode(w, 400, "tipo_de_regra_invalido",
-			"a regra deve ser share, fee, promo ou bounds")
+			"a regra deve ser share, fee, promo, bounds ou demand")
 		return
 	}
 	active := true
@@ -582,6 +582,10 @@ type ResolvedPricing struct {
 	PromoCents  *int64             `json:"promo_cents,omitempty"`
 	MinCents    *int64             `json:"min_cents,omitempty"`
 	MaxCents    *int64             `json:"max_cents,omitempty"`
+	// Limites do multiplicador de demanda, em centésimos: 100 é preço cheio.
+	// Nulos significam que ninguém cadastrou folga e o preço não varia.
+	DemandMin *int64 `json:"demand_min,omitempty"`
+	DemandMax *int64 `json:"demand_max,omitempty"`
 }
 
 // resolvePricing escolhe, para cada natureza de regra, a linha mais específica
@@ -633,6 +637,8 @@ func (s *Server) resolvePricing(ctx context.Context, scope pricingScope) Resolve
 			out.PromoPercnt, out.PromoCents = percent, amount
 		case "bounds":
 			out.MinCents, out.MaxCents = minC, maxC
+		case "demand":
+			out.DemandMin, out.DemandMax = minC, maxC
 		}
 	}
 	return out

@@ -1202,6 +1202,15 @@ class _DevicesPageState extends State<DevicesPage> {
         ]),
       );
 
+  // Resgate de telemetria por dispositivo, guardado por id.
+  //
+  // O diálogo se redesenha a cada notificação do canal — e são muitas, porque
+  // qualquer telemetria de qualquer máquina notifica. Criar a chamada dentro
+  // do builder criava uma nova a cada redesenho: abrir o painel de uma máquina
+  // que ainda não reportou disparava uma rajada de pedidos enquanto a janela
+  // estivesse aberta. Guardada aqui, é uma só por dispositivo.
+  final Map<String, Future<Map<String, dynamic>>> _healthFallback = {};
+
   Future<void> _openHealthDialog(String deviceId, String hostname) async {
     showDialog(
       context: context,
@@ -1227,9 +1236,11 @@ class _DevicesPageState extends State<DevicesPage> {
           builder: (ctx, _) {
             final live = _control.deviceHealth[deviceId];
             if (live != null) return _technicalHealth(live);
-            // Fallback só se o canal ainda não tem o dado: busca HTTP uma vez.
+            // Só quando o canal ainda não recebeu telemetria desta máquina:
+            // um pedido pelo próprio canal, guardado para não repetir.
             return FutureBuilder<Map<String, dynamic>>(
-              future: TgdeskApi.deviceHealth(deviceId),
+              future: _healthFallback.putIfAbsent(
+                  deviceId, () => TgdeskApi.deviceHealth(deviceId)),
               builder: (ctx, snap) {
                 if (snap.connectionState != ConnectionState.done) {
                   return const SizedBox(

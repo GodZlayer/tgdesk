@@ -564,6 +564,41 @@ class TgdeskApi {
   static Future<void> deletePricingRule(String id) async =>
       await _send('DELETE', '/api/v1/admin/pricing-rules/$id');
 
+  // Construtor de OS. O catálogo normalmente chega pelo canal, junto do
+  // snapshot; este GET existe para a tela do admin reler depois de editar.
+  static Future<Map<String, dynamic>> osCatalog() async =>
+      Map<String, dynamic>.from(
+          await _send('GET', '/api/v1/support/os-catalog') as Map);
+
+  static Future<void> savePart(Map<String, dynamic> part) async =>
+      await _send('POST', '/api/v1/admin/parts', body: part);
+
+  static Future<void> deletePart(String id) async =>
+      await _send('DELETE', '/api/v1/admin/parts/$id');
+
+  static Future<void> saveService(Map<String, dynamic> service) async =>
+      await _send('POST', '/api/v1/admin/services', body: service);
+
+  static Future<void> deleteService(String id) async =>
+      await _send('DELETE', '/api/v1/admin/services/$id');
+
+  static Future<Map<String, dynamic>> osQuote(String ticketId) async =>
+      Map<String, dynamic>.from(
+          await _send('GET', '/api/v1/support/tickets/$ticketId/quote') as Map);
+
+  static Future<Map<String, dynamic>> closeOsQuote(String ticketId) async =>
+      Map<String, dynamic>.from(await _send(
+          'POST', '/api/v1/support/tickets/$ticketId/quote/close') as Map);
+
+  static Future<void> addOsItem(
+          String ticketId, Map<String, dynamic> item) async =>
+      await _send('POST', '/api/v1/support/tickets/$ticketId/os-items',
+          body: item);
+
+  static Future<void> removeOsItem(String ticketId, String itemId) async =>
+      await _send(
+          'DELETE', '/api/v1/support/tickets/$ticketId/os-items/$itemId');
+
   static Future<void> acceptSupportOffer(String ticketId) async =>
       await _send('POST', '/api/v1/support/tickets/$ticketId/accept');
 

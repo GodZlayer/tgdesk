@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'admin_catalog_page.dart';
+import 'admin_os_catalog_tab.dart';
 import 'api_client.dart';
 import 'theme.dart';
 
@@ -22,7 +23,7 @@ class _AdminPageState extends State<AdminPage>
   @override
   void initState() {
     super.initState();
-    _tabs = TabController(length: 4, vsync: this);
+    _tabs = TabController(length: 5, vsync: this);
     _load();
   }
 
@@ -225,6 +226,7 @@ class _AdminPageState extends State<AdminPage>
           Tab(text: 'Organizações & Redes'),
           Tab(text: 'Tipos de chamado'),
           Tab(text: 'Precificação'),
+          Tab(text: 'Peças & Serviços'),
           Tab(text: 'Auditoria'),
         ]),
         Expanded(
@@ -232,6 +234,7 @@ class _AdminPageState extends State<AdminPage>
             _buildOrgsTab(),
             const AdminTicketTypesTab(),
             const AdminPricingTab(),
+            const AdminOsCatalogTab(),
             _buildAuditTab(),
           ]),
         ),

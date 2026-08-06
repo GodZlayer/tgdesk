@@ -401,6 +401,7 @@ class _AdminPricingTabState extends State<AdminPricingTab> {
     'fee': 'Taxa do admin',
     'promo': 'Promoção',
     'bounds': 'Limites do valor dinâmico',
+    'demand': 'Folga do ajuste por demanda',
   };
 
   static const _roles = {

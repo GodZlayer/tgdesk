@@ -52,6 +52,50 @@ static void DebugLaunchLog(const std::string& message) {
   }
 }
 
+// Caminho completo do executável de um processo, vazio se não der para ler.
+static std::wstring ProcessImagePath(DWORD pid) {
+  HANDLE process =
+      ::OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, FALSE, pid);
+  if (!process) {
+    return std::wstring();
+  }
+  wchar_t path[MAX_PATH] = {0};
+  DWORD size = MAX_PATH;
+  const BOOL ok = ::QueryFullProcessImageNameW(process, 0, path, &size);
+  ::CloseHandle(process);
+  return ok ? std::wstring(path, size) : std::wstring();
+}
+
+// Janela de outra instância do MESMO executável.
+//
+// FindWindowW sozinho não serve: ele busca em todo o sistema, e a classe de
+// janela não é garantia de identidade — apps de terceiros podem registrar a
+// mesma. Aqui a janela só é aceita depois que o processo dono dela prova ser
+// o mesmo binário que está rodando agora.
+static HWND FindOwnInstanceWindow(const wchar_t* title) {
+  wchar_t self[MAX_PATH] = {0};
+  const DWORD self_len = ::GetModuleFileNameW(nullptr, self, MAX_PATH);
+  if (self_len == 0 || self_len >= MAX_PATH) {
+    return nullptr;
+  }
+  const std::wstring self_path(self, self_len);
+  const DWORD self_pid = ::GetCurrentProcessId();
+
+  HWND candidate = nullptr;
+  while ((candidate = ::FindWindowExW(nullptr, candidate, getWindowClassName(),
+                                      title)) != nullptr) {
+    DWORD pid = 0;
+    ::GetWindowThreadProcessId(candidate, &pid);
+    if (pid == 0 || pid == self_pid) {
+      continue;
+    }
+    if (ProcessImagePath(pid) == self_path) {
+      return candidate;
+    }
+  }
+  return nullptr;
+}
+
 int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
                       _In_ wchar_t *command_line, _In_ int show_command)
 {
@@ -207,13 +251,13 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
       DebugLaunchLog("Mutex wait FAILED/timeout (wait_result=" +
                       std::to_string(wait_result) +
                       ") - another instance may hold it. Exiting silently.");
-      HWND existing = ::FindWindowW(getWindowClassName(), nullptr);
+      HWND existing = FindOwnInstanceWindow(nullptr);
       if (existing) {
-        DebugLaunchLog("Found existing window, bringing to foreground.");
+        DebugLaunchLog("Found existing TGDesk window, bringing to foreground.");
         ::ShowWindow(existing, SW_MAXIMIZE);
         ::SetForegroundWindow(existing);
       } else {
-        DebugLaunchLog("No existing window found via FindWindowW.");
+        DebugLaunchLog("No existing TGDesk window found.");
       }
       CloseHandle(tgdesk_ui_mutex);
       return EXIT_SUCCESS;
@@ -299,11 +343,11 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
     }
   }
   // Uri links dispatch
-  DebugLaunchLog("About to FindWindowW for existing instance");
-  HWND hwnd = ::FindWindowW(getWindowClassName(), app_name.c_str());
+  DebugLaunchLog("About to look for an existing instance");
+  HWND hwnd = FindOwnInstanceWindow(app_name.c_str());
   DebugLaunchLog(hwnd != NULL
-                     ? "FindWindowW found an EXISTING window - may exit here"
-                     : "FindWindowW found no existing window, continuing");
+                     ? "Found an EXISTING TGDesk window - may exit here"
+                     : "No existing TGDesk window, continuing");
   if (hwnd != NULL) {
     // Allow multiple flutter instances when being executed by parameters
     // contained in whitelists.

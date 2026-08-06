@@ -105,7 +105,12 @@ pub use acl::{
     validate_path_for_portable_service_shmem_dir,
 };
 
-pub const FLUTTER_RUNNER_WIN32_WINDOW_CLASS: &'static str = "FLUTTER_RUNNER_WIN32_WINDOW"; // main window, install window
+// Classe da janela principal (e da de instalação). Precisa bater exatamente com
+// kWindowClassName em flutter/windows/runner/win32_window.cpp: as duas pontas
+// se acham por este nome. Não é mais a do template do Flutter porque
+// FindWindowW procura no sistema todo, e qualquer outro app Flutter para
+// Windows — o cliente Cloudflare WARP, por exemplo — respondia por ela.
+pub const FLUTTER_RUNNER_WIN32_WINDOW_CLASS: &'static str = "TGDESK_RUNNER_WIN32_WINDOW"; // main window, install window
 pub const EXPLORER_EXE: &'static str = "explorer.exe";
 pub const SET_FOREGROUND_WINDOW: &'static str = "SET_FOREGROUND_WINDOW";
 
@@ -2714,7 +2719,7 @@ pub fn wide_string(s: &str) -> Vec<u16> {
 /// which tears down the whole VPN/telemetry lifecycle.
 pub fn close_main_window() -> bool {
     unsafe {
-        let class_name_utf16 = wide_string("FLUTTER_RUNNER_WIN32_WINDOW");
+        let class_name_utf16 = wide_string(FLUTTER_RUNNER_WIN32_WINDOW_CLASS);
         let window = FindWindowW(class_name_utf16.as_ptr(), std::ptr::null());
         if window.is_null() {
             return false;

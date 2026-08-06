@@ -11,7 +11,12 @@
 
 namespace {
 
-constexpr const wchar_t kWindowClassName[] = L"FLUTTER_RUNNER_WIN32_WINDOW";
+// Classe própria, e não a "FLUTTER_RUNNER_WIN32_WINDOW" do template.
+// FindWindowW varre o sistema inteiro: com o nome padrão, qualquer outro app
+// Flutter para Windows — o cliente Cloudflare WARP entre eles — casa na busca
+// de instância única, e o TGDesk acabava trazendo a janela alheia para frente
+// em vez da sua.
+constexpr const wchar_t kWindowClassName[] = L"TGDESK_RUNNER_WIN32_WINDOW";
 
 // The number of Win32Window objects that currently exist.
 static int g_active_window_count = 0;

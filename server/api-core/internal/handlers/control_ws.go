@@ -510,6 +510,17 @@ func (s *Server) TechnicianControlWS(w http.ResponseWriter, r *http.Request) {
 			}
 			// Preço é configuração do dono do produto: só a tela dele
 			// recebe, e por isso não passa por deltaFor.
+			if evt.Type == "os_catalog" {
+				if write(map[string]any{"type": "os_catalog",
+					"payload": s.osCatalog(r.Context(),
+						claims.Role == models.RoleSuperAdmin)}) != nil {
+					return
+				}
+				continue
+			}
+			// O catálogo de peças e serviços foi pelo mesmo caminho e pelo
+			// mesmo motivo do de tipos: pequeno, mexido em bloco, e
+			// recortado por quem está do outro lado.
 			if evt.Type == "pricing_rules" {
 				if claims.Role == models.RoleSuperAdmin {
 					if write(map[string]any{"type": "pricing_rules",
@@ -748,5 +759,10 @@ func (s *Server) controlSnapshot(ctx context.Context, technicianID, role string)
 		"networks": nets, "subnetworks": subnets, "devices": devices,
 		"tickets": tickets, "ticket_events": s.ticketEventsForSnapshot(ctx, ids),
 		"ticket_types": s.ticketCatalog(ctx, role == models.RoleSuperAdmin),
+		// O catálogo de peças e serviços entra na abertura pela mesma razão do
+		// de tipos: a tela que monta o orçamento se monta do canal, e pedir o
+		// catálogo ao abrir a OS seria a busca ao montar de novo.
+		"os_catalog":      s.osCatalog(ctx, role == models.RoleSuperAdmin),
+		"service_orders":  s.serviceOrdersForSnapshot(ctx, ids),
 		"dispatch_offers": offers, "pricing_rules": pricing}, nil
 }

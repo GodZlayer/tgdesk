@@ -31,6 +31,46 @@ class TgdeskControlChannel extends ChangeNotifier {
   /// produto, e as demais telas não têm o que fazer com elas.
   List<Map<String, dynamic>> pricingRules = const [];
 
+  /// Catálogo de peças e de serviços com preço. É o que o construtor de OS
+  /// oferece ao técnico: ele escolhe da lista em vez de arbitrar o valor.
+  List<Map<String, dynamic>> parts = const [];
+  List<Map<String, dynamic>> services = const [];
+
+  /// As OS dos chamados visíveis, com as linhas do orçamento dentro. Vêm na
+  /// abertura pelo mesmo motivo do resto: a tela do chamado se monta do canal.
+  final Map<String, Map<String, dynamic>> serviceOrders = {};
+
+  Map<String, dynamic>? serviceOrderOf(String ticketId) =>
+      serviceOrders[ticketId];
+
+  /// Peças e serviços que valem para um tipo de chamado. Item sem tipo vale
+  /// para todos — um cabo de rede entra em qualquer OS.
+  List<Map<String, dynamic>> partsFor(String? typeKey) =>
+      parts.where((item) {
+        final key = item['ticket_type_key']?.toString();
+        return key == null || key.isEmpty || key == typeKey;
+      }).toList(growable: false);
+
+  List<Map<String, dynamic>> servicesFor(String? typeKey, String? osType) =>
+      services.where((item) {
+        final key = item['ticket_type_key']?.toString();
+        final kind = item['os_type']?.toString();
+        final tipoServe = key == null || key.isEmpty || key == typeKey;
+        final modoServe = kind == null || kind.isEmpty || kind == osType;
+        return tipoServe && modoServe;
+      }).toList(growable: false);
+
+  void _readOsCatalog(Map<dynamic, dynamic> payload) {
+    parts = (payload['parts'] as List? ?? const [])
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList(growable: false);
+    services = (payload['services'] as List? ?? const [])
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList(growable: false);
+  }
+
   Map<String, dynamic>? ticketTypeOf(String? key) {
     if (key == null) return null;
     for (final type in ticketTypes) {
@@ -209,6 +249,18 @@ class TgdeskControlChannel extends ChangeNotifier {
           .whereType<Map>()
           .map((item) => Map<String, dynamic>.from(item))
           .toList(growable: false);
+      // O catálogo de peças e serviços e as OS abertas: o construtor de
+      // orçamento se monta daqui, sem pedir nada ao abrir.
+      if (event['os_catalog'] is Map) {
+        _readOsCatalog(event['os_catalog'] as Map);
+      }
+      serviceOrders.clear();
+      for (final item in (event['service_orders'] as List? ?? const [])) {
+        if (item is! Map) continue;
+        final order = Map<String, dynamic>.from(item);
+        final ticketId = order['ticket_id']?.toString();
+        if (ticketId != null) serviceOrders[ticketId] = order;
+      }
       // O histórico vem junto: sem ele a tela do chamado abria vazia,
       // porque os eventos só chegavam por delta e tudo que aconteceu
       // antes da sessão era invisível.
@@ -268,6 +320,12 @@ class TgdeskControlChannel extends ChangeNotifier {
           .whereType<Map>()
           .map((item) => Map<String, dynamic>.from(item))
           .toList(growable: false);
+      notifyListeners();
+      return;
+    }
+    // Peças e serviços chegam inteiros pela mesma razão do catálogo de tipos.
+    if (event['type'] == 'os_catalog' && event['payload'] is Map) {
+      _readOsCatalog(event['payload'] as Map);
       notifyListeners();
       return;
     }

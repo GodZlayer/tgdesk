@@ -11,6 +11,7 @@ import 'diagnostic_text.dart';
 import 'health_text.dart';
 import 'control_channel.dart';
 import 'diagnostics_dialog.dart';
+import 'os_builder_page.dart';
 import 'remote_session_page.dart';
 import 'support_contract.dart';
 import 'theme.dart';
@@ -284,6 +285,40 @@ class _SupportPageState extends State<SupportPage> {
         return 'Cliente respondeu ao pedido de acesso.';
     }
     return evento['type']?.toString() ?? '';
+  }
+
+  /// Abre o construtor de orçamento da OS deste chamado.
+  ///
+  /// O tipo e a modalidade vão junto porque é o que recorta o catálogo: um
+  /// toner não entra numa OS de rede, e serviço presencial não entra em
+  /// atendimento remoto. O recorte é do catálogo, não da tela — ela só passa
+  /// adiante o que o chamado já declara.
+  Future<void> _showOsBuilder(Map<String, dynamic> ticket) async {
+    final ticketId = ticket['id'].toString();
+    final os = _control.serviceOrderOf(ticketId);
+    await showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('Orçamento — ${ticket['title'] ?? ticketId}'),
+        content: SizedBox(
+          width: 560,
+          child: SingleChildScrollView(
+            child: OsBuilderPage(
+              ticketId: ticketId,
+              typeKey: ticket['type_key']?.toString(),
+              osType: os?['os_type']?.toString() ??
+                  ticket['modality']?.toString() ??
+                  'virtual',
+            ),
+          ),
+        ),
+        actions: [
+          TextButton(
+              onPressed: () => Navigator.pop(dialogContext),
+              child: const Text('Fechar')),
+        ],
+      ),
+    );
   }
 
   Future<void> _showStepDialog(Map<String, dynamic> ticket) async {
@@ -1010,6 +1045,16 @@ class _SupportPageState extends State<SupportPage> {
         OutlinedButton(
           onPressed: _loading ? null : () => _showServiceOrderDialog(ticket),
           child: const Text('Converter em OS'),
+        ),
+      // O orçamento só existe depois que a OS existe, e é aqui que ele é
+      // montado: peças e serviços do catálogo, com o valor resolvido pelo
+      // servidor. Sem OS, o botão não aparece — não há o que orçar.
+      if (TgdeskSupportPolicy.canManageQueue(_role) &&
+          _control.serviceOrderOf(ticket['id'].toString()) != null)
+        OutlinedButton.icon(
+          onPressed: _loading ? null : () => _showOsBuilder(ticket),
+          icon: const Icon(Icons.receipt_long_outlined),
+          label: const Text('Orçamento'),
         ),
       if (state == TgdeskTicketState.closed)
         OutlinedButton.icon(

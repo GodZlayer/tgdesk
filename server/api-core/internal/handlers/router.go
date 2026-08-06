@@ -224,6 +224,34 @@ func NewRouter(s *Server) http.Handler {
 		s.DeletePricingRule(w, r, r.PathValue("id"))
 	}))
 
+	// Construtor de OS. O catálogo de peças e serviços é lido por qualquer
+	// autenticado — é o que o técnico escolhe ao montar o orçamento — e
+	// cadastrado só pelo admin, como o resto do que define dinheiro.
+	mux.Handle("GET /api/v1/support/os-catalog", private(auth(http.HandlerFunc(s.OsCatalog))))
+	mux.Handle("POST /api/v1/admin/parts", admin(s.SavePart))
+	mux.Handle("DELETE /api/v1/admin/parts/{id}", admin(func(w http.ResponseWriter, r *http.Request) {
+		s.DeletePart(w, r, r.PathValue("id"))
+	}))
+	mux.Handle("POST /api/v1/admin/services", admin(s.SaveService))
+	mux.Handle("DELETE /api/v1/admin/services/{id}", admin(func(w http.ResponseWriter, r *http.Request) {
+		s.DeleteService(w, r, r.PathValue("id"))
+	}))
+
+	// As linhas do orçamento e o valor que sai delas. A permissão é a mesma
+	// que governa o chamado: quem pode conduzi-lo pode orçá-lo.
+	mux.Handle("GET /api/v1/support/tickets/{id}/quote", private(auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.OsQuote(w, r, r.PathValue("id"))
+	}))))
+	mux.Handle("POST /api/v1/support/tickets/{id}/quote/close", private(auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.CloseOsQuote(w, r, r.PathValue("id"))
+	}))))
+	mux.Handle("POST /api/v1/support/tickets/{id}/os-items", private(auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.AddOsItem(w, r, r.PathValue("id"))
+	}))))
+	mux.Handle("DELETE /api/v1/support/tickets/{id}/os-items/{itemId}", private(auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.RemoveOsItem(w, r, r.PathValue("id"), r.PathValue("itemId"))
+	}))))
+
 	mux.Handle("GET /api/v1/devices/{id}/diagnostics", private(auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.ListDiagnostics(w, r, r.PathValue("id"))
 	}))))
