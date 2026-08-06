@@ -208,11 +208,17 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
       );
     }
     _sendAnnotation(const {'t': 'ClearDrawing'});
-    // Zera o recuo ao sair. Deixá-lo gravado faria a próxima sessão — ou uma
-    // janela solta, que não tem barra lateral nenhuma — nascer com o cursor
-    // deslocado pelo tamanho do Hub que não está mais lá.
-    stateGlobal.tgdeskEmbedTop = 0;
-    stateGlobal.tgdeskEmbedLeft = 0;
+    // Zera o recuo só quando esta era a última sessão. Com outras abertas,
+    // quem continua na tela remede no próximo quadro e o valor volta — mas
+    // entre zerar e remedir passa um quadro com o cursor deslocado, e fechar
+    // uma aba não deve mexer no ponteiro da que ficou.
+    //
+    // Zerar quando a última sai continua necessário: uma janela solta não tem
+    // barra lateral nenhuma, e herdar o recuo do Hub a faria nascer torta.
+    if (RemoteSessionsManager.instance.sessions.isEmpty) {
+      stateGlobal.tgdeskEmbedTop = 0;
+      stateGlobal.tgdeskEmbedLeft = 0;
+    }
     _focusNode.dispose();
     super.dispose();
   }

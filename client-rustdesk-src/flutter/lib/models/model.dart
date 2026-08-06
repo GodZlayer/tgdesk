@@ -2281,21 +2281,12 @@ class CanvasModel with ChangeNotifier {
   double get scrollX => _scrollX;
   double get scrollY => _scrollY;
 
-  static double get leftToEdge => isDesktop
-      ? windowBorderWidth +
-          kDragToResizeAreaPadding.left +
-          stateGlobal.tgdeskEmbedLeft
-      : 0;
+  static double get leftToEdge =>
+      isDesktop ? windowBorderWidth + kDragToResizeAreaPadding.left : 0;
   static double get rightToEdge =>
       isDesktop ? windowBorderWidth + kDragToResizeAreaPadding.right : 0;
-  // tgdeskEmbedTop/Left entram aqui porque este par define onde a tela remota
-  // comeca dentro da janela — e no TGDesk ela comeca depois da barra de titulo
-  // do Hub e da barra lateral. Ver state_model.dart.
   static double get topToEdge => isDesktop
-      ? tabBarHeight +
-          windowBorderWidth +
-          kDragToResizeAreaPadding.top +
-          stateGlobal.tgdeskEmbedTop
+      ? tabBarHeight + windowBorderWidth + kDragToResizeAreaPadding.top
       : 0;
   static double get bottomToEdge =>
       isDesktop ? windowBorderWidth + kDragToResizeAreaPadding.bottom : 0;
@@ -2304,8 +2295,24 @@ class CanvasModel with ChangeNotifier {
     final mediaData = MediaQueryData.fromView(ui.window);
     final size = mediaData.size;
     // If minimized, w or h may be negative here.
-    double w = size.width - leftToEdge - rightToEdge;
-    double h = size.height - topToEdge - bottomToEdge;
+    // O recuo do embutimento entra AQUI e no mapeamento do ponteiro, e em
+    // nenhum outro lugar.
+    //
+    // Cheguei a somá-lo em topToEdge/leftToEdge, que pareciam o lugar natural.
+    // Não são: esse par também posiciona os controles que flutuam sobre a
+    // imagem, e somar ali empurrava todos eles para dentro — o que deveria
+    // ficar no canto da tela remota aparecia deslocado para o centro.
+    //
+    // Aqui o efeito é o certo: a área util da tela remota é a janela menos as
+    // bordas E menos o que o Hub ocupa em volta dela.
+    double w = size.width -
+        leftToEdge -
+        rightToEdge -
+        stateGlobal.tgdeskEmbedLeft;
+    double h = size.height -
+        topToEdge -
+        bottomToEdge -
+        stateGlobal.tgdeskEmbedTop;
     if (isMobile) {
       // Account for horizontal safe area insets on both orientations.
       w = w - mediaData.padding.left - mediaData.padding.right;

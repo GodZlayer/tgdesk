@@ -204,49 +204,62 @@ class _HubHomePageState extends State<HubHomePage> {
         return AnimatedBuilder(
           animation: RemoteSessionsManager.instance,
           builder: (context, _) {
-            final sessao = RemoteSessionsManager.instance.active;
-            if (sessao != null && emTelaCheia) {
-              return TgdeskRemoteSessionPage(
-                key: ValueKey(sessao.deviceId),
-                deviceId: sessao.deviceId,
-                remoteId: sessao.remoteId,
-                hostname: sessao.hostname,
-                credential: sessao.credential,
-                embedded: true,
-              );
+            final gerente = RemoteSessionsManager.instance;
+            final sessoes = gerente.sessions;
+            final ativa = gerente.activeIndex;
+
+            // Todas as sessões ficam vivas ao mesmo tempo, num IndexedStack.
+            //
+            // Antes eu construía só a que estava à frente. Isso derrubava a
+            // conexão a cada troca de aba, a cada entrada e saída de tela
+            // cheia, e deixava o fundo cinza aparecendo enquanto a próxima
+            // reconectava — o widget saía da árvore e levava a sessão junto.
+            //
+            // Aba de navegador não recarrega a página quando você volta para
+            // ela, e sessão de acesso remoto muito menos: reconectar é lento,
+            // pisca, e desfaz o que estava na tela.
+            //
+            // O Hub é o primeiro filho da pilha, então "nenhuma sessão à
+            // frente" também é só trocar o índice — ninguém é destruído.
+            final conteudo = IndexedStack(
+              index: ativa < 0 ? 0 : ativa + 1,
+              children: [
+                pages[_index],
+                for (final sessao in sessoes)
+                  TgdeskRemoteSessionPage(
+                    // A chave é o dispositivo: sem ela o Flutter reaproveitaria
+                    // o estado de uma sessão para outra ao reordenar as abas —
+                    // duas máquinas na mesma tela.
+                    key: ValueKey(sessao.deviceId),
+                    deviceId: sessao.deviceId,
+                    remoteId: sessao.remoteId,
+                    hostname: sessao.hostname,
+                    credential: sessao.credential,
+                    embedded: true,
+                  ),
+              ],
+            );
+
+            // Em tela cheia some só o que está em volta. A árvore da sessão é
+            // a mesma, e é por isso que entrar e sair não reconecta mais.
+            if (emTelaCheia && ativa >= 0) {
+              return conteudo;
             }
             return Row(
               children: [
                 NavigationRail(
-                  // Com uma sessão à frente, nenhum destino está selecionado: o
-                  // que a tela mostra é a máquina remota, não uma das telas do
-                  // Hub. Marcar um destino ali seria dizer que o usuário está
-                  // num lugar em que ele não está.
-                  selectedIndex: sessao == null ? _index : null,
+                  // Com uma sessão à frente, nenhum destino fica marcado: o que
+                  // a tela mostra é a máquina remota, não uma das telas do Hub.
+                  selectedIndex: ativa < 0 ? _index : null,
                   onDestinationSelected: (i) {
-                    RemoteSessionsManager.instance.blur();
+                    gerente.blur();
                     setState(() => _index = i);
                   },
                   labelType: NavigationRailLabelType.all,
                   destinations: destinations,
                 ),
                 const VerticalDivider(width: 1),
-                Expanded(
-                  child: sessao == null
-                      ? pages[_index]
-                      // A sessão é mantida viva por chave: trocar de aba não
-                      // pode derrubar a conexão da que sai de cena, e sem chave
-                      // o Flutter reaproveitaria o estado da anterior para a
-                      // seguinte — duas máquinas na mesma tela.
-                      : TgdeskRemoteSessionPage(
-                          key: ValueKey(sessao.deviceId),
-                          deviceId: sessao.deviceId,
-                          remoteId: sessao.remoteId,
-                          hostname: sessao.hostname,
-                          credential: sessao.credential,
-                          embedded: true,
-                        ),
-                ),
+                Expanded(child: conteudo),
               ],
             );
           },

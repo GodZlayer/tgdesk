@@ -1937,6 +1937,12 @@ class InputModel {
 
     y -= CanvasModel.topToEdge;
     x -= CanvasModel.leftToEdge;
+    // E o que o Hub ocupa em volta da tela remota, quando ela esta embutida.
+    // A posicao do ponteiro aqui e GLOBAL — medida do canto da janela —, entao
+    // sem descontar isto o cursor chega na maquina remota deslocado
+    // exatamente pelo tamanho da barra de titulo e da barra lateral.
+    y -= stateGlobal.tgdeskEmbedTop;
+    x -= stateGlobal.tgdeskEmbedLeft;
     if (isMove) {
       final canvasModel = parent.target!.canvasModel;
 
