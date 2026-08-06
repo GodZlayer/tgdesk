@@ -107,5 +107,34 @@ func runTechnicianService(serverURL string) int {
 	// como host. Exigir que o host estivesse ativo aqui criava um deadlock:
 	// uma instalação Admin nova permanecia guest e nunca ganhava sua VPN.
 	appendAgentLog("vpn-service: iniciando túnel Admin/Tech")
-	return runTechnician([]string{"--server", serverURL, "--token", token})
+	if code := runTechnician([]string{"--server", serverURL, "--token", token}); code != 0 {
+		return code
+	}
+
+	// E agora fica de pé, porque o túnel morre junto com quem o criou.
+	//
+	// O adaptador WireGuardNT pertence ao processo que abriu o handle — e o
+	// handle nunca é fechado, de propósito: enquanto o processo vive, o
+	// adaptador vive. Retornar aqui encerrava o processo do serviço e levava o
+	// túnel junto, segundos depois de o criar.
+	//
+	// Era esse o buraco que sobrou da unificação de adaptador. Ela tirou do
+	// técnico a criação do túnel contando com o Host, mas em máquina Admin/Tech
+	// é este serviço que roda, não o Host. O log de quatro atualizações
+	// seguidas mostrou o mesmo desenho: adaptador criado, gateway sem
+	// responder, reversão — e o host.log vazio o tempo todo.
+	//
+	// O laço também vigia: se o túnel cair, ele volta. Um serviço que só sobe
+	// a rede uma vez e dorme não é serviço, é script de inicialização.
+	appendAgentLog("vpn-service: túnel de pé; supervisionando")
+	for {
+		time.Sleep(30 * time.Second)
+		if tunelDoDispositivoResponde(5 * time.Second) {
+			continue
+		}
+		appendAgentLog("vpn-service: túnel caiu; subindo de novo")
+		if code := runTechnician([]string{"--server", serverURL, "--token", token}); code != 0 {
+			appendAgentLog("vpn-service: falha ao restabelecer o túnel (código %d)", code)
+		}
+	}
 }

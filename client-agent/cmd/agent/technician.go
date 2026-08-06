@@ -94,37 +94,69 @@ func runTechnician(args []string) int {
 	}
 	log.Println("papel de técnico usa o túnel do dispositivo (tgdesk0); nenhum adaptador adicional é criado")
 
-	// Quem sobe o túnel é o Host. Aqui só se confere que ele subiu — e se não
-	// subiu, isso é dito em voz alta.
+	// E se o túnel do dispositivo não estiver de pé, esta função o sobe.
 	//
-	// O comentário desta função dizia que ela "garante que o túnel do
-	// dispositivo está de pé". Não garantia: removia o adaptador antigo e
-	// retornava sucesso, com ou sem rede. Numa atualização isso apareceu do
-	// pior jeito — o Host tinha morrido por não conseguir o singleton, esta
-	// função declarou tudo certo, e o updater ficou dois minutos esperando uma
-	// rede que ninguém estava subindo.
-	if err := aguardarTunelDoDispositivo(90 * time.Second); err != nil {
-		log.Printf("aviso: o túnel do dispositivo não respondeu: %v", err)
-	} else {
-		log.Println("túnel do dispositivo respondendo — hub alcançável")
+	// Era aqui que a unificação de adaptador tinha deixado um buraco. Ela
+	// tirou do técnico a criação do túnel — correto, dois adaptadores para o
+	// mesmo /16 era o problema — e assumiu que o Host cuidaria. Só que numa
+	// máquina Admin/Tech o serviço chama este caminho, e o Host não roda por
+	// ele: ninguém subia nada. O log de uma atualização mostrou o buraco
+	// inteiro — esta função anunciando "usa o túnel do dispositivo", o
+	// host.log vazio, e a rede só voltando quando a versão anterior foi
+	// restaurada.
+	//
+	// Subir aqui não recria o problema antigo: é o MESMO adaptador do Host
+	// ("TGDesk", mesmo GUID), pela mesma bringUpTunnel. Continua sendo um só.
+	if tunelDoDispositivoResponde(3 * time.Second) {
+		log.Println("túnel do dispositivo já ativo — hub alcançável")
+		return 0
 	}
-	return 0
+	log.Println("túnel do dispositivo ausente — subindo pelo caminho do Host")
+	cfg := loadConfig()
+	if cfg.DeviceID == "" || cfg.DeviceToken == "" {
+		log.Println("aviso: dispositivo ainda não vinculado; o túnel sobe quando ele for")
+		return 0
+	}
+	// Tenta de novo até o prazo, em vez de desistir na primeira.
+	//
+	// A primeira tentativa criou o adaptador e o gateway não respondeu em 30
+	// segundos — o aperto de mão do WireGuard e o registro do peer nem sempre
+	// fecham nesse tempo. Só que desistir ali deixava os 90 segundos seguintes
+	// do orçamento do atualizador passando com ninguém tentando nada, e a
+	// atualização revertia por falta de uma segunda tentativa.
+	//
+	// O prazo fica abaixo do que o atualizador tolera esperar pela rede: não
+	// adianta seguir tentando depois que ele já desistiu.
+	deadline := time.Now().Add(100 * time.Second)
+	for tentativa := 1; ; tentativa++ {
+		err := bringUpTunnel(cfg)
+		if err == nil {
+			log.Println("túnel do dispositivo ativo")
+			return 0
+		}
+		if time.Now().After(deadline) {
+			log.Printf("aviso: túnel do dispositivo não subiu em %d tentativas: %v",
+				tentativa, err)
+			return 0
+		}
+		log.Printf("túnel do dispositivo: tentativa %d falhou (%v); tentando de novo",
+			tentativa, err)
+		// Se o gateway responder enquanto esperamos, acabou: o adaptador da
+		// tentativa anterior pode ter fechado o aperto de mão depois do prazo
+		// dela.
+		if tunelDoDispositivoResponde(5 * time.Second) {
+			log.Println("túnel do dispositivo ativo")
+			return 0
+		}
+	}
 }
 
-// aguardarTunelDoDispositivo espera o hub responder pelo túnel que o Host
-// mantém. Não cria adaptador nenhum: um segundo adaptador para o mesmo /16 é
-// justamente o que a unificação eliminou.
-func aguardarTunelDoDispositivo(timeout time.Duration) error {
-	deadline := time.Now().Add(timeout)
-	var ultimo error
-	for time.Now().Before(deadline) {
-		conexao, err := net.DialTimeout("tcp", "10.70.0.1:8080", 2*time.Second)
-		if err == nil {
-			conexao.Close()
-			return nil
-		}
-		ultimo = err
-		time.Sleep(time.Second)
+// tunelDoDispositivoResponde diz se o hub já é alcançável.
+func tunelDoDispositivoResponde(timeout time.Duration) bool {
+	conexao, err := net.DialTimeout("tcp", "10.70.0.1:8080", timeout)
+	if err != nil {
+		return false
 	}
-	return ultimo
+	conexao.Close()
+	return true
 }

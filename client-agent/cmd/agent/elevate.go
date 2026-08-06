@@ -98,17 +98,18 @@ func acquireHostSingleton() bool {
 	// bounded interval. Each failed CreateMutex returns a real handle to the
 	// existing object, which must be closed before retrying.
 	//
-	// Eram 30 segundos, e não bastavam. Numa atualização a sobreposição é bem
-	// maior — o processo antigo ainda está soltando o Host embutido enquanto o
-	// serviço novo já subiu — e desistir aqui não atrasa o Host: mata ele de
-	// vez, porque nada o relança. O serviço fica Running sem túnel nenhum, e o
-	// updater reverte a atualização inteira achando que a rede não voltou.
-	// Foi exatamente o que aconteceu na 1.1.54.
+	// 45 segundos, e não mais.
 	//
-	// Esperar mais é barato: enquanto o mutex estiver tomado, existe outro Host
-	// vivo cuidando do túnel. O único custo de errar para mais é demorar a
-	// perceber uma instância travada — bem menos grave que perder a rede.
-	deadline := time.Now().Add(3 * time.Minute)
+	// Cheguei a subir isto para 3 minutos culpando o singleton pela atualização
+	// que revertia. Estava errado: o host.log da falha estava VAZIO — o Host
+	// nem chegava a disputar o mutex, porque ninguém o iniciava. O buraco era
+	// outro (ver runTechnician), e esperar mais aqui só empurrava a subida do
+	// túnel para depois do prazo do atualizador, piorando o que eu queria
+	// consertar.
+	//
+	// O teto tem que ficar abaixo do que o atualizador tolera esperar pela
+	// rede, senão o Host ainda está esperando quando a atualização já desistiu.
+	deadline := time.Now().Add(45 * time.Second)
 	for {
 		var candidate windows.Handle
 		candidate, err = windows.CreateMutex(nil, false, name)

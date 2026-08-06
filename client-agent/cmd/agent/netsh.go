@@ -26,29 +26,27 @@ func assignWindowsIP(ifaceName, ip string) error {
 // Without this, Windows broadcasts a network-change event that WARP listens
 // for, causing it to pop up or reconfigure itself.
 func hideAdapterFromWARP(ifaceName string) {
-	// 1. Disable automatic metric and set a very high one (9999)
-	//    This tells Windows "this adapter is low priority, don't care about it"
-	cmd := exec.Command("netsh", "interface", "ip", "set", "interface",
-		"name="+ifaceName, "metric=9999")
-	if out, err := cmd.CombinedOutput(); err != nil {
-		log.Printf("aviso: não foi possível definir métrica na interface %s: %v (output: %s)", ifaceName, err, out)
-	} else {
-		log.Printf("interface %s configurada com métrica 9999 (invisível para WARP)", ifaceName)
-	}
-
-	// 2. Disable automatic DNS configuration on the adapter
-	//    Prevents WARP from intercepting DNS queries through this interface
-	cmd = exec.Command("netsh", "interface", "ip", "set", "dns",
+	// Esconder da WARP não pode significar deixar a interface inutilizável.
+	//
+	// Esta função nasceu com três passos, e dois deles quebravam a rede
+	// privada: metric=9999, que faz a rota para 10.70.0.0/16 perder para
+	// qualquer outra, e "gateway=none", que mexe na configuração de endereço da
+	// interface recém-criada. O resultado era um adaptador de pé que nunca
+	// fechava o aperto de mão com o hub.
+	//
+	// Foi por isso que toda máquina que atualizava para 1.1.50 ou mais perdia a
+	// rede privada e via a atualização ser revertida: o adaptador antigo (de
+	// antes desta função) fica com métrica automática 5 e funciona; o novo
+	// nascia com 9999 e não alcançava o gateway.
+	//
+	// Sobra o passo que de fato serve ao propósito e não custa rota nenhuma: o
+	// DNS estático, que impede a WARP de interceptar consultas por esta
+	// interface. A métrica fica automática, como no adaptador que funciona.
+	cmd := exec.Command("netsh", "interface", "ip", "set", "dns",
 		"name="+ifaceName, "static", "0.0.0.0", "primary")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		log.Printf("aviso: não foi possível configurar DNS na interface %s: %v (output: %s)", ifaceName, err, out)
-	}
-
-	// 3. Remove any default gateway that might have been added
-	//    Ensures TGDesk traffic doesn't route through WARP
-	cmd = exec.Command("netsh", "interface", "ip", "set", "address",
-		"name="+ifaceName, "gateway=none")
-	if out, err := cmd.CombinedOutput(); err != nil {
-		log.Printf("aviso: não foi possível remover gateway da interface %s: %v (output: %s)", ifaceName, err, out)
+	} else {
+		log.Printf("interface %s com DNS próprio (não interceptável pela WARP)", ifaceName)
 	}
 }
