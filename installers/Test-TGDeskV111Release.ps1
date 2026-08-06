@@ -24,6 +24,25 @@ Add-Check 'tray.bypasses_ui_mutex' `
 $traySource = Get-Content (Join-Path $root 'client-rustdesk-src\src\tray.rs') -Raw
 $coreMainSource = Get-Content (Join-Path $root 'client-rustdesk-src\src\core_main.rs') -Raw
 $windowsPlatformSource = Get-Content (Join-Path $root 'client-rustdesk-src\src\platform\windows.rs') -Raw
+
+# A classe de janela nao pode voltar a ser a do template do Flutter.
+# FindWindowW varre o sistema inteiro: com o nome padrao, qualquer outro app
+# Flutter para Windows -- o cliente Cloudflare WARP entre eles -- casa na busca
+# de instancia unica, e o TGDesk trazia (ou fechava) a janela alheia.
+# As duas pontas se acham por este nome, entao as duas precisam bater.
+$win32Window = Get-Content (Join-Path $root 'client-rustdesk-src\flutter\windows\runner\win32_window.cpp') -Raw
+Add-Check 'window.class_is_own' `
+    (($win32Window -match 'kWindowClassName\[\]\s*=\s*L"TGDESK_RUNNER_WIN32_WINDOW"') -and
+     ($windowsPlatformSource -match 'FLUTTER_RUNNER_WIN32_WINDOW_CLASS[^\r\n]*=\s*"TGDESK_RUNNER_WIN32_WINDOW"')) `
+    'TGDESK_RUNNER_WIN32_WINDOW'
+
+# E a janela encontrada so vale depois que o processo dono dela prova ser o
+# mesmo binario: classe propria reduz a colisao, nao a elimina.
+Add-Check 'window.verifies_owning_process' `
+    (($runnerMain -match 'FindOwnInstanceWindow') -and
+     ($runnerMain -match 'QueryFullProcessImageNameW') -and
+     ($runnerMain -notmatch '::FindWindowW\(getWindowClassName')) `
+    'FindOwnInstanceWindow'
 Add-Check 'tray.owns_blocking_event_loop' `
     (($traySource -match 'for attempt in 0\.\.max_retries[\s\S]*?make_tray\(\)') -and
      ($traySource -notmatch 'std::thread::spawn\(move \|\| \{[\s\S]{0,200}let max_retries')) `
@@ -80,15 +99,15 @@ Add-Check 'docker.health' $health ([string]$health)
 
 $migration = (& docker compose -f $compose exec -T postgres psql -U tgdesk -d tgdesk -Atqc `
     "SELECT count(*)||':'||max(name) FROM schema_migrations" | Out-String).Trim()
-Add-Check 'schema.migrations' ($migration -match '^50:0050_') $migration
+Add-Check 'schema.migrations' ($migration -match '^54:0054_') $migration
 
 $integrity = @(& docker compose -f $compose exec -T postgres psql -U tgdesk -d tgdesk -Atqc `
     "SELECT check_name||':'||status FROM validate_schema_integrity() ORDER BY check_name")
 Add-Check 'schema.integrity' ($integrity.Count -eq 6 -and @($integrity | Where-Object {$_ -notmatch ':PASS$'}).Count -eq 0) ($integrity -join ',')
 
 $tables = (& docker compose -f $compose exec -T postgres psql -U tgdesk -d tgdesk -Atqc `
-    "SELECT count(*) FROM pg_tables WHERE schemaname='public' AND tablename IN ('support_tickets','service_orders','dispatch_offers','supervisor_offers','ticket_ratings','temporary_ticket_permissions','onsite_evidence','diagnostic_samples')" | Out-String).Trim()
-Add-Check 'schema.product_tables' ($tables -eq '8') $tables
+    "SELECT count(*) FROM pg_tables WHERE schemaname='public' AND tablename IN ('support_tickets','service_orders','dispatch_offers','supervisor_offers','ticket_ratings','temporary_ticket_permissions','onsite_evidence','diagnostic_samples','ticket_types','ticket_type_fields','pricing_rules','part_catalog','service_catalog','service_order_items','regions','technician_name_styles')" | Out-String).Trim()
+Add-Check 'schema.product_tables' ($tables -eq '16') $tables
 
 $containerVersion = (& docker compose -f $compose exec -T api-core printenv CLIENT_VERSION | Out-String).Trim()
 Add-Check 'docker.version' ($containerVersion -eq $ExpectedVersion) $containerVersion

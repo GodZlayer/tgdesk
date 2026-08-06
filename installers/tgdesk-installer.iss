@@ -3,7 +3,7 @@
 ; uso único validada pelo servidor dentro do próprio TGDesk.
 
 #define MyAppName "TGDesk"
-#define MyAppVersion "1.1.50"
+#define MyAppVersion "1.1.51"
 #define MyAppPublisher "TGDesk"
 #ifndef TGDeskServerHost
   #define TGDeskServerHost "127.0.0.1"
@@ -23,7 +23,11 @@ DefaultGroupName={code:BrandDisplayName}
 DisableProgramGroupPage=yes
 PrivilegesRequired=admin
 OutputDir=.\output
-OutputBaseFilename=tgdesk-installer-1.1.50
+; Literal de proposito, e nao {#MyAppVersion}: Publish-TGDeskRelease.ps1 confere
+; esta linha por texto exato para garantir que o instalador esta identificado
+; com a versao publicada. Derivar aqui apagaria essa verificacao. As duas
+; versoes deste arquivo sobem juntas, no passo 1 do fluxo de release.
+OutputBaseFilename=tgdesk-installer-1.1.51
 Compression=lzma2
 SolidCompression=yes
 ArchitecturesInstallIn64BitMode=x64compatible
