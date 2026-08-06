@@ -24,6 +24,77 @@ class TgdeskColors {
   static const warning = Colors.orange;
 }
 
+/// Gravidade — o mesmo verde, amarelo e vermelho em toda tela.
+///
+/// Existe porque havia DOIS vermelhos para a mesma coisa: 0xffe5484d nas telas
+/// de chamado e 0xffff5252 na do cliente e na de dispositivos. Não era escolha,
+/// era deriva — cada tela nasceu com o vermelho que quem a escreveu digitou. O
+/// valor que ficou é o menos saturado, que é o que se sustenta num fundo
+/// escuro sem vibrar.
+///
+/// Não se confunde com TgdeskColors.online/suspended, que descrevem ESTADO de
+/// uma entidade (ligada, suspensa). Aqui é o quanto uma leitura preocupa.
+class TgdeskSeverityColors {
+  TgdeskSeverityColors._();
+
+  static const ok = Color(0xff45c95a);
+  static const warning = Color(0xffffb020);
+  static const critical = Color(0xffe5484d);
+
+  /// A cor de um nível numérico, na escala que o servidor usa:
+  /// 0 normal, 1 atenção, 2 crítico, 3 no limite.
+  static Color of(int level) => level >= 2
+      ? critical
+      : level == 1
+          ? warning
+          : ok;
+}
+
+/// Superfícies do tema escuro — a tela do cliente e os painéis embutidos nela.
+///
+/// Esta parte do produto não segue o tema do sistema: é uma tela de quiosque,
+/// vista de longe, e o fundo escuro é decisão de desenho, não preferência do
+/// usuário. Por isso os valores são fixos aqui em vez de virem do ColorScheme.
+class TgdeskSurfaces {
+  TgdeskSurfaces._();
+
+  /// Fundo da tela inteira.
+  static const background = Color(0xff07101b);
+
+  /// Cartão ou painel sobre o fundo.
+  static const panel = Color(0xff111d29);
+
+  /// Painel de segundo nível, um passo mais escuro.
+  static const panelAlt = Color(0xff111c28);
+
+  static const border = Color(0xff263444);
+  static const borderStrong = Color(0xff25384b);
+}
+
+/// Hierarquia de texto sobre as superfícies escuras.
+///
+/// São quatro pesos e não uma escala aberta: título, apoio, corpo e o que só
+/// precisa estar disponível sem chamar atenção. Quando uma tela precisou de um
+/// quinto tom, quase sempre era um dos quatro escrito de novo com outro valor.
+class TgdeskTextColors {
+  TgdeskTextColors._();
+
+  /// Subtítulo logo abaixo de um título.
+  static const support = Color(0xffa9b5c6);
+
+  /// Texto de apoio com algum destaque.
+  static const strong = Color(0xffb7c2d1);
+
+  /// Corpo secundário — a maior parte da prosa explicativa.
+  static const body = Color(0xff9eacbf);
+
+  /// Informação que só precisa estar lá: rodapé, carimbo de tempo.
+  static const muted = Color(0xff75849a);
+
+  /// Destaque frio, para ícones de acompanhamento.
+  static const accent = Color(0xff8db8ee);
+}
+
 /// Escala de espaçamento de 4px. Prefira estes valores a números arbitrários.
 class TgdeskSpacing {
   TgdeskSpacing._();

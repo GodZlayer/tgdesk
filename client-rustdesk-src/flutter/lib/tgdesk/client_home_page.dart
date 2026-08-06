@@ -8,7 +8,9 @@ import 'agent_deploy.dart';
 import 'api_client.dart';
 import 'branding_window_icon.dart';
 import 'health_text.dart';
+import 'money.dart';
 import 'theme.dart';
+import 'ui_contract.dart';
 import 'window_frame.dart';
 
 class TgdeskClientHomePage extends StatefulWidget {
@@ -147,12 +149,12 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
           if ((pedido['motivo']?.toString() ?? '').isNotEmpty) ...[
             const SizedBox(height: TgdeskSpacing.xs),
             Text('Motivo: ${pedido['motivo']}',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(color: const Color(0xffb7c2d1))),
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(color: TgdeskTextColors.strong)),
           ],
           const SizedBox(height: TgdeskSpacing.xs),
           Text(
               'Se você recusar, o técnico continua podendo fazer testes, mas não controla a máquina.',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: const Color(0xff9eacbf))),
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: TgdeskTextColors.body)),
           const SizedBox(height: TgdeskSpacing.sm),
           Row(children: [
             FilledButton(
@@ -187,7 +189,7 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
             child: Text(
                 'Recebeu um código para supervisionar outra organização? '
                 'Resgate aqui para passar a ver os chamados dela.',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(color: const Color(0xffb7c2d1))),
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(color: TgdeskTextColors.strong)),
           ),
           TextButton(
             onPressed: _resgatarConviteSupervisor,
@@ -355,12 +357,21 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
         if ((os['escopo']?.toString() ?? '').isNotEmpty) ...[
           const SizedBox(height: TgdeskSpacing.xs),
           Text('Serviço: ${os['escopo']}',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: const Color(0xff9eacbf))),
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: TgdeskTextColors.body)),
         ],
+        if ((os['instrucao']?.toString() ?? '').isNotEmpty) ...[
+          const SizedBox(height: TgdeskSpacing.xs),
+          Text(os['instrucao'].toString(),
+              style: Theme.of(context)
+                  .textTheme
+                  .bodySmall
+                  ?.copyWith(color: TgdeskTextColors.body)),
+        ],
+        if (os['orcamento'] is Map) _orcamentoPanel(_map(os['orcamento'])),
         if (agendada.isNotEmpty) ...[
           const SizedBox(height: TgdeskSpacing.xs),
           Text('Agendado para ${_dataLegivel(agendada)}',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: const Color(0xffb7c2d1))),
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: TgdeskTextColors.strong)),
         ],
         if (aguardaEle) ...[
           const SizedBox(height: TgdeskSpacing.sm),
@@ -372,6 +383,78 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
         ],
       ]),
     );
+  }
+
+  /// O orçamento como o cliente precisa vê-lo: o que foi feito e quanto custa.
+  ///
+  /// Só aparece depois de fechado — enquanto o técnico monta as linhas, o
+  /// cliente não vê número nenhum. Valor em rascunho vira expectativa, e
+  /// expectativa quebrada é pior do que silêncio.
+  ///
+  /// Cada linha traz rótulo, quantidade e total. Não traz o custo da peça:
+  /// isso é conta de quem atende, não decisão de quem paga.
+  Widget _orcamentoPanel(Map<String, dynamic> orcamento) {
+    final itens = _list(orcamento['itens'])
+        .map((item) => _map(item))
+        .where((item) => item.isNotEmpty)
+        .toList(growable: false);
+    final total = (orcamento['total_cents'] as num?)?.toInt() ?? 0;
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(top: TgdeskSpacing.sm),
+      padding: const EdgeInsets.all(TgdeskSpacing.sm),
+      decoration: BoxDecoration(
+        color: Colors.white.withOpacity(.04),
+        borderRadius: BorderRadius.circular(TgdeskSpacing.sm),
+      ),
+      child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+        Text('Orçamento',
+            style: Theme.of(context)
+                .textTheme
+                .labelLarge
+                ?.copyWith(color: TgdeskTextColors.strong)),
+        const SizedBox(height: TgdeskSpacing.xs),
+        for (final item in itens)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 1),
+            child: Row(children: [
+              Expanded(
+                child: Text(
+                  _quantidadeLegivel(item['quantity']) +
+                      (item['label']?.toString() ?? ''),
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodySmall
+                      ?.copyWith(color: TgdeskTextColors.body),
+                ),
+              ),
+              Text(moeda((item['total_cents'] as num?)?.toInt() ?? 0),
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodySmall
+                      ?.copyWith(color: TgdeskTextColors.body)),
+            ]),
+          ),
+        const Divider(height: TgdeskSpacing.md),
+        Row(children: [
+          const Expanded(
+              child: Text('Total',
+                  style: TextStyle(fontWeight: FontWeight.w600))),
+          Text(moeda(total),
+              style: const TextStyle(
+                  fontWeight: FontWeight.w700, fontSize: 16)),
+        ]),
+      ]),
+    );
+  }
+
+  /// "2× " para quantidades diferentes de um; vazio para uma unidade — dizer
+  /// "1×" em toda linha só acrescenta ruído.
+  String _quantidadeLegivel(dynamic raw) {
+    final quantidade = (raw as num?)?.toDouble() ?? 1;
+    if (quantidade == 1) return '';
+    final inteiro = quantidade == quantidade.roundToDouble();
+    return '${quantidade.toStringAsFixed(inteiro ? 0 : 2)}× ';
   }
 
   String _dataLegivel(String iso) {
@@ -404,7 +487,7 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
         const SizedBox(height: TgdeskSpacing.sm),
         if (mensagens.isEmpty)
           Text('Assim que um técnico assumir, a conversa aparece aqui.',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: const Color(0xff9eacbf)))
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: TgdeskTextColors.body))
         else
           ConstrainedBox(
             constraints: const BoxConstraints(maxHeight: 150),
@@ -617,7 +700,7 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
       return Center(
           child: Column(mainAxisSize: MainAxisSize.min, children: [
         Icon(state == 'suspenso' ? Icons.block : Icons.link, size: 42),
-        const SizedBox(height: 12),
+        const SizedBox(height: TgdeskSpacing.md),
         Text(state == 'suspenso'
             ? 'Contate a TG Devs para reativar o serviço'
             : 'Conectando ao TGDesk'),
@@ -655,11 +738,11 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
           const SizedBox(height: TgdeskSpacing.sm),
           const Text('Estamos aplicando a configuração escolhida na instalação.',
-              style: TextStyle(color: Color(0xff9eacbf))),
+              style: TextStyle(color: TgdeskTextColors.body)),
           if (code.isNotEmpty) ...[
             const SizedBox(height: TgdeskSpacing.xl),
             const Text('Código deste computador',
-                style: TextStyle(fontSize: 12, color: Color(0xff75849a))),
+                style: TextStyle(fontSize: 12, color: TgdeskTextColors.muted)),
             const SizedBox(height: TgdeskSpacing.xs),
             SelectableText(code,
                 style: const TextStyle(fontSize: 20, letterSpacing: 3)),
@@ -670,25 +753,19 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
   Widget _buildClientReport(Map<String, dynamic> hw) {
     final statistics = _map(_status!['statistics']);
     final health = _map(statistics['health']);
-    final level = health['client_level']?.toString() ?? 'normal';
-    final color = level == 'critical' || level == 'maximum'
-        ? const Color(0xffff5252)
-        : level == 'warning'
-            ? const Color(0xffffb020)
-            : const Color(0xff45c95a);
-    final icon = level == 'critical' || level == 'maximum'
-        ? Icons.error_outline
-        : level == 'warning'
-            ? Icons.warning_amber_rounded
-            : Icons.verified_outlined;
+    // A gravidade vem do contrato, não de comparar texto aqui: era a terceira
+    // cópia da mesma cadeia de ifs sobre 'client_level', e cópias de regra são
+    // como as cores derivam.
+    final severity = TgdeskClientUiPolicy.overallSeverity(health);
+    final color = severity.color;
+    final icon = switch (severity) {
+      TgdeskSeverity.critical || TgdeskSeverity.maximum => Icons.error_outline,
+      TgdeskSeverity.warning => Icons.warning_amber_rounded,
+      TgdeskSeverity.normal => Icons.verified_outlined,
+    };
     final healthMetrics = _map(health['metrics']);
-    int metricLevel(String name) {
-      final value = _map(healthMetrics[name])['level']?.toString() ?? 'normal';
-      if (value == 'maximum') return 3;
-      if (value == 'critical') return 2;
-      if (value == 'warning') return 1;
-      return 0;
-    }
+    int metricLevel(String name) =>
+        TgdeskClientUiPolicy.metricSeverity(health, name).rank;
 
     final disks = _list(hw['storage']);
     var storageUse = 0.0;
@@ -752,7 +829,7 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
                 ? 'Temperatura elevada'
                 : 'Dentro do esperado';
     return Container(
-      color: const Color(0xff07101b),
+      color: TgdeskSurfaces.background,
       child: LayoutBuilder(
         builder: (context, viewport) => Padding(
           padding: const EdgeInsets.fromLTRB(32, 24, 32, 28),
@@ -772,7 +849,7 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
                           borderRadius: BorderRadius.circular(16)),
                       child: Icon(icon, size: 36, color: color),
                     ),
-                    const SizedBox(width: 18),
+                    const SizedBox(width: TgdeskSpacing.lg),
                     Expanded(
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.start,
@@ -782,18 +859,18 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
                             style: const TextStyle(
                                 fontSize: 26, fontWeight: FontWeight.w600),
                           ),
-                          const SizedBox(height: 5),
+                          const SizedBox(height: TgdeskSpacing.xs),
                           Text(
                             _brandText(TgdeskHealthText.clientSummary(health['client_level']?.toString())),
                             style: const TextStyle(
-                                fontSize: 15, color: Color(0xffa9b5c6)),
+                                fontSize: 15, color: TgdeskTextColors.support),
                           ),
                         ],
                       ),
                     ),
                     _clientConnectionBadge(),
                   ]),
-                  const SizedBox(height: 22),
+                  const SizedBox(height: TgdeskSpacing.xl),
                   // Os textos vêm do servidor, que é quem tem o histórico e
                   // sabe há quanto tempo a condição dura e para onde caminha.
                   // A tela só escolhe ícone e cor.
@@ -802,19 +879,19 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
                         child: _serverCard(healthMetrics, 'processing',
                             'Experiência de uso', Icons.speed_outlined,
                             processingState, cpuLevel)),
-                    const SizedBox(width: 14),
+                    const SizedBox(width: TgdeskSpacing.md),
                     Expanded(
                         child: _serverCard(healthMetrics, 'memory', 'Memória',
                             Icons.view_module_outlined, memoryState,
                             memoryLevel)),
                   ]),
-                  const SizedBox(height: 14),
+                  const SizedBox(height: TgdeskSpacing.md),
                   Row(children: [
                     Expanded(
                         child: _serverCard(healthMetrics, 'storage',
                             'Armazenamento', Icons.storage_outlined,
                             storageState, storageLevel)),
-                    const SizedBox(width: 14),
+                    const SizedBox(width: TgdeskSpacing.md),
                     Expanded(
                         child: _clientInsightCard(
                             'Temperatura e estabilidade',
@@ -825,12 +902,12 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
                             Icons.thermostat_outlined,
                             _indicatorColor(temperatureLevel))),
                   ]),
-                  const SizedBox(height: 14),
+                  const SizedBox(height: TgdeskSpacing.md),
                   _panel(
                     child: Row(children: [
                       const Icon(Icons.auto_graph_outlined,
-                          color: Color(0xff8db8ee), size: 30),
-                      const SizedBox(width: 14),
+                          color: TgdeskTextColors.accent, size: 30),
+                      const SizedBox(width: TgdeskSpacing.md),
                       Expanded(
                         child: Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -839,20 +916,20 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
                                   style: TextStyle(
                                       fontSize: 16,
                                       fontWeight: FontWeight.w600)),
-                              const SizedBox(height: 4),
+                              const SizedBox(height: TgdeskSpacing.xs),
                               Text(
                                   samples == 0
                                       ? 'O histórico deste computador está sendo iniciado.'
                                       : '$samples verificações já fazem parte da análise deste computador.',
                                   style: const TextStyle(
-                                      color: Color(0xff9eacbf))),
+                                      color: TgdeskTextColors.body)),
                             ]),
                       ),
                       Text(_collectedLabel(),
-                          style: const TextStyle(color: Color(0xff75849a))),
+                          style: const TextStyle(color: TgdeskTextColors.muted)),
                     ]),
                   ),
-                  const SizedBox(height: 14),
+                  const SizedBox(height: TgdeskSpacing.md),
                   _supportPanel(color),
                   if (AppState.isSupervisor || AppState.isSuperAdmin)
                     _supervisorInvitePanel(),
@@ -893,16 +970,16 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
       ),
       child: Row(children: [
         Icon(Icons.support_agent_outlined, color: color),
-        const SizedBox(width: 12),
+        const SizedBox(width: TgdeskSpacing.md),
         Text('Suporte $_productName',
             style: const TextStyle(fontWeight: FontWeight.w600)),
-        const SizedBox(width: 12),
+        const SizedBox(width: TgdeskSpacing.md),
         Expanded(
             child: Text(
                 hasOpen
                     ? 'Seu pedido ${open?['protocol'] ?? ''} está aberto. Um técnico vai assumir e falar com você.'
                     : 'Precisa de ajuda? Peça atendimento — o $_productName envia sozinho o diagnóstico deste computador.',
-                style: const TextStyle(color: Color(0xffb7c2d1)))),
+                style: const TextStyle(color: TgdeskTextColors.strong))),
         if (!hasOpen)
           FilledButton.icon(
             onPressed: _openingTicket ? null : _requestSupport,
@@ -968,9 +1045,7 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
   }
 
   Color _indicatorColor(int level) {
-    if (level >= 2) return const Color(0xffff5252);
-    if (level == 1) return const Color(0xffffb020);
-    return const Color(0xff45c95a);
+    return TgdeskSeverityColors.of(level);
   }
 
   // Card cujo conteúdo vem da análise do servidor. Mantém os textos locais
@@ -992,7 +1067,7 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
         height: 132,
         padding: const EdgeInsets.all(17),
         decoration: BoxDecoration(
-          color: const Color(0xff111d29),
+          color: TgdeskSurfaces.panel,
           border: Border.all(color: color.withOpacity(.42)),
           borderRadius: BorderRadius.circular(14),
         ),
@@ -1004,7 +1079,7 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
                   color: color.withOpacity(.11),
                   borderRadius: BorderRadius.circular(12)),
               child: Icon(icon, color: color)),
-          const SizedBox(width: 14),
+          const SizedBox(width: TgdeskSpacing.md),
           Expanded(
               child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -1012,16 +1087,16 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
                   children: [
                 Text(title,
                     style: const TextStyle(
-                        color: Color(0xff91a0b5), fontSize: 12)),
-                const SizedBox(height: 4),
+                        color: TgdeskTextColors.muted, fontSize: 12)),
+                const SizedBox(height: TgdeskSpacing.xs),
                 Text(state,
                     style: const TextStyle(
                         fontSize: 18, fontWeight: FontWeight.w600)),
-                const SizedBox(height: 5),
+                const SizedBox(height: TgdeskSpacing.xs),
                 Text(detail,
                     maxLines: 2,
                     style: const TextStyle(
-                        color: Color(0xff9eacbf), fontSize: 12)),
+                        color: TgdeskTextColors.body, fontSize: 12)),
               ])),
         ]),
       );
@@ -1029,15 +1104,15 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
   Widget _clientConnectionBadge() => Container(
         padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 9),
         decoration: BoxDecoration(
-          color: const Color(0xff111d29),
+          color: TgdeskSurfaces.panel,
           borderRadius: BorderRadius.circular(20),
-          border: Border.all(color: const Color(0xff25384b)),
+          border: Border.all(color: TgdeskSurfaces.borderStrong),
         ),
         child: Row(mainAxisSize: MainAxisSize.min, children: [
           Icon(Icons.circle,
               size: 9,
-              color: _serverOnline ? const Color(0xff45c95a) : Colors.orange),
-          const SizedBox(width: 7),
+              color: _serverOnline ? TgdeskSeverityColors.ok : Colors.orange),
+          const SizedBox(width: TgdeskSpacing.sm),
           Text(_serverOnline ? 'Proteção ativa' : 'Reconectando'),
         ]),
       );
@@ -1045,9 +1120,9 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
   Widget _panel({required Widget child}) => Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
-          color: const Color(0xff111c28),
+          color: TgdeskSurfaces.panelAlt,
           borderRadius: BorderRadius.circular(12),
-          border: Border.all(color: const Color(0xff263444))),
+          border: Border.all(color: TgdeskSurfaces.border)),
       child: child);
 
   Map<String, dynamic> _map(dynamic v) =>

@@ -1174,11 +1174,9 @@ class _DevicesPageState extends State<DevicesPage> {
     return 0;
   }
 
-  Color _healthColor(int level) => level >= 2
-      ? const Color(0xffff5252)
-      : level == 1
-          ? const Color(0xffffb020)
-          : TgdeskColors.online;
+  // Antes esta tela pintava "normal" com o verde do Material e a do cliente
+  // com outro: a mesma máquina saudável tinha duas cores conforme quem olhava.
+  Color _healthColor(int level) => TgdeskSeverityColors.of(level);
 
   Widget _alertBadge(int level, String label) => Container(
         padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),

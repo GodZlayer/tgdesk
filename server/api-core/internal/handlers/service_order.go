@@ -167,15 +167,43 @@ func (s *Server) RecordServiceOrderStep(w http.ResponseWriter, r *http.Request, 
 // serviceOrderResumo devolve o estado da OS para a tela do cliente: em que
 // ponto do atendimento está e o que se espera dele.
 func (s *Server) serviceOrderResumo(ctx context.Context, ticketID string) map[string]any {
-	var status, tipo, escopo string
+	var status, tipo, escopo, instrucao string
 	var agendada *time.Time
+	var osID string
+	var total int64
 	if s.Pool.QueryRow(ctx, `
-		SELECT status,os_type,coalesce(scope_notes,''),scheduled_at
+		SELECT id,status,os_type,coalesce(scope_notes,''),
+		       coalesce(instructions,''),scheduled_at,total_cents
 		FROM service_orders WHERE ticket_id=$1`, ticketID).
-		Scan(&status, &tipo, &escopo, &agendada) != nil {
+		Scan(&osID, &status, &tipo, &escopo, &instrucao, &agendada, &total) != nil {
 		return nil
 	}
 	resumo := map[string]any{"status": status, "tipo": tipo, "escopo": escopo}
+	if instrucao != "" {
+		resumo["instrucao"] = instrucao
+	}
+	// O orçamento vai para o cliente quando está fechado — total_cents só é
+	// gravado no fechamento. Enquanto o técnico está montando as linhas, ele
+	// não vê nada: número em rascunho vira expectativa, e expectativa quebrada
+	// é pior do que silêncio.
+	//
+	// Vão as linhas com rótulo e valor, mas não o custo: quanto a peça custou
+	// para quem atende é conta interna, e mostrá-la ao cliente exporia a margem
+	// de quem o atende sem que isso o ajude a decidir nada.
+	if total > 0 {
+		linhas := []map[string]any{}
+		for _, item := range s.osItems(ctx, osID) {
+			linhas = append(linhas, map[string]any{
+				"label":       item["label"],
+				"quantity":    item["quantity"],
+				"unit_cents":  item["unit_cents"],
+				"total_cents": item["total_cents"],
+			})
+		}
+		resumo["orcamento"] = map[string]any{
+			"total_cents": total, "itens": linhas,
+		}
+	}
 	if agendada != nil {
 		resumo["agendada_para"] = agendada.UTC().Format(time.RFC3339)
 	}

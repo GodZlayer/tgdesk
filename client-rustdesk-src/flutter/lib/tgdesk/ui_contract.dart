@@ -1,5 +1,9 @@
 import 'dart:async';
 
+import 'package:flutter/painting.dart';
+
+import 'theme.dart';
+
 enum TgdeskSeverity {
   normal,
   warning,
@@ -14,6 +18,25 @@ enum TgdeskSeverity {
       };
 
   int get rank => index;
+}
+
+/// A cor de uma gravidade.
+///
+/// Fica aqui, e não em theme.dart, para que os tokens continuem sendo um
+/// arquivo sem dependência nenhuma. O que importa é que exista UM caminho de
+/// gravidade para cor: antes cada tela reescrevia a mesma cadeia de ternários
+/// com o vermelho que tinha à mão, e foi assim que nasceram dois vermelhos.
+///
+/// 'maximum' e 'critical' compartilham a cor de propósito: a diferença entre
+/// eles é de texto — o servidor diz "no limite" em vez de "crítico" —, não de
+/// alarme. Um terceiro vermelho não diria nada a mais a quem olha.
+extension TgdeskSeverityColor on TgdeskSeverity {
+  Color get color => switch (this) {
+        TgdeskSeverity.normal => TgdeskSeverityColors.ok,
+        TgdeskSeverity.warning => TgdeskSeverityColors.warning,
+        TgdeskSeverity.critical => TgdeskSeverityColors.critical,
+        TgdeskSeverity.maximum => TgdeskSeverityColors.critical,
+      };
 }
 
 class TgdeskClientUiPolicy {

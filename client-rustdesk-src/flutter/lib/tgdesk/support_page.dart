@@ -537,9 +537,9 @@ class _SupportPageState extends State<SupportPage> {
   }
 
   Color _priorityColor(int prioridade) {
-    if (prioridade >= 4) return const Color(0xffe5484d);
-    if (prioridade == 3) return const Color(0xffffb020);
-    return const Color(0xff45c95a);
+    if (prioridade >= 4) return TgdeskSeverityColors.critical;
+    if (prioridade == 3) return TgdeskSeverityColors.warning;
+    return TgdeskSeverityColors.ok;
   }
 
   /// Painel do chamado: cabeçalho denso mais seções.
@@ -924,11 +924,11 @@ class _SupportPageState extends State<SupportPage> {
     switch (severity) {
       case 'maximum':
       case 'critical':
-        return const Color(0xffe5484d);
+        return TgdeskSeverityColors.critical;
       case 'warning':
-        return const Color(0xffffb020);
+        return TgdeskSeverityColors.warning;
     }
-    return const Color(0xff45c95a);
+    return TgdeskSeverityColors.ok;
   }
 
   /// Linha do tempo: cada acontecimento com seu \u00edcone. Antes era texto corrido
@@ -1730,8 +1730,9 @@ class _SupportPageState extends State<SupportPage> {
                 type: FileType.custom,
                 allowedExtensions: const ['json'],
               );
-              if (path != null)
+              if (path != null) {
                 await File(path).writeAsString(pretty, flush: true);
+              }
             },
           ),
           TextButton.icon(
