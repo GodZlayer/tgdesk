@@ -317,6 +317,21 @@ func runHost(args []string) {
 			}
 		}
 
+		// A verificação de atualização mora AQUI, no laço do Host, porque este
+		// laço roda em qualquer estado — inclusive 'guest'.
+		//
+		// Eu a tinha posto no laço do canal de controle privado, e isso deixava
+		// de fora justamente quem mais precisa: a máquina recém-instalada, que
+		// fica em 'guest' até um técnico vinculá-la. Sem rede privada ela não
+		// abre aquele canal, então nunca recebia ordem de atualizar nem se
+		// verificava — congelava na versão do instalador para sempre. O Arthur
+		// estava assim, on-line e parado.
+		//
+		// Quem decide continua sendo o servidor: RunUpdate pede o manifesto da
+		// versão que ELE anuncia, pelo túnel quando existe e pelo canal público
+		// de recuperação quando não existe, e volta vazio se não há nada novo.
+		verificarAtualizacaoPeriodica()
+
 		state, err := heartbeat(cfg)
 		if err != nil {
 			log.Printf("heartbeat falhou: %v (tentando novamente em 5s)", err)

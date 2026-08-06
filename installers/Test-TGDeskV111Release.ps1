@@ -73,6 +73,14 @@ Add-Check 'update.agent_self_check_exists' `
     (($agentControl -match 'updateCheckTick\s*:=\s*time\.NewTicker') -and
      ($agentControl -match 'case <-updateCheckTick\.C:')) 'periodic self-check'
 
+# E a verificacao precisa existir tambem no laco do HOST, que roda em qualquer
+# estado do dispositivo. O laco do canal de controle so existe depois da
+# vinculacao -- uma maquina recem-instalada fica em 'guest' ate um tecnico
+# vincula-la, e sem isto ela congela na versao do instalador para sempre.
+$agentHost = Get-Content (Join-Path $root 'client-agent\cmd\agent\host.go') -Raw
+Add-Check 'update.reaches_unbound_devices' `
+    ($agentHost -match 'verificarAtualizacaoPeriodica\(\)') 'guest devices update too'
+
 $releaseBuilder = Get-Content (Join-Path $root 'installers\New-TGDeskModuleRelease.ps1') -Raw
 Add-Check 'updater.restarts_interactive_ui' `
     ($releaseBuilder -match "restart_application\s*=\s*'tgdesk\.exe'") 'tgdesk.exe'

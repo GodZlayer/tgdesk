@@ -27,8 +27,18 @@ typedef int (*FUNC_TGDESK_AGENT_APPLY_STAGED)(const char*, const char*, int);
 // The Windows service keeps `--server` alive in the user session; allowing it
 // through the UI singleton gate leaves the no-argument TGDesk window free to
 // start and acquire Global\TGDesk.UI.<session>.
-const std::vector<std::string> parameters_white_list = {"--install", "--cm",
-                                                        "--server", "--tray"};
+// --option e --password entram aqui porque NAO abrem interface nenhuma: sao
+// consultas de linha de comando ao nucleo, feitas pelo agente para configurar
+// o acesso remoto (ver client-agent/cmd/agent/remote_access.go).
+//
+// Sem isso elas batiam no mutex da UI e saiam ANTES de imprimir qualquer coisa
+// sempre que a janela do TGDesk estivesse aberta. O agente lia a resposta
+// vazia, concluia "o nucleo remoto nao confirmou custom-rendezvous-server", e
+// marcava o dispositivo como sem acesso remoto — o botao de acesso remoto
+// simplesmente sumia da lista, e so voltava se ninguem estivesse com o TGDesk
+// aberto na hora certa.
+const std::vector<std::string> parameters_white_list = {
+    "--install", "--cm", "--server", "--tray", "--option", "--password"};
 
 const wchar_t* getWindowClassName();
 
