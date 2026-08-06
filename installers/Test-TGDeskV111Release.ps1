@@ -32,6 +32,33 @@ Add-Check 'core.dll_newer_than_rust_sources' `
     ($coreDllTime -gt $rustCommitTime) `
     ("dll=$($coreDllTime.ToString('s')) rust=$($rustCommitTime.ToString('s'))")
 
+# O agente publicado tem que ser mais novo que o codigo do agente, pela mesma
+# razao do core: ate a 1.1.52 o pipeline so rodava 'go test' no client-agent e
+# empacotava o tgdesk_agent.dll parado no stage. O de 3 de agosto nao mandava
+# client_version no heartbeat, e sem isso o servidor nunca enfileira ninguem --
+# a atualizacao automatica ficou quebrada sem nenhum erro aparecer.
+$agentDll = Join-Path $root 'installers\stage-unified\tgdesk_agent.dll'
+$agentDllTime = if (Test-Path -LiteralPath $agentDll) {
+    (Get-Item -LiteralPath $agentDll).LastWriteTimeUtc
+} else { [datetime]::MinValue }
+$lastAgentCommit = (& git -C $root log -1 --format=%cI -- client-agent | Out-String).Trim()
+$agentCommitTime = if ($lastAgentCommit) {
+    ([datetimeoffset]$lastAgentCommit).UtcDateTime
+} else { [datetime]::MinValue }
+Add-Check 'agent.dll_newer_than_sources' `
+    ($agentDllTime -gt $agentCommitTime) `
+    ("dll=$($agentDllTime.ToString('s')) src=$($agentCommitTime.ToString('s'))")
+
+# E o agente empacotado tem que de fato mandar a versao: e o unico dado que faz
+# o servidor decidir quem atualiza.
+$agentReportsVersion = $false
+if (Test-Path -LiteralPath $agentDll) {
+    $agentBytes = [IO.File]::ReadAllBytes($agentDll)
+    $agentText = [Text.Encoding]::ASCII.GetString($agentBytes)
+    $agentReportsVersion = $agentText.Contains('client_version')
+}
+Add-Check 'agent.reports_client_version' $agentReportsVersion ([string]$agentReportsVersion)
+
 $releaseBuilder = Get-Content (Join-Path $root 'installers\New-TGDeskModuleRelease.ps1') -Raw
 Add-Check 'updater.restarts_interactive_ui' `
     ($releaseBuilder -match "restart_application\s*=\s*'tgdesk\.exe'") 'tgdesk.exe'
@@ -84,12 +111,26 @@ Add-Check 'updater.windows_replace_checks_remove' `
     (($updateCore -match 'removeErr = os\.Remove\(target\)') -and
      ($updateCore -match 'if removeErr != nil')) `
     'locked target is diagnosed before rename and rollback'
-# A atualização é empurrada pelo servidor a qualquer momento, e o TGDesk vive
-# na bandeja. Uma janela aparecendo sozinha sobre o trabalho de alguém é
-# interrupção; quem informa agora é o indicador na barra de título.
-Add-Check 'updater.runs_in_background' `
-    ($updateCore -match 'updaterExe[\s\S]{0,2400}ShellExecute\(0, verb, file, params, dir, windows\.SW_HIDE\)') `
-    'server-pushed update never steals focus'
+# A janela do atualizador segue o que a pessoa esta vendo: aparece com a janela
+# do TGDesk aberta na frente (a atualizacao troca binarios e reinicia o
+# servico -- sumir no meio disso deixa a pessoa no escuro), e nao aparece com o
+# TGDesk minimizado na bandeja (quem minimizou esta fazendo outra coisa).
+#
+# Antes era sempre SW_HIDE, e o caso da janela aberta ficava sem resposta.
+Add-Check 'updater.window_follows_main_window' `
+    (($updateCore -match 'show := int32\(windows\.SW_HIDE\)') -and
+     ($updateCore -match 'mainWindowIsOnScreen\(installDir\)') -and
+     ($updateCore -match 'show = int32\(windows\.SW_SHOWNORMAL\)') -and
+     ($updateCore -match 'ShellExecute\(0, verb, file, params, dir, show\)')) `
+    'updater window shown only when the TGDesk window is on screen'
+
+# E a janela conferida tem que ser a do TGDesk: FindWindowW varre o sistema
+# inteiro, e decidir mostrar ou esconder pelo estado da janela de outro
+# programa seria o mesmo descuido da classe de janela, so que mais silencioso.
+Add-Check 'updater.verifies_owning_process' `
+    (($updateCore -match 'QueryFullProcessImageName') -and
+     ($updateCore -match 'tgdeskWindowClass\s*=\s*"TGDESK_RUNNER_WIN32_WINDOW"')) `
+    'window ownership verified before reading its state'
 
 function Get-PEContract([string]$Path) {
     $bytes = [IO.File]::ReadAllBytes($Path)

@@ -22,6 +22,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unsafe"
 
 	"golang.org/x/sys/windows"
 	"golang.org/x/sys/windows/registry"
@@ -321,6 +322,68 @@ func selectChangedModules(manifest moduleManifest, installDir string) (
 	return changed, false, nil
 }
 
+var (
+	user32Lib              = windows.NewLazySystemDLL("user32.dll")
+	procFindWindowW        = user32Lib.NewProc("FindWindowW")
+	procIsWindowVisible    = user32Lib.NewProc("IsWindowVisible")
+	procIsIconic           = user32Lib.NewProc("IsIconic")
+	procGetWindowThreadPID = user32Lib.NewProc("GetWindowThreadProcessId")
+)
+
+// tgdeskWindowClass precisa bater com kWindowClassName em
+// flutter/windows/runner/win32_window.cpp e com
+// FLUTTER_RUNNER_WIN32_WINDOW_CLASS em src/platform/windows.rs. As três pontas
+// se acham por este nome.
+const tgdeskWindowClass = "TGDESK_RUNNER_WIN32_WINDOW"
+
+// mainWindowIsOnScreen diz se a janela do TGDesk está de fato à vista — não
+// apenas existindo, mas visível e não minimizada.
+//
+// A janela é conferida contra o processo dono dela: classe própria reduz a
+// chance de casar com outro aplicativo, mas não a elimina, e é exatamente esse
+// descuido que fazia o TGDesk trazer (e às vezes fechar) a janela do cliente
+// Cloudflare WARP. Aqui o erro seria mais silencioso — mostrar ou esconder o
+// atualizador pelo estado da janela de outro programa —, e por isso a
+// verificação é a mesma.
+//
+// Na dúvida responde false: esconder uma janela que deveria aparecer é um
+// aborrecimento; abri-la por cima do trabalho de alguém é o que se quis evitar.
+func mainWindowIsOnScreen(installDir string) bool {
+	class, err := syscall.UTF16PtrFromString(tgdeskWindowClass)
+	if err != nil {
+		return false
+	}
+	hwnd, _, _ := procFindWindowW.Call(uintptr(unsafe.Pointer(class)), 0)
+	if hwnd == 0 {
+		return false
+	}
+	if visible, _, _ := procIsWindowVisible.Call(hwnd); visible == 0 {
+		return false
+	}
+	if iconic, _, _ := procIsIconic.Call(hwnd); iconic != 0 {
+		return false
+	}
+
+	var pid uint32
+	procGetWindowThreadPID.Call(hwnd, uintptr(unsafe.Pointer(&pid)))
+	if pid == 0 {
+		return false
+	}
+	process, err := windows.OpenProcess(
+		windows.PROCESS_QUERY_LIMITED_INFORMATION, false, pid)
+	if err != nil {
+		return false
+	}
+	defer windows.CloseHandle(process)
+	path := make([]uint16, windows.MAX_PATH)
+	size := uint32(len(path))
+	if windows.QueryFullProcessImageName(process, 0, &path[0], &size) != nil {
+		return false
+	}
+	esperado := filepath.Join(installDir, "tgdesk.exe")
+	return strings.EqualFold(syscall.UTF16ToString(path[:size]), esperado)
+}
+
 // launchStagedUpdaterElevated relança tgdesk-updater.exe elevado para aplicar
 // a atualização staged. Diferente do comportamento antigo (que relançava o
 // próprio tgdesk.exe via os.Executable(), já que este código rodava dentro
@@ -372,17 +435,26 @@ func launchStagedUpdaterElevated(staging, installDir string, parentPID uint32) e
 	if err != nil {
 		return err
 	}
-	// O atualizador nasce oculto. Ele tinha janela própria porque a
-	// atualização era pedida pelo usuário, com a tela aberta na frente: sumir
-	// no meio disso deixava a pessoa no escuro. Agora quem manda atualizar é o
-	// servidor, a qualquer momento, e o TGDesk vive na bandeja — uma janela
-	// aparecendo sozinha sobre o trabalho de alguém é interrupção, não aviso.
+	// A janela do atualizador aparece ou não conforme o que a pessoa está
+	// vendo no momento.
 	//
-	// O que substituiu essa janela é o indicador na barra de título, que mostra
-	// progresso e velocidade sem tomar o foco de ninguém. A janela nativa do
-	// atualizador continua existindo para o caminho de recuperação, quando o
-	// tgdesk.exe não consegue sequer iniciar e não há barra de título alguma.
-	if err := windows.ShellExecute(0, verb, file, params, dir, windows.SW_HIDE); err != nil {
+	// Com a janela do TGDesk aberta na frente, ela aparece: quem está com o
+	// programa à vista tem a barra de título mostrando progresso, mas a
+	// atualização troca binários e reinicia o serviço — sumir a janela no meio
+	// disso deixa a pessoa no escuro justamente enquanto o programa dela some.
+	//
+	// Com o TGDesk minimizado na bandeja, ela não aparece: quem minimizou está
+	// fazendo outra coisa, e uma janela nascendo sozinha por cima do trabalho
+	// alheio é interrupção, não aviso. O indicador da barra de título dá conta
+	// quando a pessoa voltar.
+	//
+	// Antes era sempre oculta, e o caso de a janela estar aberta ficava sem
+	// resposta nenhuma.
+	show := int32(windows.SW_HIDE)
+	if mainWindowIsOnScreen(installDir) {
+		show = int32(windows.SW_SHOWNORMAL)
+	}
+	if err := windows.ShellExecute(0, verb, file, params, dir, show); err != nil {
 		return fmt.Errorf("não foi possível elevar a atualização modular: %w", err)
 	}
 	deadline := time.Now().Add(15 * time.Second)

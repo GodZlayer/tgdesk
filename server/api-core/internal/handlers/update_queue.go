@@ -79,7 +79,21 @@ func (s *Server) enqueueDeviceUpdate(ctx context.Context, deviceID, deviceVersio
 	if target == "" || deviceID == "" {
 		return
 	}
-	if deviceVersion == "" || !versionIsOlder(deviceVersion, target) {
+	// Dispositivo que não informa a versão é dispositivo velho, e entra na fila.
+	//
+	// Antes o silêncio era lido como "não sei, então não mexo", e isso criou um
+	// impasse: o heartbeat só passou a carregar client_version na 1.1.38, e o
+	// agente publicado até a 1.1.52 era anterior a isso. Quem estava em campo
+	// não informava a versão, então nunca era enfileirado, então nunca recebia
+	// o agente que informaria — o caminho que entregaria o conserto era o
+	// próprio caminho quebrado.
+	//
+	// Enfileirar quem não informa custa pouco e resolve: o cliente compara o
+	// manifesto com a versão dele antes de aplicar, e desiste sozinho se já
+	// estiver em dia (stageModularUpdate → updateIsNewer). O risco de mandar
+	// atualizar quem já está atualizado é uma consulta a mais; o de não mandar
+	// é uma frota inteira parada, que foi o que aconteceu.
+	if deviceVersion != "" && !versionIsOlder(deviceVersion, target) {
 		return
 	}
 	// Entradas de versões antigas não interessam mais: o alvo é sempre a
