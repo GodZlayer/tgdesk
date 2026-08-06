@@ -28,10 +28,34 @@ import (
 // continua vindo da credencial que ele apresenta, nunca da rede em que a
 // máquina dele está. É o mesmo princípio do adaptador único.
 
-// technicianSystemNetwork devolve a rede de sistema do papel informado.
-func (s *Server) technicianSystemNetwork(ctx context.Context, role string) (
-	orgID string, netID string, err error,
-) {
+// technicianSystemNetwork devolve a rede onde a máquina do técnico deve morar.
+//
+// Técnico vinculado a uma organização vai para a rede de técnicos DELA — é o
+// que permite ao supervisor saber quem ele vinculou, sem que esses técnicos se
+// enxerguem entre si (a rede é isolada por peer) e sem que estar ali conceda
+// nada: acesso remoto e função de supervisão continuam vindo da credencial.
+//
+// Técnico sem vínculo é independente e vai para a rede de sistema do papel, na
+// TGDevs, como antes.
+func (s *Server) technicianSystemNetwork(
+	ctx context.Context, technicianID, role string,
+) (orgID string, netID string, err error) {
+	var affiliated *string
+	_ = s.Pool.QueryRow(ctx,
+		`SELECT affiliated_organization_id FROM technicians WHERE id=$1`,
+		technicianID).Scan(&affiliated)
+	if affiliated != nil && *affiliated != "" {
+		err = s.Pool.QueryRow(ctx, `
+			SELECT organization_id,id FROM networks
+			WHERE organization_id=$1 AND is_technicians AND status='ativa'`,
+			*affiliated).Scan(&orgID, &netID)
+		if err == nil {
+			return orgID, netID, nil
+		}
+		// Organização sem rede de técnicos ainda: cai para a rede de sistema em
+		// vez de recusar a vinculação. Ficar de fora de qualquer rede é pior
+		// que ficar na rede menos específica.
+	}
 	key := "tgdevs.tecnicos"
 	if role == models.RoleSupervisor || role == models.RoleSuperAdmin {
 		key = "tgdevs.supervisores"
@@ -74,7 +98,7 @@ func (s *Server) TechnicianSelfBindDevice(w http.ResponseWriter, r *http.Request
 		writeErrCode(w, http.StatusForbidden, "dispositivo_suspenso", "dispositivo suspenso")
 		return
 	}
-	orgID, netID, err := s.technicianSystemNetwork(r.Context(), claims.Role)
+	orgID, netID, err := s.technicianSystemNetwork(r.Context(), claims.TechnicianID, claims.Role)
 	if err != nil {
 		writeErrCode(w, http.StatusInternalServerError, "rede_de_sistema_indisponivel",
 			"rede de sistema do papel indisponível")

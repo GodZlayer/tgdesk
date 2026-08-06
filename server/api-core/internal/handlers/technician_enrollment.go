@@ -23,6 +23,11 @@ const (
 
 type createEnrollmentKeyRequest struct {
 	ExpiresInHours int `json:"expires_in_hours"`
+
+	// Chave vinculada: quem a consumir vira funcionário da organização de quem
+	// a emitiu, e não pode ser acrescentado a uma terceira. Falso emite a chave
+	// de sempre, que só inscreve a máquina de um técnico independente.
+	Affiliated bool `json:"affiliated"`
 }
 
 type enrollmentKeyFile struct {
@@ -89,13 +94,39 @@ func (s *Server) CreateTechnicianEnrollmentKey(w http.ResponseWriter, r *http.Re
 	}
 	var keyID string
 	claims := middleware.ClaimsFrom(r.Context())
+
+	// Chave vinculada: o técnico que a consumir vira funcionário da organização
+	// de quem a emitiu.
+	//
+	// O vínculo é da CHAVE, não do pedido de quem instala — é ela que determina
+	// tudo na vinculação, e é por isso que ela tem uso único. O instalador
+	// continua entregando um arquivo e não sabendo o que ele significa.
+	//
+	// A organização é sempre a de quem emite. Deixar o emissor escolher abriria
+	// a porta para vincular técnico à organização de outro, que é exatamente o
+	// que a afiliação existe para impedir.
+	var affiliated *string
+	if req.Affiliated {
+		var orgID string
+		if s.Pool.QueryRow(r.Context(),
+			`SELECT id FROM organizations WHERE owner_technician_id=$1 AND status='ativa'`,
+			claims.TechnicianID).Scan(&orgID) != nil {
+			writeErrCode(w, http.StatusBadRequest, "emissor_sem_organizacao",
+				"chave vinculada exige que quem a emite seja dono de uma organização")
+			return
+		}
+		affiliated = &orgID
+	}
+
 	err = s.Pool.QueryRow(r.Context(), `
 		INSERT INTO technician_enrollment_keys
-		    (technician_id, secret_hash, expires_at, created_by)
-		SELECT id, $2, now() + ($3 * interval '1 hour'), $4
+		    (technician_id, secret_hash, expires_at, created_by,
+		     affiliated_organization_id)
+		SELECT id, $2, now() + ($3 * interval '1 hour'), $4, $5
 		FROM technicians WHERE id=$1 AND status='ativo'
 		RETURNING id`,
 		technicianID, secretDigest(secret), req.ExpiresInHours, claims.TechnicianID,
+		affiliated,
 	).Scan(&keyID)
 	if err != nil {
 		writeErrCode(w, http.StatusNotFound, "tecnico_ativo_encontrado", "técnico ativo não encontrado")
@@ -234,6 +265,27 @@ func (s *Server) RedeemTechnicianEnrollment(w http.ResponseWriter, r *http.Reque
 			return
 		}
 		writeErrCode(w, http.StatusInternalServerError, "falha_vincular_computador", "falha ao vincular computador")
+		return
+	}
+	// A chave decide o vínculo, e decide agora — no consumo.
+	//
+	// Chave com organização vinculada faz o técnico virar funcionário daquela
+	// organização: a máquina dele vai para a rede de técnicos dela, e ele não
+	// pode ser acrescentado a uma terceira. Como o consumo é único, o vínculo é
+	// decidido uma vez só e não há segunda leitura possível.
+	//
+	// Só afilia quem ainda não é de ninguém: um técnico já vinculado que
+	// resgate outra chave não muda de dono em silêncio.
+	if _, err = tx.Exec(r.Context(), `
+		UPDATE technicians t
+		SET affiliated_organization_id = k.affiliated_organization_id
+		FROM technician_enrollment_keys k
+		WHERE k.id=$1 AND t.id=k.technician_id
+		  AND k.affiliated_organization_id IS NOT NULL
+		  AND t.affiliated_organization_id IS NULL`,
+		req.Key.KeyID); err != nil {
+		writeErrCode(w, http.StatusInternalServerError, "falha_vincular_organizacao",
+			"falha ao vincular à organização")
 		return
 	}
 	if _, err = tx.Exec(r.Context(), `
