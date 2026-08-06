@@ -94,6 +94,15 @@ func (s *Server) enqueueDeviceUpdate(ctx context.Context, deviceID, deviceVersio
 	// atualizar quem já está atualizado é uma consulta a mais; o de não mandar
 	// é uma frota inteira parada, que foi o que aconteceu.
 	if deviceVersion != "" && !versionIsOlder(deviceVersion, target) {
+		// Chegou na versão alvo: é aqui que a atualização se conclui de fato.
+		// O dispositivo voltou dizendo a versão nova, e isso é a única prova
+		// de que a troca de arquivos aconteceu — a palavra do agente no
+		// update_result não serve, porque ele responde antes de aplicar.
+		_, _ = s.Pool.Exec(ctx, `
+			UPDATE device_update_queue
+			SET state='concluido', finished_at=now(), error=NULL
+			WHERE device_id=$1 AND version=$2 AND state<>'concluido'`,
+			deviceID, target)
 		return
 	}
 	// Entradas de versões antigas não interessam mais: o alvo é sempre a
@@ -178,9 +187,20 @@ func nullableThrottle(kbps int) any {
 // 'em_andamento'.
 func (s *Server) finishUpdate(ctx context.Context, deviceID string, ok bool, failure string) {
 	if ok {
+		// "OK" do dispositivo NÃO conclui a linha.
+		//
+		// O que o agente responde é o retorno de RunUpdate, que vale 0 para
+		// "já estava atualizado" e 10 para "download começou" — nenhum dos
+		// dois significa "trocou os arquivos e voltou na versão nova". A
+		// aplicação acontece depois, no atualizador elevado, que pode falhar e
+		// reverter sem ninguém avisar o servidor.
+		//
+		// Era assim que a fila mentia: a Dani apareceu 'concluido' na 1.1.55
+		// enquanto rodava 1.1.48. Quem conclui agora é o heartbeat, quando o
+		// dispositivo volta dizendo a versão nova — o único sinal que prova
+		// que a troca aconteceu. Se não voltar, o lease devolve para a fila.
 		_, _ = s.Pool.Exec(ctx, `
-			UPDATE device_update_queue
-			SET state='concluido', finished_at=now(), error=NULL
+			UPDATE device_update_queue SET error=NULL
 			WHERE device_id=$1 AND state='em_andamento'`, deviceID)
 		return
 	}

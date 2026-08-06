@@ -1,5 +1,6 @@
 
 import 'package:flutter/material.dart';
+import 'package:get/get.dart';
 import 'package:window_manager/window_manager.dart';
 import 'package:desktop_multi_window/desktop_multi_window.dart';
 
@@ -68,6 +69,7 @@ class TgdeskWindowScaffold extends StatefulWidget {
     this.deviceName,
     this.onRenameDevice,
     this.updateStatus,
+    this.hideChrome,
   });
 
   /// Conteúdo abaixo da barra de título.
@@ -90,6 +92,14 @@ class TgdeskWindowScaffold extends StatefulWidget {
   /// Atualização em curso, empurrada pelo servidor. Só indicador: não há mais
   /// nada para clicar.
   final TgdeskUpdateStatus? updateStatus;
+
+  /// Some com a barra de título inteira quando responder true.
+  ///
+  /// Existe para a tela cheia do acesso remoto: ali a janela é a máquina
+  /// remota, e qualquer faixa em cima dela empurra a imagem para baixo em vez
+  /// de sobrepor. É avaliada dentro de um Obx, então pode ler estado
+  /// observável e a barra reage sozinha.
+  final bool Function()? hideChrome;
 
   @override
   State<TgdeskWindowScaffold> createState() => _TgdeskWindowScaffoldState();
@@ -274,13 +284,19 @@ class _TgdeskWindowScaffoldState extends State<TgdeskWindowScaffold>
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: Column(
-        children: [
-          _buildTitleBar(context),
-          const Divider(height: 1),
-          Expanded(child: widget.child),
-        ],
-      ),
+      body: Obx(() {
+        // Obx e não um bool cru: hideChrome lê estado observável (a tela cheia
+        // do acesso remoto), e é a leitura aqui dentro que faz a barra
+        // aparecer e sumir sozinha quando ele muda.
+        final semBarra = widget.hideChrome?.call() ?? false;
+        return Column(
+          children: [
+            if (!semBarra) _buildTitleBar(context),
+            if (!semBarra) const Divider(height: 1),
+            Expanded(child: widget.child),
+          ],
+        );
+      }),
     );
   }
 

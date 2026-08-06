@@ -3,6 +3,8 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import '../models/state_model.dart';
+import 'package:get/get.dart';
 import 'api_client.dart';
 import 'branding_window_icon.dart';
 import 'devices_page.dart';
@@ -179,10 +181,31 @@ class _HubHomePageState extends State<HubHomePage> {
               child: Text('v$_version',
                   style: Theme.of(context).textTheme.labelSmall)),
       ],
-      child: AnimatedBuilder(
+      // Em tela cheia o Hub some inteiro: sem barra lateral e sem barra de
+      // título. A tela remota passa a ocupar a janela toda, e o que aparece
+      // por cima dela é só o toolbar flutuante, que sobrepõe em vez de empurrar.
+      //
+      // Era o oposto: a barra do Hub continuava lá em tela cheia, empurrando o
+      // desktop remoto para baixo — a imagem ficava deslocada justamente no
+      // modo que existe para não ter nada em volta.
+      hideChrome: () => stateGlobal.fullscreen.isTrue,
+      // Obx por fora do AnimatedBuilder: um escuta a tela cheia (observável do
+      // core), o outro escuta as abas. Sem o Obx aqui, sair da tela cheia
+      // devolvia a barra de título mas deixava o corpo como estava.
+      child: Obx(() => AnimatedBuilder(
         animation: RemoteSessionsManager.instance,
         builder: (context, _) {
           final sessao = RemoteSessionsManager.instance.active;
+          if (sessao != null && stateGlobal.fullscreen.isTrue) {
+            return TgdeskRemoteSessionPage(
+              key: ValueKey(sessao.deviceId),
+              deviceId: sessao.deviceId,
+              remoteId: sessao.remoteId,
+              hostname: sessao.hostname,
+              credential: sessao.credential,
+              embedded: true,
+            );
+          }
           return Row(
             children: [
               NavigationRail(
@@ -218,7 +241,7 @@ class _HubHomePageState extends State<HubHomePage> {
             ],
           );
         },
-      ),
+      )),
     );
   }
 }
