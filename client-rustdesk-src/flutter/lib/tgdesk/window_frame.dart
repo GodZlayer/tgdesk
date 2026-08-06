@@ -4,6 +4,7 @@ import 'package:window_manager/window_manager.dart';
 import 'package:desktop_multi_window/desktop_multi_window.dart';
 
 import '../main.dart' show kWindowId;
+import 'remote_session_tabs.dart';
 import 'startup_settings.dart';
 import 'theme.dart';
 
@@ -296,6 +297,11 @@ class _TgdeskWindowScaffoldState extends State<TgdeskWindowScaffold>
           children: [
             widget.title ??
                 Image.asset('assets/tgdesk_logo_horizontal.png', height: 22),
+            // As sessões de acesso remoto vivem aqui, como abas de navegador:
+            // a máquina que se está operando é o assunto da janela, não um
+            // item entre os destinos da barra lateral. Sem sessão aberta não
+            // ocupa espaço nenhum.
+            if (_isMainWindow) const RemoteSessionTabs(),
             const Spacer(),
             if (widget.actions != null) ...widget.actions!,
             if (widget.updateStatus?.updating == true)

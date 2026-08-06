@@ -33,20 +33,75 @@ class RemoteSessionsManager extends ChangeNotifier {
 
   final List<RemoteSessionEntry> _entries = [];
   List<RemoteSessionEntry> get entries => List.unmodifiable(_entries);
+
+  /// Mesmo conteúdo de [entries], com o nome que as abas usam.
+  List<RemoteSessionEntry> get sessions => entries;
   bool get hasEntries => _entries.isNotEmpty;
+
+  /// Qual sessão está à frente. -1 quando não há nenhuma.
+  int _activeIndex = -1;
+  int get activeIndex => _activeIndex;
+
+  RemoteSessionEntry? get active =>
+      _activeIndex >= 0 && _activeIndex < _entries.length
+          ? _entries[_activeIndex]
+          : null;
 
   bool isOpen(String deviceId) => _entries.any((e) => e.deviceId == deviceId);
 
+  /// Abre uma sessão e a traz para a frente.
+  ///
+  /// Pedir acesso a uma máquina já aberta não abre uma segunda: foca a que
+  /// existe. Duas sessões para o mesmo computador seriam duas telas mostrando
+  /// a mesma coisa, e fechar uma delas deixaria a dúvida de qual caiu.
   void open(RemoteSessionEntry entry) {
-    if (_entries.any((e) => e.deviceId == entry.deviceId)) return;
+    final existing =
+        _entries.indexWhere((e) => e.deviceId == entry.deviceId);
+    if (existing >= 0) {
+      focus(existing);
+      return;
+    }
     _entries.add(entry);
+    _activeIndex = _entries.length - 1;
+    notifyListeners();
+  }
+
+  void focus(int index) {
+    if (index < 0 || index >= _entries.length || index == _activeIndex) return;
+    _activeIndex = index;
+    notifyListeners();
+  }
+
+  /// Tira todas as abas da frente sem fechar nenhuma. É o que acontece ao
+  /// escolher um destino da barra lateral: a sessão continua viva, apenas
+  /// deixa de ser o que está na tela — como trocar de aba no navegador.
+  void blur() {
+    if (_activeIndex == -1) return;
+    _activeIndex = -1;
     notifyListeners();
   }
 
   void close(String deviceId) {
-    final before = _entries.length;
-    _entries.removeWhere((e) => e.deviceId == deviceId);
-    if (_entries.length != before) notifyListeners();
+    final index = _entries.indexWhere((e) => e.deviceId == deviceId);
+    if (index >= 0) closeAt(index);
+  }
+
+  /// Fecha a aba na posição informada.
+  ///
+  /// A seguinte assume o lugar, como no navegador — e quando a fechada era a
+  /// última, quem assume é a anterior. Deixar o índice apontando para fora da
+  /// lista mostraria tela vazia com abas abertas.
+  void closeAt(int index) {
+    if (index < 0 || index >= _entries.length) return;
+    _entries.removeAt(index);
+    if (_entries.isEmpty) {
+      _activeIndex = -1;
+    } else if (_activeIndex > index) {
+      _activeIndex--;
+    } else if (_activeIndex >= _entries.length) {
+      _activeIndex = _entries.length - 1;
+    }
+    notifyListeners();
   }
 }
 
@@ -57,12 +112,17 @@ class TgdeskRemoteSessionPage extends StatefulWidget {
     required this.remoteId,
     required this.hostname,
     required this.credential,
+    this.embedded = false,
   });
 
   final String deviceId;
   final String remoteId;
   final String hostname;
   final String credential;
+
+  /// Dentro do Hub, onde a barra de título já é do shell e a aba desta sessão
+  /// já está nela. Fora dele a sessão é uma janela por si e monta a própria.
+  final bool embedded;
 
   @override
   State<TgdeskRemoteSessionPage> createState() =>
@@ -335,14 +395,27 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
 
   @override
   Widget build(BuildContext context) {
+    final content = _buildContent();
     return Focus(
       focusNode: _focusNode,
       autofocus: true,
       onKeyEvent: _handleKey,
-      child: TgdeskWindowScaffold(
-        title: Text(widget.hostname,
-            style: const TextStyle(fontWeight: FontWeight.w600)),
-        child: Container(
+      // Embutida no Hub, a sessão não monta barra de título própria: a aba dela
+      // já está na barra compartilhada, e duas barras empilhadas seriam duas
+      // vezes o mesmo. Fora do Hub — janela solta — ela ainda precisa da
+      // própria, senão a janela não teria como ser arrastada nem fechada.
+      child: widget.embedded
+          ? content
+          : TgdeskWindowScaffold(
+              title: Text(widget.hostname,
+                  style: const TextStyle(fontWeight: FontWeight.w600)),
+              child: content,
+            ),
+    );
+  }
+
+  Widget _buildContent() {
+    return Container(
           color: Colors.black,
           child: Stack(
             fit: StackFit.expand,
@@ -403,8 +476,6 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
                 ),
               ),
           ],
-        ),
-        ),
       ),
     );
   }

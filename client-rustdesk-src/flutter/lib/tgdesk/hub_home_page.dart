@@ -14,7 +14,6 @@ import 'agent_deploy.dart';
 import 'branding_page.dart';
 import 'control_channel.dart';
 import 'remote_session_page.dart';
-import 'remote_sessions_pane.dart';
 import 'support_page.dart';
 
 class HubHomePage extends StatefulWidget {
@@ -66,25 +65,13 @@ class _HubHomePageState extends State<HubHomePage> {
     _readBrandingAccess();
     _updateTimer =
         Timer.periodic(const Duration(seconds: 2), (_) => _readUpdateState());
-    RemoteSessionsManager.instance.addListener(_onRemoteSessionsChanged);
   }
 
-  void _onRemoteSessionsChanged() {
-    if (!mounted) return;
-    final target = _remoteSessionsIndex;
-    if (RemoteSessionsManager.instance.hasEntries && _index != target) {
-      setState(() => _index = target);
-    }
-  }
-
-  int get _remoteSessionsIndex {
-    var i = 0;
-    if (AppState.canManageNetworks) i++;
-    i++; // Cliente
-    i++; // Chamados
-    if (AppState.isSuperAdmin) i += 2; // Admin + Técnicos
-    return i;
-  }
+  // O ouvinte que trocava _index para o destino "Acesso remoto" saiu junto com
+  // o destino. A troca de tela agora é do AnimatedBuilder no corpo, que
+  // desenha a sessão à frente quando existe uma — e o índice contado à mão a
+  // partir de quais destinos estavam visíveis, que quebrava a cada destino
+  // novo, deixou de existir.
 
   Future<void> _readBrandingAccess() async {
     if (AppState.isSuperAdmin) return;
@@ -99,7 +86,6 @@ class _HubHomePageState extends State<HubHomePage> {
   @override
   void dispose() {
     _control.removeListener(_onControl);
-    RemoteSessionsManager.instance.removeListener(_onRemoteSessionsChanged);
     _updateTimer?.cancel();
     super.dispose();
   }
@@ -167,9 +153,6 @@ class _HubHomePageState extends State<HubHomePage> {
       if (isSuperAdmin)
         const NavigationRailDestination(
             icon: Icon(Icons.badge), label: Text('Técnicos')),
-      const NavigationRailDestination(
-          icon: Icon(Icons.desktop_windows_outlined),
-          label: Text('Acesso remoto')),
       if (!isSuperAdmin && _brandingEnabled)
         const NavigationRailDestination(
             icon: Icon(Icons.palette_outlined), label: Text('Minha marca')),
@@ -181,7 +164,6 @@ class _HubHomePageState extends State<HubHomePage> {
       const SupportPage(),
       if (isSuperAdmin) const AdminPage(),
       if (isSuperAdmin) const TechniciansPage(),
-      const RemoteSessionsPane(),
       if (!isSuperAdmin && _brandingEnabled) const BrandingPage(),
     ];
 
@@ -197,17 +179,45 @@ class _HubHomePageState extends State<HubHomePage> {
               child: Text('v$_version',
                   style: Theme.of(context).textTheme.labelSmall)),
       ],
-      child: Row(
-        children: [
-          NavigationRail(
-            selectedIndex: _index,
-            onDestinationSelected: (i) => setState(() => _index = i),
-            labelType: NavigationRailLabelType.all,
-            destinations: destinations,
-          ),
-          const VerticalDivider(width: 1),
-          Expanded(child: pages[_index]),
-        ],
+      child: AnimatedBuilder(
+        animation: RemoteSessionsManager.instance,
+        builder: (context, _) {
+          final sessao = RemoteSessionsManager.instance.active;
+          return Row(
+            children: [
+              NavigationRail(
+                // Com uma sessão à frente, nenhum destino está selecionado: o
+                // que a tela mostra é a máquina remota, não uma das telas do
+                // Hub. Marcar um destino ali seria dizer que o usuário está
+                // num lugar em que ele não está.
+                selectedIndex: sessao == null ? _index : null,
+                onDestinationSelected: (i) {
+                  RemoteSessionsManager.instance.blur();
+                  setState(() => _index = i);
+                },
+                labelType: NavigationRailLabelType.all,
+                destinations: destinations,
+              ),
+              const VerticalDivider(width: 1),
+              Expanded(
+                child: sessao == null
+                    ? pages[_index]
+                    // A sessão é mantida viva por chave: trocar de aba não
+                    // pode derrubar a conexão da que sai de cena, e sem chave
+                    // o Flutter reaproveitaria o estado da anterior para a
+                    // seguinte — duas máquinas na mesma tela.
+                    : TgdeskRemoteSessionPage(
+                        key: ValueKey(sessao.deviceId),
+                        deviceId: sessao.deviceId,
+                        remoteId: sessao.remoteId,
+                        hostname: sessao.hostname,
+                        credential: sessao.credential,
+                        embedded: true,
+                      ),
+              ),
+            ],
+          );
+        },
       ),
     );
   }
