@@ -1940,8 +1940,6 @@ class InputModel {
       }
     }
 
-    y -= CanvasModel.topToEdge;
-    x -= CanvasModel.leftToEdge;
     // E o que o Hub ocupa em volta da tela remota, quando ela esta embutida.
     // A posicao do ponteiro aqui e GLOBAL — medida do canto da janela —, entao
     // sem descontar isto o cursor chega na maquina remota deslocado
