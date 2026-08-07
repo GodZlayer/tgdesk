@@ -351,7 +351,8 @@ class _BrandingPageState extends State<BrandingPage> {
             clipBehavior: Clip.antiAlias,
             child: _faviconPreview == null
                 ? Icon(Icons.apps, size: size * .55)
-                : Image.memory(_faviconPreview!, fit: BoxFit.cover),
+                : Image.memory(_faviconPreview!,
+                    fit: BoxFit.cover, gaplessPlayback: true),
           ),
           const SizedBox(height: 5),
           Text(label, style: Theme.of(context).textTheme.labelSmall),
@@ -407,6 +408,10 @@ class _ImageCropDialogState extends State<_ImageCropDialog> {
 
   void _render() {
     final source = widget.source;
+    if (_zoom < 1) {
+      _renderZoomedOut(source);
+      return;
+    }
     final srcRatio = source.width / source.height;
     final targetRatio = _aspectRatio;
 
@@ -428,27 +433,58 @@ class _ImageCropDialogState extends State<_ImageCropDialog> {
     final maxY = source.height - cropHeight;
     final x = ((maxX / 2) * (_horizontal + 1)).round().clamp(0, maxX);
     final y = ((maxY / 2) * (_vertical + 1)).round().clamp(0, maxY);
-    final cropped = img.copyCrop(source,
-        x: x, y: y, width: cropWidth, height: cropHeight);
+    final cropped =
+        img.copyCrop(source, x: x, y: y, width: cropWidth, height: cropHeight);
 
+    _renderOutput(cropped);
+  }
+
+  void _renderZoomedOut(img.Image source) {
+    final outWidth = _isFavicon ? 256 : _logoRenderWidth * _logoPreviewScale;
+    final outHeight = _isFavicon ? 256 : _logoRenderHeight * _logoPreviewScale;
+    final fit = (outWidth / source.width < outHeight / source.height)
+        ? outWidth / source.width
+        : outHeight / source.height;
+    final scaledWidth = (source.width * fit * _zoom).round().clamp(1, outWidth);
+    final scaledHeight =
+        (source.height * fit * _zoom).round().clamp(1, outHeight);
+    final resized = img.copyResize(source,
+        width: scaledWidth,
+        height: scaledHeight,
+        interpolation: img.Interpolation.cubic);
+    final canvas =
+        img.Image(width: outWidth, height: outHeight, numChannels: 4);
+    img.fill(canvas, color: img.ColorRgba8(0, 0, 0, 0));
+    final freeX = outWidth - scaledWidth;
+    final freeY = outHeight - scaledHeight;
+    final dstX = ((freeX / 2) * (_horizontal + 1)).round().clamp(0, freeX);
+    final dstY = ((freeY / 2) * (_vertical + 1)).round().clamp(0, freeY);
+    img.compositeImage(canvas, resized, dstX: dstX, dstY: dstY);
+    _renderOutput(canvas);
+  }
+
+  void _renderOutput(img.Image image) {
     if (_isFavicon) {
-      final full = img.copyResize(cropped,
-          width: 256, height: 256, interpolation: img.Interpolation.cubic);
+      final full = image.width == 256 && image.height == 256
+          ? image
+          : img.copyResize(image,
+              width: 256, height: 256, interpolation: img.Interpolation.cubic);
       final icon = img.Image.from(full);
       for (final size in const [64, 48, 32, 16]) {
         icon.addFrame(img.copyResize(full,
-            width: size,
-            height: size,
-            interpolation: img.Interpolation.cubic));
+            width: size, height: size, interpolation: img.Interpolation.cubic));
       }
-      _preview = img.encodePng(full);
-      _ico = img.encodeIco(icon);
+      _preview = Uint8List.fromList(img.encodePng(full));
+      _ico = Uint8List.fromList(img.encodeIco(icon));
     } else {
-      final full = img.copyResize(cropped,
-          width: _logoRenderWidth * _logoPreviewScale,
-          height: _logoRenderHeight * _logoPreviewScale,
-          interpolation: img.Interpolation.cubic);
-      _preview = img.encodePng(full);
+      final full = image.width == _logoRenderWidth * _logoPreviewScale &&
+              image.height == _logoRenderHeight * _logoPreviewScale
+          ? image
+          : img.copyResize(image,
+              width: _logoRenderWidth * _logoPreviewScale,
+              height: _logoRenderHeight * _logoPreviewScale,
+              interpolation: img.Interpolation.cubic);
+      _preview = Uint8List.fromList(img.encodePng(full));
       _ico = _preview;
     }
   }
@@ -476,11 +512,15 @@ class _ImageCropDialogState extends State<_ImageCropDialog> {
                     borderRadius: BorderRadius.circular(18),
                     child: _isFavicon
                         ? Image.memory(_preview,
-                            width: 256, height: 256, fit: BoxFit.cover)
+                            width: 256,
+                            height: 256,
+                            fit: BoxFit.cover,
+                            gaplessPlayback: true)
                         : Image.memory(_preview,
                             width: _logoRenderWidth * 3.0,
                             height: _logoRenderHeight * 3.0,
-                            fit: BoxFit.cover),
+                            fit: BoxFit.cover,
+                            gaplessPlayback: true),
                   ),
                   const SizedBox(height: 12),
                   Text(
@@ -500,9 +540,9 @@ class _ImageCropDialogState extends State<_ImageCropDialog> {
                     Text('Zoom ${_zoom.toStringAsFixed(1)}×'),
                     Slider(
                       value: _zoom,
-                      min: 1,
+                      min: .25,
                       max: 4,
-                      divisions: 30,
+                      divisions: 75,
                       onChanged: (value) => _change(() => _zoom = value),
                     ),
                     const Text('Posição horizontal'),
@@ -522,7 +562,9 @@ class _ImageCropDialogState extends State<_ImageCropDialog> {
                       onChanged: (value) => _change(() => _vertical = value),
                     ),
                     const Divider(height: 28),
-                    Text(_isFavicon ? 'Preview no Client' : 'Preview real no Client (72×25)'),
+                    Text(_isFavicon
+                        ? 'Preview no Client'
+                        : 'Preview real no Client (72×25)'),
                     const SizedBox(height: 10),
                     Container(
                       padding: const EdgeInsets.all(12),
@@ -532,7 +574,8 @@ class _ImageCropDialogState extends State<_ImageCropDialog> {
                       ),
                       child: _isFavicon
                           ? Row(children: [
-                              Image.memory(_preview, width: 32, height: 32),
+                              Image.memory(_preview,
+                                  width: 32, height: 32, gaplessPlayback: true),
                               const SizedBox(width: 10),
                               Expanded(
                                 child: Text(widget.brandName.trim().isEmpty

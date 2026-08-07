@@ -58,8 +58,7 @@ class TgdeskControlChannel extends ChangeNotifier {
 
   /// Peças e serviços que valem para um tipo de chamado. Item sem tipo vale
   /// para todos — um cabo de rede entra em qualquer OS.
-  List<Map<String, dynamic>> partsFor(String? typeKey) =>
-      parts.where((item) {
+  List<Map<String, dynamic>> partsFor(String? typeKey) => parts.where((item) {
         final key = item['ticket_type_key']?.toString();
         return key == null || key.isEmpty || key == typeKey;
       }).toList(growable: false);
@@ -67,8 +66,15 @@ class TgdeskControlChannel extends ChangeNotifier {
   List<Map<String, dynamic>> servicesFor(String? typeKey, String? osType) =>
       services.where((item) {
         final key = item['ticket_type_key']?.toString();
+        final keys = (item['service_type_keys'] as List? ?? const [])
+            .map((value) => value.toString())
+            .where((value) => value.isNotEmpty)
+            .toSet();
         final kind = item['os_type']?.toString();
-        final tipoServe = key == null || key.isEmpty || key == typeKey;
+        final tipoServe = key == null ||
+            key.isEmpty ||
+            key == typeKey ||
+            (typeKey != null && keys.contains(typeKey));
         final modoServe = kind == null || kind.isEmpty || kind == osType;
         return tipoServe && modoServe;
       }).toList(growable: false);

@@ -55,8 +55,7 @@ class RemoteSessionsManager extends ChangeNotifier {
   /// existe. Duas sessões para o mesmo computador seriam duas telas mostrando
   /// a mesma coisa, e fechar uma delas deixaria a dúvida de qual caiu.
   void open(RemoteSessionEntry entry) {
-    final existing =
-        _entries.indexWhere((e) => e.deviceId == entry.deviceId);
+    final existing = _entries.indexWhere((e) => e.deviceId == entry.deviceId);
     if (existing >= 0) {
       focus(existing);
       return;
@@ -218,6 +217,8 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
     if (RemoteSessionsManager.instance.sessions.isEmpty) {
       stateGlobal.tgdeskEmbedTop = 0;
       stateGlobal.tgdeskEmbedLeft = 0;
+      stateGlobal.tgdeskEmbedRight = 0;
+      stateGlobal.tgdeskEmbedBottom = 0;
     }
     _focusNode.dispose();
     super.dispose();
@@ -456,10 +457,19 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
     final render = _areaKey.currentContext?.findRenderObject();
     if (render is! RenderBox || !render.hasSize) return;
     final origem = render.localToGlobal(Offset.zero);
+    final janela = MediaQuery.sizeOf(context);
+    final direita = (janela.width - origem.dx - render.size.width)
+        .clamp(0, double.infinity);
+    final inferior = (janela.height - origem.dy - render.size.height)
+        .clamp(0, double.infinity);
     if (stateGlobal.tgdeskEmbedTop != origem.dy ||
-        stateGlobal.tgdeskEmbedLeft != origem.dx) {
+        stateGlobal.tgdeskEmbedLeft != origem.dx ||
+        stateGlobal.tgdeskEmbedRight != direita ||
+        stateGlobal.tgdeskEmbedBottom != inferior) {
       stateGlobal.tgdeskEmbedTop = origem.dy;
       stateGlobal.tgdeskEmbedLeft = origem.dx;
+      stateGlobal.tgdeskEmbedRight = direita.toDouble();
+      stateGlobal.tgdeskEmbedBottom = inferior.toDouble();
     }
   }
 
@@ -470,66 +480,66 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _medirRecuo());
     return Container(
       key: _areaKey,
-          color: Colors.black,
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-            DesktopRemoteScreen(params: {
-              'id': widget.remoteId,
-              'windowId': 0,
-              'embedded': true,
-              'forceRelay': true,
-              'password': widget.credential,
-              'tgdeskToolbarMenuBuilder': _tgdeskToolbarMenu,
-            }),
-            if (_drawing)
-              Positioned.fill(
-                child: LayoutBuilder(
-                  builder: (context, constraints) => GestureDetector(
-                    behavior: HitTestBehavior.opaque,
-                    onPanStart: (event) =>
-                        _startStroke(event, constraints.biggest),
-                    onPanUpdate: (event) =>
-                        _continueStroke(event, constraints.biggest),
-                    onPanEnd: (_) => _lastPoint = null,
-                    child: CustomPaint(
-                      painter: _AnnotationPainter(_segments),
-                    ),
+      color: Colors.black,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          DesktopRemoteScreen(params: {
+            'id': widget.remoteId,
+            'windowId': 0,
+            'embedded': true,
+            'forceRelay': true,
+            'password': widget.credential,
+            'tgdeskToolbarMenuBuilder': _tgdeskToolbarMenu,
+          }),
+          if (_drawing)
+            Positioned.fill(
+              child: LayoutBuilder(
+                builder: (context, constraints) => GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onPanStart: (event) =>
+                      _startStroke(event, constraints.biggest),
+                  onPanUpdate: (event) =>
+                      _continueStroke(event, constraints.biggest),
+                  onPanEnd: (_) => _lastPoint = null,
+                  child: CustomPaint(
+                    painter: _AnnotationPainter(_segments),
                   ),
                 ),
               ),
-            if (_inputBlocked)
-              Positioned(
-                right: 14,
-                bottom: 14,
-                child: _StatusChip(
-                  icon: Icons.keyboard_hide_outlined,
-                  text: 'Entrada do cliente bloqueada',
-                  color: const Color(0xffffb020),
-                  onTap: _toggleInputBlock,
-                ),
+            ),
+          if (_inputBlocked)
+            Positioned(
+              right: 14,
+              bottom: 14,
+              child: _StatusChip(
+                icon: Icons.keyboard_hide_outlined,
+                text: 'Entrada do cliente bloqueada',
+                color: const Color(0xffffb020),
+                onTap: _toggleInputBlock,
               ),
-            if (_drawing) _drawingToolbar(),
-            if (_clipboardEnabled || _fileTransferEnabled)
-              Positioned(
-                left: 14,
-                bottom: 14,
-                child: _StatusChip(
-                  icon: _fileTransferEnabled
-                      ? Icons.file_copy_outlined
-                      : Icons.content_paste_go_outlined,
-                  text: _clipboardEnabled && _fileTransferEnabled
-                      ? 'Copiar, colar e arquivos ativos'
-                      : _fileTransferEnabled
-                          ? 'Transferência de arquivos ativa'
-                          : 'Copiar e colar ativo',
-                  color: const Color(0xff35a7ff),
-                  onTap: _fileTransferEnabled
-                      ? _toggleFileTransfer
-                      : _toggleClipboard,
-                ),
+            ),
+          if (_drawing) _drawingToolbar(),
+          if (_clipboardEnabled || _fileTransferEnabled)
+            Positioned(
+              left: 14,
+              bottom: 14,
+              child: _StatusChip(
+                icon: _fileTransferEnabled
+                    ? Icons.file_copy_outlined
+                    : Icons.content_paste_go_outlined,
+                text: _clipboardEnabled && _fileTransferEnabled
+                    ? 'Copiar, colar e arquivos ativos'
+                    : _fileTransferEnabled
+                        ? 'Transferência de arquivos ativa'
+                        : 'Copiar e colar ativo',
+                color: const Color(0xff35a7ff),
+                onTap: _fileTransferEnabled
+                    ? _toggleFileTransfer
+                    : _toggleClipboard,
               ),
-          ],
+            ),
+        ],
       ),
     );
   }

@@ -100,8 +100,8 @@ class _AdminTicketTypesTabState extends State<AdminTicketTypesTab> {
           IconButton(
             tooltip: 'Excluir tipo',
             icon: const Icon(Icons.delete_outline),
-            onPressed: () => _run(() =>
-                TgdeskApi.deleteTicketType(tipo['key'].toString())),
+            onPressed: () =>
+                _run(() => TgdeskApi.deleteTicketType(tipo['key'].toString())),
           ),
         ]),
         children: [
@@ -124,13 +124,12 @@ class _AdminTicketTypesTabState extends State<AdminTicketTypesTab> {
               trailing: Row(mainAxisSize: MainAxisSize.min, children: [
                 IconButton(
                   icon: const Icon(Icons.edit_outlined, size: 18),
-                  onPressed: () =>
-                      _editField(tipo['key'].toString(), campo),
+                  onPressed: () => _editField(tipo['key'].toString(), campo),
                 ),
                 IconButton(
                   icon: const Icon(Icons.delete_outline, size: 18),
-                  onPressed: () => _run(() => TgdeskApi
-                      .deleteTicketTypeField(campo['id'].toString())),
+                  onPressed: () => _run(() =>
+                      TgdeskApi.deleteTicketTypeField(campo['id'].toString())),
                 ),
               ]),
             ),
@@ -225,7 +224,8 @@ class _AdminTicketTypesTabState extends State<AdminTicketTypesTab> {
     final novo = campo == null;
     final fieldKey =
         TextEditingController(text: campo?['field_key']?.toString() ?? '');
-    final label = TextEditingController(text: campo?['label']?.toString() ?? '');
+    final label =
+        TextEditingController(text: campo?['label']?.toString() ?? '');
     final help = TextEditingController(text: campo?['help']?.toString() ?? '');
     final position =
         TextEditingController(text: (campo?['position'] ?? 100).toString());
@@ -276,8 +276,7 @@ class _AdminTicketTypesTabState extends State<AdminTicketTypesTab> {
                     DropdownMenuItem(value: 'bool', child: Text('Sim/Não')),
                     DropdownMenuItem(value: 'choice', child: Text('Escolha')),
                     DropdownMenuItem(value: 'date', child: Text('Data')),
-                    DropdownMenuItem(
-                        value: 'attachment', child: Text('Anexo')),
+                    DropdownMenuItem(value: 'attachment', child: Text('Anexo')),
                   ],
                   onChanged: (value) =>
                       setDialogState(() => kind = value ?? 'text'),
@@ -311,8 +310,8 @@ class _AdminTicketTypesTabState extends State<AdminTicketTypesTab> {
                 ),
                 TextField(
                     controller: dependsValue,
-                    decoration:
-                        const InputDecoration(labelText: 'estiver com o valor')),
+                    decoration: const InputDecoration(
+                        labelText: 'estiver com o valor')),
                 SwitchListTile(
                   contentPadding: EdgeInsets.zero,
                   title: const Text('Obrigatório'),
@@ -364,18 +363,17 @@ class _AdminTicketTypesTabState extends State<AdminTicketTypesTab> {
   }
 
   List<Map<String, String>> _parseOptions(String raw) => raw
-      .split('\n')
-      .map((line) => line.trim())
-      .where((line) => line.isNotEmpty)
-      .map((line) {
+          .split('\n')
+          .map((line) => line.trim())
+          .where((line) => line.isNotEmpty)
+          .map((line) {
         final parts = line.split('|');
         final value = parts.first.trim();
         return {
           'value': value,
           'label': parts.length > 1 ? parts[1].trim() : value,
         };
-      })
-      .toList(growable: false);
+      }).toList(growable: false);
 }
 
 // ---------------------------------------------------------------------------
@@ -395,6 +393,7 @@ class AdminPricingTab extends StatefulWidget {
 
 class _AdminPricingTabState extends State<AdminPricingTab> {
   final _channel = TgdeskControlChannel.instance;
+  List<dynamic> _technicians = const [];
 
   static const _kinds = {
     'share': 'Percentual de uma classe',
@@ -404,17 +403,23 @@ class _AdminPricingTabState extends State<AdminPricingTab> {
   };
 
   static const _roles = {
-    'super_admin': 'Admin',
+    'technician': 'T?cnico',
     'supervisor': 'Supervisor',
-    'freelancer': 'Técnico',
-    'cliente': 'Cliente',
-    'cliente_avulso': 'Cliente avulso',
+    'tgdesk': 'TGDesk',
+    'referrer_supervisor': 'Supervisor indicador',
   };
-
   @override
   void initState() {
     super.initState();
     _channel.addListener(_onChannel);
+    _loadTechnicians();
+  }
+
+  Future<void> _loadTechnicians() async {
+    try {
+      final technicians = await TgdeskApi.technicians();
+      if (mounted) setState(() => _technicians = technicians);
+    } catch (_) {}
   }
 
   @override
@@ -448,17 +453,23 @@ class _AdminPricingTabState extends State<AdminPricingTab> {
         icon: const Icon(Icons.add),
         label: const Text('Regra'),
       ),
-      body: rules.isEmpty
-          ? Center(
-              child: Text(_channel.connected
-                  ? 'Nenhuma regra cadastrada — vale o padrão do sistema.'
-                  : 'Reconectando ao servidor...'))
-          : ListView.separated(
+      body: ListView(
+        padding: const EdgeInsets.all(TgdeskSpacing.md),
+        children: [
+          const _PaymentRulesCard(),
+          const SizedBox(height: TgdeskSpacing.sm),
+          if (rules.isEmpty)
+            Padding(
               padding: const EdgeInsets.all(TgdeskSpacing.md),
-              itemCount: rules.length,
-              separatorBuilder: (_, __) => const SizedBox(height: 4),
-              itemBuilder: (_, index) => _ruleCard(rules[index]),
-            ),
+              child: Text(_channel.connected
+                  ? 'Nenhuma regra cadastrada ? vale o padr?o do sistema.'
+                  : 'Reconectando ao servidor...'),
+            )
+          else
+            ...rules.map(_ruleCard),
+          const SizedBox(height: 80),
+        ],
+      ),
     );
   }
 
@@ -556,14 +567,17 @@ class _AdminPricingTabState extends State<AdminPricingTab> {
     var role = rule?['role']?.toString();
     String? typeKey = rule?['ticket_type_key']?.toString();
     String? regionId = rule?['region_id']?.toString();
+    String? organizationId = rule?['organization_id']?.toString();
+    String? networkId = rule?['network_id']?.toString();
+    String? subnetworkId = rule?['subnetwork_id']?.toString();
+    String? technicianId = rule?['technician_id']?.toString();
     // 'null' = os dois; true = só avulso; false = só empresarial.
     bool? standalone = rule?['standalone'] as bool?;
     var ativo = rule?['active'] != false;
 
     final percent =
         TextEditingController(text: rule?['percent']?.toString() ?? '');
-    final amount = TextEditingController(
-        text: _reais(rule?['amount_cents']));
+    final amount = TextEditingController(text: _reais(rule?['amount_cents']));
     final minimo = TextEditingController(text: _reais(rule?['min_cents']));
     final maximo = TextEditingController(text: _reais(rule?['max_cents']));
     final note = TextEditingController(text: rule?['note']?.toString() ?? '');
@@ -678,9 +692,59 @@ class _AdminPricingTabState extends State<AdminPricingTab> {
                   ],
                   onChanged: (value) => setDialogState(() => regionId = value),
                 ),
-                // Organização, rede, subrede e técnico ficam de fora deste
-                // diálogo por enquanto: escolhê-los pede um seletor com busca,
-                // e o esquema já aceita os quatro — é tela, não modelo.
+                DropdownButtonFormField<String?>(
+                  value: organizationId,
+                  decoration: const InputDecoration(
+                      labelText: 'Organiza??o (opcional)'),
+                  items: [
+                    const DropdownMenuItem(value: null, child: Text('Todas')),
+                    ..._channel.organizations.map((org) => DropdownMenuItem(
+                        value: org['id']?.toString(),
+                        child: Text(org['name']?.toString() ?? ''))),
+                  ],
+                  onChanged: (value) =>
+                      setDialogState(() => organizationId = value),
+                ),
+                DropdownButtonFormField<String?>(
+                  value: networkId,
+                  decoration:
+                      const InputDecoration(labelText: 'Rede (opcional)'),
+                  items: [
+                    const DropdownMenuItem(value: null, child: Text('Todas')),
+                    ..._channel.networks.map((net) => DropdownMenuItem(
+                        value: net['id']?.toString(),
+                        child: Text(net['name']?.toString() ?? ''))),
+                  ],
+                  onChanged: (value) => setDialogState(() => networkId = value),
+                ),
+                DropdownButtonFormField<String?>(
+                  value: subnetworkId,
+                  decoration:
+                      const InputDecoration(labelText: 'Subrede (opcional)'),
+                  items: [
+                    const DropdownMenuItem(value: null, child: Text('Todas')),
+                    ..._channel.subnetworks.map((sub) => DropdownMenuItem(
+                        value: sub['id']?.toString(),
+                        child: Text(sub['name']?.toString() ?? ''))),
+                  ],
+                  onChanged: (value) =>
+                      setDialogState(() => subnetworkId = value),
+                ),
+                DropdownButtonFormField<String?>(
+                  value: technicianId,
+                  decoration:
+                      const InputDecoration(labelText: 'T?cnico (opcional)'),
+                  items: [
+                    const DropdownMenuItem(value: null, child: Text('Todos')),
+                    ..._technicians.map((tech) => DropdownMenuItem(
+                        value: tech['id']?.toString(),
+                        child: Text(tech['name']?.toString() ??
+                            tech['username']?.toString() ??
+                            ''))),
+                  ],
+                  onChanged: (value) =>
+                      setDialogState(() => technicianId = value),
+                ),
                 const Divider(height: 24),
                 TextField(
                   controller: from,
@@ -721,6 +785,10 @@ class _AdminPricingTabState extends State<AdminPricingTab> {
                       'role': kind == 'share' ? role : null,
                       'ticket_type_key': typeKey,
                       'region_id': regionId,
+                      'organization_id': organizationId,
+                      'network_id': networkId,
+                      'subnetwork_id': subnetworkId,
+                      'technician_id': technicianId,
                       'standalone': standalone,
                       'percent': double.tryParse(percent.text.trim()),
                       'amount_cents': _cents(amount.text),
@@ -755,5 +823,149 @@ class _AdminPricingTabState extends State<AdminPricingTab> {
   /// "AAAA-MM-DD" deixaria o fuso a cargo de quem lê.
   String? _date(String raw) {
     return DateTime.tryParse(raw.trim())?.toUtc().toIso8601String();
+  }
+}
+
+class _PaymentRulesCard extends StatefulWidget {
+  const _PaymentRulesCard();
+
+  @override
+  State<_PaymentRulesCard> createState() => _PaymentRulesCardState();
+}
+
+class _PaymentRulesCardState extends State<_PaymentRulesCard> {
+  Map<String, dynamic>? _rules;
+  bool _loading = true;
+  String? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    setState(() => _loading = true);
+    try {
+      final rules = await TgdeskApi.paymentRules();
+      if (!mounted) return;
+      setState(() {
+        _rules = rules;
+        _error = null;
+      });
+    } catch (e) {
+      if (mounted) setState(() => _error = '$e');
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _edit() async {
+    final upfront = TextEditingController(
+        text: (_rules?['upfront_percent'] ?? 100).toString());
+    final margin = TextEditingController(
+        text: (_rules?['service_minimum_margin_percent'] ?? 0).toString());
+    final note = TextEditingController(text: _rules?['note']?.toString() ?? '');
+    var basis =
+        _rules?['upfront_basis']?.toString() ?? 'services_parts_consumables';
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setLocal) => AlertDialog(
+          title: const Text('Pagamento inicial e mínimos'),
+          content: SizedBox(
+            width: 460,
+            child: Column(mainAxisSize: MainAxisSize.min, children: [
+              TextField(
+                controller: upfront,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Pagamento inicial do cliente (%)',
+                  helperText:
+                      'Aplicado no servidor sobre serviços + peças + consumíveis.',
+                ),
+              ),
+              DropdownButtonFormField<String>(
+                value: basis,
+                decoration:
+                    const InputDecoration(labelText: 'Base do pagamento'),
+                items: const [
+                  DropdownMenuItem(
+                    value: 'services_parts_consumables',
+                    child: Text('Serviços + peças + consumíveis'),
+                  ),
+                  DropdownMenuItem(
+                    value: 'services_only',
+                    child: Text('Somente serviços'),
+                  ),
+                ],
+                onChanged: (value) => setLocal(() => basis = value ?? basis),
+              ),
+              TextField(
+                controller: margin,
+                keyboardType: TextInputType.number,
+                decoration: const InputDecoration(
+                  labelText: 'Ganho embutido nos mínimos de serviço (%)',
+                ),
+              ),
+              TextField(
+                controller: note,
+                maxLines: 2,
+                decoration: const InputDecoration(labelText: 'Observação'),
+              ),
+            ]),
+          ),
+          actions: [
+            TextButton(
+                onPressed: () => Navigator.pop(ctx, false),
+                child: const Text('Cancelar')),
+            FilledButton(
+                onPressed: () => Navigator.pop(ctx, true),
+                child: const Text('Salvar')),
+          ],
+        ),
+      ),
+    );
+    if (ok != true) return;
+    await TgdeskApi.savePaymentRules({
+      'upfront_percent':
+          double.tryParse(upfront.text.replaceAll(',', '.')) ?? 100,
+      'upfront_basis': basis,
+      'service_minimum_margin_percent':
+          double.tryParse(margin.text.replaceAll(',', '.')) ?? 0,
+      'note': note.text.trim(),
+    });
+    await _load();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const Card(
+          child: ListTile(
+              leading: CircularProgressIndicator(),
+              title: Text('Pagamento inicial')));
+    }
+    if (_error != null) {
+      return Card(child: ListTile(title: Text('Erro: $_error')));
+    }
+    return Card(
+      child: ListTile(
+        leading: const Icon(Icons.payments_outlined),
+        title: const Text('Pagamento inicial e lógica dos mínimos'),
+        subtitle: Text([
+          '${_rules?['upfront_percent'] ?? 100}% de entrada',
+          _rules?['upfront_basis'] == 'services_only'
+              ? 'base: serviços'
+              : 'base: serviços + peças + consumíveis',
+          'margem mínima de serviço: ${_rules?['service_minimum_margin_percent'] ?? 0}%',
+        ].join(' · ')),
+        trailing: FilledButton.icon(
+          onPressed: _edit,
+          icon: const Icon(Icons.edit_outlined),
+          label: const Text('Editar'),
+        ),
+      ),
+    );
   }
 }

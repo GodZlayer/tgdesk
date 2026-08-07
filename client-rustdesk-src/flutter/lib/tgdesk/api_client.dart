@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 /// Endereço do api-core. Override em build time com
 /// --dart-define=TGDESK_SERVER=http://host:porta
@@ -305,8 +306,7 @@ class TgdeskApi {
     return res as Map<String, dynamic>;
   }
 
-  static Future<Map<String, dynamic>> selfBindDevice(
-      String pairingCode) async {
+  static Future<Map<String, dynamic>> selfBindDevice(String pairingCode) async {
     final res = await _send('POST', '/api/v1/pairing/self-bind',
         body: {'pairing_code': pairingCode});
     return res as Map<String, dynamic>;
@@ -329,8 +329,8 @@ class TgdeskApi {
   static Future<Map<String, dynamic>> redeemSupervisorInvite(
           String code) async =>
       Map<String, dynamic>.from(await _send(
-              'POST', '/api/v1/organizations/supervisor-invite/redeem',
-              body: {'code': code}) as Map);
+          'POST', '/api/v1/organizations/supervisor-invite/redeem',
+          body: {'code': code}) as Map);
 
   static Future<List<dynamic>> organizationSupervisors(
           String organizationId) async =>
@@ -502,6 +502,57 @@ class TgdeskApi {
   static Future<List<dynamic>> auditLog() async =>
       await _send('GET', '/api/v1/admin/audit') as List<dynamic>;
 
+  static Future<Map<String, dynamic>> linkedMap() async =>
+      Map<String, dynamic>.from(
+          await _send('GET', '/api/v1/admin/linked-map') as Map);
+
+  static Future<List<dynamic>> slideshowTemplates() async =>
+      await _send('GET', '/api/v1/admin/slideshow/templates') as List<dynamic>;
+
+  static String slideshowExportUrl(
+      {String template = 'investor', int days = 30}) {
+    final base = Uri.parse(AppState.serverUrl);
+    return base.replace(
+      path: '/api/v1/admin/slideshow/export.pdf',
+      queryParameters: {'template': template, 'days': '$days'},
+    ).toString();
+  }
+
+  static Future<Uint8List> downloadSlideshowPdf(
+      {String template = 'investor', int days = 30}) async {
+    final client = HttpClient();
+    try {
+      final req = await client.getUrl(
+          Uri.parse(slideshowExportUrl(template: template, days: days)));
+      final headers = await _headers();
+      headers.forEach((key, value) => req.headers.set(key, value));
+      final resp = await req.close();
+      final bytes = await resp
+          .fold<List<int>>(<int>[], (buffer, chunk) => buffer..addAll(chunk));
+      if (resp.statusCode < 200 || resp.statusCode >= 300) {
+        throw ApiException(resp.statusCode, utf8.decode(bytes));
+      }
+      return Uint8List.fromList(bytes);
+    } finally {
+      client.close(force: true);
+    }
+  }
+
+  static Future<Map<String, dynamic>> auditLiveReport({int days = 30}) async =>
+      Map<String, dynamic>.from(
+          await _send('GET', '/api/v1/admin/audit/live-report?days=$days')
+              as Map);
+
+  static Future<List<dynamic>> auditDomainEvents(String domain,
+          {int days = 30, int limit = 200}) async =>
+      await _send('GET',
+              '/api/v1/admin/audit/domains/$domain/events?days=$days&limit=$limit')
+          as List<dynamic>;
+
+  static Future<Map<String, dynamic>> auditEventDetail(String id) async =>
+      Map<String, dynamic>.from(
+          await _send('GET', '/api/v1/admin/audit/events/$id') as Map);
+
   static Future<Map<String, dynamic>> deviceHealth(String deviceId) async =>
       await _send('GET', '/api/v1/devices/$deviceId/health')
           as Map<String, dynamic>;
@@ -568,6 +619,60 @@ class TgdeskApi {
   static Future<void> deletePricingRule(String id) async =>
       await _send('DELETE', '/api/v1/admin/pricing-rules/$id');
 
+  static Future<Map<String, dynamic>> adminConfigDescriptors() async =>
+      Map<String, dynamic>.from(
+          await _send('GET', '/api/v1/admin/config-descriptors') as Map);
+
+  static Future<Map<String, dynamic>> quotas() async =>
+      Map<String, dynamic>.from(
+          await _send('GET', '/api/v1/admin/quotas') as Map);
+
+  static Future<void> saveQuota(Map<String, dynamic> quota) async =>
+      await _send('POST', '/api/v1/admin/quotas', body: quota);
+
+  static Future<void> saveProductDefaults(int maxAffiliatedSupervisors) async =>
+      await _send('POST', '/api/v1/admin/product-defaults',
+          body: {'max_affiliated_supervisors': maxAffiliatedSupervisors});
+
+  static Future<Map<String, dynamic>> paymentRules() async =>
+      Map<String, dynamic>.from(
+          await _send('GET', '/api/v1/admin/payment-rules') as Map);
+
+  static Future<void> savePaymentRules(Map<String, dynamic> rules) async =>
+      await _send('POST', '/api/v1/admin/payment-rules', body: rules);
+
+  static Future<List<dynamic>> brazilMunicipalities({
+    String query = '',
+    String uf = '',
+    int limit = 120,
+  }) async {
+    final params = <String>[
+      if (query.trim().isNotEmpty)
+        'q=${Uri.encodeQueryComponent(query.trim())}',
+      if (uf.trim().isNotEmpty) 'uf=${Uri.encodeQueryComponent(uf.trim())}',
+      'limit=$limit',
+    ].join('&');
+    return await _send('GET', '/api/v1/admin/territory/municipalities?$params')
+        as List<dynamic>;
+  }
+
+  static Future<List<dynamic>> regionMunicipalities(String regionId) async =>
+      await _send('GET', '/api/v1/admin/regions/$regionId/municipalities')
+          as List<dynamic>;
+
+  static Future<void> addRegionMunicipality(
+          String regionId, int municipalityId, String relationKind) async =>
+      await _send('POST', '/api/v1/admin/regions/$regionId/municipalities',
+          body: {
+            'municipality_id': municipalityId,
+            'relation_kind': relationKind,
+          });
+
+  static Future<void> deleteRegionMunicipality(
+          String regionId, int municipalityId, String relationKind) async =>
+      await _send('DELETE',
+          '/api/v1/admin/regions/$regionId/municipalities?municipality_id=$municipalityId&relation_kind=${Uri.encodeQueryComponent(relationKind)}');
+
   // Localidade. As regiões chegam pelo canal; estas rotas são o cadastro.
   static Future<List<dynamic>> regions() async =>
       await _send('GET', '/api/v1/support/regions') as List<dynamic>;
@@ -611,8 +716,9 @@ class TgdeskApi {
           await _send('GET', '/api/v1/support/tickets/$ticketId/quote') as Map);
 
   static Future<Map<String, dynamic>> closeOsQuote(String ticketId) async =>
-      Map<String, dynamic>.from(await _send(
-          'POST', '/api/v1/support/tickets/$ticketId/quote/close') as Map);
+      Map<String, dynamic>.from(
+          await _send('POST', '/api/v1/support/tickets/$ticketId/quote/close')
+              as Map);
 
   static Future<void> addOsItem(
           String ticketId, Map<String, dynamic> item) async =>
@@ -674,8 +780,7 @@ class TgdeskApi {
               'scheduled_at': scheduledAt.toUtc().toIso8601String(),
             if (scheduledLocation != null)
               'scheduled_location': scheduledLocation,
-            if (osTypeKey != null)
-              'os_type_key': osTypeKey,
+            if (osTypeKey != null) 'os_type_key': osTypeKey,
             if (osStructuredData != null)
               'os_structured_data': osStructuredData,
           });

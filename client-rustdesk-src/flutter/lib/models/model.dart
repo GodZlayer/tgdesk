@@ -2308,11 +2308,13 @@ class CanvasModel with ChangeNotifier {
     double w = size.width -
         leftToEdge -
         rightToEdge -
-        stateGlobal.tgdeskEmbedLeft;
+        stateGlobal.tgdeskEmbedLeft -
+        stateGlobal.tgdeskEmbedRight;
     double h = size.height -
         topToEdge -
         bottomToEdge -
-        stateGlobal.tgdeskEmbedTop;
+        stateGlobal.tgdeskEmbedTop -
+        stateGlobal.tgdeskEmbedBottom;
     if (isMobile) {
       // Account for horizontal safe area insets on both orientations.
       w = w - mediaData.padding.left - mediaData.padding.right;

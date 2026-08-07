@@ -24,30 +24,33 @@ import (
 // novo são linha de tabela, não release.
 
 type catalogPart struct {
-	ID            string  `json:"id"`
-	SKU           string  `json:"sku"`
-	Label         string  `json:"label"`
-	Description   string  `json:"description"`
-	Unit          string  `json:"unit"`
-	CostCents     int64   `json:"cost_cents"`
-	PriceCents    int64   `json:"price_cents"`
-	TicketTypeKey *string `json:"ticket_type_key"`
-	Active        bool    `json:"active"`
-	Position      int     `json:"position"`
+	ID                   string  `json:"id"`
+	SKU                  string  `json:"sku"`
+	Label                string  `json:"label"`
+	Description          string  `json:"description"`
+	Unit                 string  `json:"unit"`
+	ItemKind             string  `json:"item_kind"`
+	RequiresInvoicePhoto bool    `json:"requires_invoice_photo"`
+	CostCents            int64   `json:"cost_cents"`
+	PriceCents           int64   `json:"price_cents"`
+	TicketTypeKey        *string `json:"ticket_type_key"`
+	Active               bool    `json:"active"`
+	Position             int     `json:"position"`
 }
 
 type catalogService struct {
-	ID            string  `json:"id"`
-	Key           string  `json:"key"`
-	Label         string  `json:"label"`
-	Description   string  `json:"description"`
-	PriceCents    int64   `json:"price_cents"`
-	DurationMin   int     `json:"duration_min"`
-	TicketTypeKey *string `json:"ticket_type_key"`
-	OsType        *string `json:"os_type"`
-	ManualURL     string  `json:"manual_url"`
-	Active        bool    `json:"active"`
-	Position      int     `json:"position"`
+	ID              string   `json:"id"`
+	Key             string   `json:"key"`
+	Label           string   `json:"label"`
+	Description     string   `json:"description"`
+	PriceCents      int64    `json:"price_cents"`
+	DurationMin     int      `json:"duration_min"`
+	TicketTypeKey   *string  `json:"ticket_type_key"`
+	ServiceTypeKeys []string `json:"service_type_keys"`
+	OsType          *string  `json:"os_type"`
+	ManualURL       string   `json:"manual_url"`
+	Active          bool     `json:"active"`
+	Position        int      `json:"position"`
 }
 
 // osCatalog lê peças e serviços de uma vez. Como o catálogo de tipos, ele é
@@ -62,17 +65,22 @@ func (s *Server) osCatalog(ctx context.Context, includeInactive bool) map[string
 	if includeInactive {
 		filter = ""
 	}
+	serviceFilter := "WHERE service_catalog.active"
+	if includeInactive {
+		serviceFilter = ""
+	}
 
 	if rows, err := s.Pool.Query(ctx, `
-		SELECT id,sku,label,description,unit,cost_cents,price_cents,
+		SELECT id,sku,label,description,unit,item_kind,requires_invoice_photo,
+		       cost_cents,price_cents,
 		       ticket_type_key,active,position
 		FROM part_catalog `+filter+`
 		ORDER BY position,label`); err == nil {
 		for rows.Next() {
 			var p catalogPart
 			if rows.Scan(&p.ID, &p.SKU, &p.Label, &p.Description, &p.Unit,
-				&p.CostCents, &p.PriceCents, &p.TicketTypeKey, &p.Active,
-				&p.Position) == nil {
+				&p.ItemKind, &p.RequiresInvoicePhoto, &p.CostCents,
+				&p.PriceCents, &p.TicketTypeKey, &p.Active, &p.Position) == nil {
 				parts = append(parts, p)
 			}
 		}
@@ -81,14 +89,25 @@ func (s *Server) osCatalog(ctx context.Context, includeInactive bool) map[string
 
 	if rows, err := s.Pool.Query(ctx, `
 		SELECT id,key,label,description,price_cents,duration_min,
-		       ticket_type_key,os_type,manual_url,active,position
-		FROM service_catalog `+filter+`
+		       ticket_type_key,
+		       COALESCE(array_agg(DISTINCT option.type_key)
+		         FILTER (WHERE option.type_key IS NOT NULL), '{}'::text[]),
+		       os_type,manual_url,active,position
+		FROM service_catalog
+		LEFT JOIN ticket_type_service_options option
+		  ON option.service_key=service_catalog.key AND option.active
+		`+serviceFilter+`
+		GROUP BY id,key,label,description,price_cents,duration_min,
+		         ticket_type_key,os_type,manual_url,active,position
 		ORDER BY position,label`); err == nil {
 		for rows.Next() {
 			var c catalogService
 			if rows.Scan(&c.ID, &c.Key, &c.Label, &c.Description, &c.PriceCents,
-				&c.DurationMin, &c.TicketTypeKey, &c.OsType, &c.ManualURL,
+				&c.DurationMin, &c.TicketTypeKey, &c.ServiceTypeKeys, &c.OsType, &c.ManualURL,
 				&c.Active, &c.Position) == nil {
+				if c.TicketTypeKey != nil && !containsString(c.ServiceTypeKeys, *c.TicketTypeKey) {
+					c.ServiceTypeKeys = append([]string{*c.TicketTypeKey}, c.ServiceTypeKeys...)
+				}
 				services = append(services, c)
 			}
 		}
@@ -96,6 +115,15 @@ func (s *Server) osCatalog(ctx context.Context, includeInactive bool) map[string
 	}
 
 	return map[string]any{"parts": parts, "services": services}
+}
+
+func containsString(items []string, value string) bool {
+	for _, item := range items {
+		if item == value {
+			return true
+		}
+	}
+	return false
 }
 
 // OsCatalog entrega o catálogo por requisição, para quem chega antes do
@@ -116,16 +144,18 @@ func (s *Server) publishOsCatalog(ctx context.Context) {
 }
 
 type partRequest struct {
-	ID            string  `json:"id"`
-	SKU           string  `json:"sku"`
-	Label         string  `json:"label"`
-	Description   string  `json:"description"`
-	Unit          string  `json:"unit"`
-	CostCents     int64   `json:"cost_cents"`
-	PriceCents    int64   `json:"price_cents"`
-	TicketTypeKey *string `json:"ticket_type_key"`
-	Active        *bool   `json:"active"`
-	Position      *int    `json:"position"`
+	ID                   string  `json:"id"`
+	SKU                  string  `json:"sku"`
+	Label                string  `json:"label"`
+	Description          string  `json:"description"`
+	Unit                 string  `json:"unit"`
+	ItemKind             string  `json:"item_kind"`
+	RequiresInvoicePhoto *bool   `json:"requires_invoice_photo"`
+	CostCents            int64   `json:"cost_cents"`
+	PriceCents           int64   `json:"price_cents"`
+	TicketTypeKey        *string `json:"ticket_type_key"`
+	Active               *bool   `json:"active"`
+	Position             *int    `json:"position"`
 }
 
 // SavePart cria ou atualiza uma peça. O SKU é a identidade de negócio e por
@@ -146,26 +176,40 @@ func (s *Server) SavePart(w http.ResponseWriter, r *http.Request) {
 	if req.Unit == "" {
 		req.Unit = "un"
 	}
+	if req.ItemKind == "" {
+		req.ItemKind = "part"
+	}
+	if req.ItemKind != "part" && req.ItemKind != "consumable" {
+		writeErrCode(w, 400, "tipo_item_invalido", "o item deve ser peça ou consumível")
+		return
+	}
 	active, position := true, 100
+	requiresInvoice := true
 	if req.Active != nil {
 		active = *req.Active
 	}
 	if req.Position != nil {
 		position = *req.Position
 	}
+	if req.RequiresInvoicePhoto != nil {
+		requiresInvoice = *req.RequiresInvoicePhoto
+	}
 	var id string
 	err := s.Pool.QueryRow(r.Context(), `
 		INSERT INTO part_catalog(sku,label,description,unit,cost_cents,
-		                         price_cents,ticket_type_key,active,position)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
+		                         price_cents,ticket_type_key,active,position,
+		                         item_kind,requires_invoice_photo)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
 		ON CONFLICT(sku) DO UPDATE SET label=excluded.label,
 			description=excluded.description,unit=excluded.unit,
 			cost_cents=excluded.cost_cents,price_cents=excluded.price_cents,
 			ticket_type_key=excluded.ticket_type_key,active=excluded.active,
-			position=excluded.position,updated_at=now()
+			position=excluded.position,item_kind=excluded.item_kind,
+			requires_invoice_photo=excluded.requires_invoice_photo,updated_at=now()
 		RETURNING id`,
 		req.SKU, req.Label, req.Description, req.Unit, req.CostCents,
-		req.PriceCents, req.TicketTypeKey, active, position).Scan(&id)
+		req.PriceCents, req.TicketTypeKey, active, position, req.ItemKind,
+		requiresInvoice).Scan(&id)
 	if err != nil {
 		writeErrCode(w, 400, "falha_salvar_peca", "falha ao salvar a peça")
 		return
@@ -263,8 +307,18 @@ func (s *Server) SaveService(w http.ResponseWriter, r *http.Request) {
 		req.Key, req.Label, req.Description, req.PriceCents, duration,
 		req.TicketTypeKey, req.OsType, req.ManualURL, active, position).Scan(&id)
 	if err != nil {
-		writeErrCode(w, 400, "falha_salvar_servico", "falha ao salvar o serviço")
+		writeErrCode(w, 400, "falha_salvar_servico", "falha ao salvar o servi?o")
 		return
+	}
+	if req.TicketTypeKey != nil && strings.TrimSpace(*req.TicketTypeKey) != "" {
+		_, _ = s.Pool.Exec(r.Context(), `
+			INSERT INTO ticket_type_service_options
+				(type_key,service_key,relation_kind,default_pick,position,active)
+			VALUES($1,$2,'possible',true,$3,true)
+			ON CONFLICT(type_key,service_key) DO UPDATE SET
+				default_pick=true, position=excluded.position,
+				active=true, updated_at=now()`,
+			*req.TicketTypeKey, req.Key, position)
 	}
 	s.publishOsCatalog(r.Context())
 	writeJSON(w, 200, map[string]any{"id": id, "key": req.Key})
@@ -422,16 +476,19 @@ func ajusteDeDemanda(esperando, tecnicos, clientes int64) int64 {
 // osQuote é o orçamento fechado: o que cada linha somou, o que a demanda
 // ajustou, o que o admin reteve e o que sobra para cada classe.
 type osQuote struct {
-	SubtotalCents   int64            `json:"subtotal_cents"`
-	CostCents       int64            `json:"cost_cents"`
-	DemandMultiple  int64            `json:"demand_multiple"`
-	AdjustedCents   int64            `json:"adjusted_cents"`
-	PromoCents      int64            `json:"promo_cents"`
-	FeeCents        int64            `json:"fee_cents"`
-	TotalCents      int64            `json:"total_cents"`
-	DistributedCent map[string]int64 `json:"distributed_cents"`
-	ResolvedAt      time.Time        `json:"resolved_at"`
-	Pricing         ResolvedPricing  `json:"pricing"`
+	SubtotalCents    int64            `json:"subtotal_cents"`
+	ServiceCents     int64            `json:"service_cents"`
+	PassThroughCents int64            `json:"pass_through_cents"`
+	CostCents        int64            `json:"cost_cents"`
+	DemandMultiple   int64            `json:"demand_multiple"`
+	AdjustedCents    int64            `json:"adjusted_cents"`
+	PromoCents       int64            `json:"promo_cents"`
+	FeeCents         int64            `json:"fee_cents"`
+	TotalCents       int64            `json:"total_cents"`
+	UpfrontCents     int64            `json:"upfront_cents"`
+	DistributedCent  map[string]int64 `json:"distributed_cents"`
+	ResolvedAt       time.Time        `json:"resolved_at"`
+	Pricing          ResolvedPricing  `json:"pricing"`
 }
 
 // buildQuote fecha o orçamento de uma OS a partir das linhas já gravadas.
@@ -447,16 +504,19 @@ func (s *Server) buildQuote(ctx context.Context, osID string,
 
 	if err := s.Pool.QueryRow(ctx, `
 		SELECT coalesce(sum(total_cents),0),
+		       coalesce(sum(total_cents) FILTER (WHERE service_id IS NOT NULL),0),
+		       coalesce(sum(total_cents) FILTER (WHERE part_id IS NOT NULL),0),
 		       coalesce(sum(round(cost_cents * quantity)),0)
 		FROM service_order_items WHERE service_order_id=$1`,
-		osID).Scan(&q.SubtotalCents, &q.CostCents); err != nil {
+		osID).Scan(&q.SubtotalCents, &q.ServiceCents, &q.PassThroughCents,
+		&q.CostCents); err != nil {
 		return q, err
 	}
 
 	price := s.resolvePricing(ctx, scope)
 	q.Pricing = price
 	q.DemandMultiple = s.demandMultiplier(ctx, scope)
-	q.AdjustedCents = q.SubtotalCents * q.DemandMultiple / 100
+	q.AdjustedCents = q.ServiceCents * q.DemandMultiple / 100
 
 	// Os limites de 'bounds' travam o valor do chamado, não o multiplicador:
 	// são o piso e o teto que o cliente pode ver, independentemente do que a
@@ -492,17 +552,33 @@ func (s *Server) buildQuote(ctx context.Context, osID string,
 
 	// O total é o que o cliente paga: a taxa do admin sai de dentro dele, não
 	// por cima.
-	q.TotalCents = liquido
+	q.TotalCents = liquido + q.PassThroughCents
 	restante := liquido - q.FeeCents
-	q.DistributedCent["super_admin"] = q.FeeCents
+	q.DistributedCent["tgdesk"] = q.FeeCents
 	for role, percent := range price.Shares {
-		if role == "super_admin" {
+		if role == "super_admin" || role == "tgdesk_fee" {
 			continue
 		}
 		q.DistributedCent[role] += int64(math.Round(
 			float64(restante) * percent / 100))
 	}
+	q.UpfrontCents = s.upfrontCents(ctx, q.ServiceCents, q.PassThroughCents)
 	return q, nil
+}
+
+func (s *Server) upfrontCents(ctx context.Context, serviceCents, passThroughCents int64) int64 {
+	var percent float64
+	var basis string
+	if s.Pool.QueryRow(ctx, `
+		SELECT upfront_percent,upfront_basis
+		FROM product_payment_rules WHERE singleton`).Scan(&percent, &basis) != nil {
+		percent, basis = 100, "services_parts_consumables"
+	}
+	base := serviceCents
+	if basis == "services_parts_consumables" {
+		base += passThroughCents
+	}
+	return int64(math.Round(float64(base) * percent / 100))
 }
 
 // osScope monta o recorte de preço de uma OS a partir do chamado que a

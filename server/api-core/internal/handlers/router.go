@@ -351,8 +351,32 @@ func NewRouter(s *Server) http.Handler {
 	mux.Handle("GET /api/v1/admin/quotas", admin(s.ListQuotas))
 	mux.Handle("POST /api/v1/admin/quotas", admin(s.SaveQuota))
 	mux.Handle("POST /api/v1/admin/product-defaults", admin(s.SaveProductDefaults))
+	mux.Handle("GET /api/v1/admin/config-descriptors", admin(s.AdminConfigDescriptors))
+	mux.Handle("GET /api/v1/admin/linked-map", admin(s.LinkedMap))
+	mux.Handle("GET /api/v1/admin/payment-rules", admin(s.PaymentRules))
+	mux.Handle("POST /api/v1/admin/payment-rules", admin(s.SavePaymentRules))
+	mux.Handle("GET /api/v1/admin/regional-cost-index", admin(s.RegionalCostIndex))
+	mux.Handle("GET /api/v1/admin/territory/municipalities", admin(s.SearchBrazilMunicipalities))
+	mux.Handle("GET /api/v1/admin/regions/{id}/municipalities", admin(func(w http.ResponseWriter, r *http.Request) {
+		s.ListRegionMunicipalities(w, r, r.PathValue("id"))
+	}))
+	mux.Handle("POST /api/v1/admin/regions/{id}/municipalities", admin(func(w http.ResponseWriter, r *http.Request) {
+		s.AddRegionMunicipality(w, r, r.PathValue("id"))
+	}))
+	mux.Handle("DELETE /api/v1/admin/regions/{id}/municipalities", admin(func(w http.ResponseWriter, r *http.Request) {
+		s.DeleteRegionMunicipality(w, r, r.PathValue("id"))
+	}))
 
 	mux.Handle("GET /api/v1/admin/audit", admin(s.ListAuditLog))
+	mux.Handle("GET /api/v1/admin/audit/live-report", admin(s.AuditLiveReport))
+	mux.Handle("GET /api/v1/admin/slideshow/templates", admin(s.AdminSlideTemplates))
+	mux.Handle("GET /api/v1/admin/slideshow/export.pdf", admin(s.ExportAdminSlideshowPDF))
+	mux.Handle("GET /api/v1/admin/audit/domains/{domain}/events", admin(func(w http.ResponseWriter, r *http.Request) {
+		s.AuditDomainEvents(w, r, r.PathValue("domain"))
+	}))
+	mux.Handle("GET /api/v1/admin/audit/events/{id}", admin(func(w http.ResponseWriter, r *http.Request) {
+		s.AuditEventDetail(w, r, r.PathValue("id"))
+	}))
 	mux.Handle("DELETE /api/v1/admin/guest-devices/{id}", admin(func(w http.ResponseWriter, r *http.Request) {
 		s.DeleteGuestDevice(w, r, r.PathValue("id"))
 	}))

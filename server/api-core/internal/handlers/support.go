@@ -910,7 +910,8 @@ func (s *Server) AddOnsiteEvidence(w http.ResponseWriter, r *http.Request, id st
 	}
 	allowedTypes := map[string]bool{
 		"geolocation": true, "arrival_photo": true, "execution_photo": true,
-		"completion_photo": true, "signature": true, "signed_document": true,
+		"completion_photo": true, "invoice_photo": true, "signature": true,
+		"signed_document": true,
 	}
 	if !allowedTypes[req.Type] {
 		writeErrCode(w, 400, "tipo_evidencia_invalido", "tipo de evidência inválido")

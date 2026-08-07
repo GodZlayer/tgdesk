@@ -43,6 +43,9 @@ var diagnosticCatalog = []map[string]any{
 	{"id": "temperature_sensors", "category": "Hardware", "impact": "low"},
 	{"id": "storage_volumes", "category": "Armazenamento", "impact": "low"},
 	{"id": "process_pressure", "category": "Desempenho", "impact": "low"},
+	{"id": "process_gpu_pressure", "category": "Desempenho", "impact": "medium"},
+	{"id": "reboot_lag_history", "category": "Sistema", "impact": "low"},
+	{"id": "resource_pressure_series", "category": "Desempenho", "impact": "medium"},
 }
 
 func (s *Server) diagnosticDeviceAccess(r *http.Request, deviceID string) bool {

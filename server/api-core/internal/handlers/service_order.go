@@ -109,6 +109,21 @@ func (s *Server) FinishServiceOrder(w http.ResponseWriter, r *http.Request, tick
 		writeErrCode(w, http.StatusConflict, "execucao_precisa_ter_sido_iniciada", "a execução precisa ter sido iniciada")
 		return
 	}
+	var itensComNotaObrigatoria int
+	var notasFiscais int
+	_ = s.Pool.QueryRow(r.Context(), `
+		SELECT
+			COUNT(*) FILTER (WHERE p.requires_invoice_photo),
+			(SELECT COUNT(*) FROM onsite_evidence e
+			 WHERE e.ticket_id=$1 AND e.evidence_type='invoice_photo')
+		FROM service_orders o
+		LEFT JOIN service_order_items i ON i.service_order_id=o.id
+		LEFT JOIN part_catalog p ON p.id=i.part_id
+		WHERE o.ticket_id=$1`, ticketID).Scan(&itensComNotaObrigatoria, &notasFiscais)
+	if itensComNotaObrigatoria > 0 && notasFiscais == 0 {
+		writeErrCode(w, http.StatusConflict, "nota_fiscal_pecas_obrigatoria", "anexe a foto da nota fiscal das peÃ§as antes de finalizar a OS")
+		return
+	}
 	_, _ = s.Pool.Exec(r.Context(), `
 		UPDATE service_orders SET status='awaiting_confirmation',finished_at=now() WHERE ticket_id=$1`, ticketID)
 	_, _ = s.Pool.Exec(r.Context(), `

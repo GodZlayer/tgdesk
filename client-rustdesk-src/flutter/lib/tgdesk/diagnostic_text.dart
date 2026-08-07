@@ -43,16 +43,14 @@ class TgdeskDiagnosticText {
   static const Map<String, String> _descriptions = {
     'all_tests':
         'Executa sequencialmente todo o catálogo seguro do TGDesk, inclusive leitura integral da superfície dos discos. Pode levar horas ou dias e pode ser cancelado.',
-    'system_overview':
-        'Inventário, serviços, eventos críticos e estado geral.',
+    'system_overview': 'Inventário, serviços, eventos críticos e estado geral.',
     'cpu_stress':
         'Mantém todos os núcleos ocupados e mede estabilidade e resposta.',
     'memory_integrity':
         'Reserva blocos de memória e verifica padrões de leitura e escrita.',
     'memory_extended':
         'Executa múltiplos padrões e passes em uma área ampla de RAM, registrando cada etapa e divergência.',
-    'internet_quality':
-        'Mede DNS, latência e acesso externo.',
+    'internet_quality': 'Mede DNS, latência e acesso externo.',
     'network_latency_series':
         'Mede repetidamente latência, perda e variação para revelar falhas intermitentes em gráfico.',
     'disk_performance':
@@ -71,26 +69,20 @@ class TgdeskDiagnosticText {
         'Solicita ao Windows uma varredura online real de cada volume compatível, sem executar reparos.',
     'gpu_stress':
         'Valida controladores e amostra os motores gráficos disponíveis na sessão do Windows.',
-    'battery_health':
-        'Consulta carga, tensão e estado da bateria.',
-    'driver_errors':
-        'Lista dispositivos PnP com erro ou driver ausente.',
+    'battery_health': 'Consulta carga, tensão e estado da bateria.',
+    'driver_errors': 'Lista dispositivos PnP com erro ou driver ausente.',
     'critical_events':
         'Consolida eventos críticos e erros recentes do Windows.',
     'service_failures':
         'Detecta serviços automáticos parados e falhas de inicialização.',
     'startup_inventory':
         'Inventaria programas e tarefas iniciados com o Windows.',
-    'network_adapters':
-        'Verifica link, velocidade, erros e configuração IP.',
-    'dns_diagnostics':
-        'Testa servidores DNS configurados e resolução externa.',
-    'route_table':
-        'Analisa rotas, gateways e métricas de interface.',
+    'network_adapters': 'Verifica link, velocidade, erros e configuração IP.',
+    'dns_diagnostics': 'Testa servidores DNS configurados e resolução externa.',
+    'route_table': 'Analisa rotas, gateways e métricas de interface.',
     'windows_integrity':
         'Executa DISM ScanHealth sem reparar ou alterar arquivos.',
-    'update_status':
-        'Lista hotfixes e reinicializações pendentes.',
+    'update_status': 'Lista hotfixes e reinicializações pendentes.',
     'security_posture':
         'Consulta Defender, firewall, Secure Boot e criptografia.',
     'defender_quick_scan':
@@ -99,8 +91,7 @@ class TgdeskDiagnosticText {
         'Lê sensores térmicos expostos pelo Windows e pelo hardware.',
     'storage_volumes':
         'Verifica capacidade, espaço livre e estado dos volumes.',
-    'process_pressure':
-        'Lista maiores consumidores de CPU, memória e I/O.',
+    'process_pressure': 'Lista maiores consumidores de CPU, memória e I/O.',
   };
 
   static String name(String? id) => _names[id] ?? id ?? '';

@@ -15,6 +15,19 @@ func (s *Server) audit(r *http.Request, tipo, alvoID string) {
 	_, _ = s.Pool.Exec(r.Context(), `
 		INSERT INTO admin_actions (actor_id, tipo, alvo_id) VALUES ($1, $2, $3)`,
 		claims.TechnicianID, tipo, alvoID)
+	_, _ = s.Pool.Exec(r.Context(), `
+		INSERT INTO audit_events(domain_key,severity,relation_degree,event_type,
+			entity_type,entity_id,actor_technician_id,payload,source_table,source_id)
+		VALUES(
+			COALESCE((SELECT domain_key FROM audit_event_classifiers
+				WHERE $1 ILIKE '%' || pattern || '%' ORDER BY length(pattern) DESC LIMIT 1),'security'),
+			COALESCE((SELECT severity FROM audit_event_classifiers
+				WHERE $1 ILIKE '%' || pattern || '%' ORDER BY length(pattern) DESC LIMIT 1),'notice'),
+			COALESCE((SELECT relation_degree FROM audit_event_classifiers
+				WHERE $1 ILIKE '%' || pattern || '%' ORDER BY length(pattern) DESC LIMIT 1),'security'),
+			$1,'admin_target',$2,$3,$4,'admin_actions',$1 || ':' || $2 || ':' || now()::text)
+		ON CONFLICT(source_table,source_id) DO NOTHING`,
+		tipo, alvoID, claims.TechnicianID, map[string]any{"tipo": tipo, "alvo_id": alvoID})
 }
 
 // dropHubPeer removes a linked device from the private network immediately.

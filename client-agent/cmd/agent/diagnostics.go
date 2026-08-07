@@ -218,6 +218,18 @@ func executeDiagnostic(ctx context.Context, test string, progress func(int, stri
 		return commandDiagnostic(ctx, progress, 35, "Analisando volumes", "powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "Get-Volume | Select-Object DriveLetter,FileSystemLabel,FileSystem,HealthStatus,OperationalStatus,Size,SizeRemaining | ConvertTo-Json")
 	case "process_pressure":
 		return commandDiagnostic(ctx, progress, 35, "Analisando processos", "powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "Get-Process | Sort-Object CPU -Descending | Select-Object -First 30 Name,Id,CPU,WorkingSet64,PrivateMemorySize64,Handles | ConvertTo-Json")
+	case "process_gpu_pressure":
+		return commandDiagnostic(ctx, progress, 25, "Correlacionando processos com GPU e memÃ³ria",
+			"powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
+			"$ErrorActionPreference='SilentlyContinue'; $p=Get-Process | Select-Object Name,Id,CPU,WorkingSet64,PrivateMemorySize64,StartTime; $gpu=@(Get-Counter '\\GPU Engine(*)\\Utilization Percentage' -SampleInterval 1 -MaxSamples 8).CounterSamples | Where-Object CookedValue -gt 0.5 | Select-Object InstanceName,CookedValue; $suspects=$p | Where-Object { $_.Name -match 'obs|camera|teams|chrome|edge|firefox|discord|anydesk|rustdesk|tgdesk' } | Sort-Object CPU -Descending; [pscustomobject]@{TopCpu=($p|Sort-Object CPU -Descending|Select-Object -First 25);TopMemory=($p|Sort-Object WorkingSet64 -Descending|Select-Object -First 25);GpuEngines=$gpu;KnownHeavyProcesses=$suspects} | ConvertTo-Json -Depth 6; exit 0")
+	case "reboot_lag_history":
+		return commandDiagnostic(ctx, progress, 20, "Lendo histÃ³rico de reinÃ­cios, travamentos e desligamentos",
+			"powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
+			"$ErrorActionPreference='SilentlyContinue'; $since=(Get-Date).AddDays(-14); $boot=(Get-CimInstance Win32_OperatingSystem).LastBootUpTime; $events=Get-WinEvent -FilterHashtable @{LogName='System';Id=41,1001,1074,6005,6006,6008,7031,7034;StartTime=$since} -MaxEvents 250 | Select-Object TimeCreated,Id,ProviderName,LevelDisplayName,Message; $perf=Get-WinEvent -FilterHashtable @{LogName='Microsoft-Windows-Diagnostics-Performance/Operational';Id=100,101,102,103,200,201,202,203;StartTime=$since} -MaxEvents 250 | Select-Object TimeCreated,Id,ProviderName,LevelDisplayName,Message; [pscustomobject]@{LastBoot=$boot;SystemEvents=$events;PerformanceEvents=$perf;RebootPending=(Test-Path 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WindowsUpdate\\Auto Update\\RebootRequired')} | ConvertTo-Json -Depth 6; exit 0")
+	case "resource_pressure_series":
+		return commandDiagnostic(ctx, progress, 10, "Amostrando CPU, memÃ³ria, disco e GPU por 60 segundos",
+			"powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
+			"$ErrorActionPreference='SilentlyContinue'; $samples=@(); for($i=0;$i -lt 30;$i++){ $cpu=(Get-Counter '\\Processor(_Total)\\% Processor Time').CounterSamples.CookedValue; $mem=(Get-Counter '\\Memory\\Available MBytes').CounterSamples.CookedValue; $disk=(Get-Counter '\\PhysicalDisk(_Total)\\% Disk Time').CounterSamples.CookedValue; $gpu=(@(Get-Counter '\\GPU Engine(*)\\Utilization Percentage').CounterSamples | Measure-Object CookedValue -Sum).Sum; $top=Get-Process | Sort-Object CPU -Descending | Select-Object -First 5 Name,Id,CPU,WorkingSet64; $samples += [pscustomobject]@{At=(Get-Date);CpuPercent=[math]::Round($cpu,2);AvailableMemoryMb=[math]::Round($mem,0);DiskBusyPercent=[math]::Round($disk,2);GpuEngineSum=[math]::Round($gpu,2);TopCpu=$top}; Start-Sleep -Seconds 2 }; $samples | ConvertTo-Json -Depth 5; exit 0")
 	default:
 		return map[string]any{}, fmt.Errorf("teste não suportado: %s", test)
 	}
@@ -225,8 +237,9 @@ func executeDiagnostic(ctx context.Context, test string, progress func(int, stri
 
 var completeDiagnosticTests = []string{
 	"system_overview", "driver_errors", "critical_events", "service_failures",
-	"startup_inventory", "windows_integrity", "update_status", "cpu_stress",
-	"process_pressure", "memory_integrity", "memory_extended", "internet_quality",
+	"startup_inventory", "windows_integrity", "update_status", "reboot_lag_history",
+	"cpu_stress", "process_pressure", "process_gpu_pressure",
+	"resource_pressure_series", "memory_integrity", "memory_extended", "internet_quality",
 	"network_latency_series", "network_adapters", "dns_diagnostics", "route_table",
 	"disk_performance", "disk_random_performance", "smart_extended", "badblocks-read",
 	"storage_surface_read", "filesystem_scan", "filesystem_deep_scan", "storage_volumes",
@@ -237,7 +250,9 @@ var completeDiagnosticTests = []string{
 var diagnosticGroups = map[string]string{
 	"system_overview": "Sistema", "driver_errors": "Sistema", "critical_events": "Sistema",
 	"service_failures": "Sistema", "startup_inventory": "Sistema", "windows_integrity": "Sistema",
-	"update_status": "Sistema", "cpu_stress": "Processamento", "process_pressure": "Processamento",
+	"update_status": "Sistema", "reboot_lag_history": "Sistema",
+	"cpu_stress": "Processamento", "process_pressure": "Processamento",
+	"process_gpu_pressure": "Processamento", "resource_pressure_series": "Processamento",
 	"memory_integrity": "Memória", "memory_extended": "Memória", "internet_quality": "Rede",
 	"network_latency_series": "Rede", "network_adapters": "Rede",
 	"dns_diagnostics": "Rede", "route_table": "Rede", "disk_performance": "Armazenamento",

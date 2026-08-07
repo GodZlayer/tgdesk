@@ -61,6 +61,7 @@ func loadInstallIntent() *installIntent {
 func applyInstallIntent(cfg *agentConfig) {
 	intent := loadInstallIntent()
 	if intent == nil {
+		applyTechnicianCredentialBind(cfg)
 		return
 	}
 	var status int
@@ -118,6 +119,23 @@ func applyInstallIntent(cfg *agentConfig) {
 // A credencial é renovada aqui em vez de reaproveitar alguma sessão aberta: a
 // vinculação acontece na primeira conexão depois da instalação, quando ainda
 // não há sessão nenhuma.
+func applyTechnicianCredentialBind(cfg *agentConfig) {
+	credentialPath := filepath.Join(tgdeskDataDir(), "identity", "technician.dat")
+	if _, err := os.Stat(credentialPath); err != nil {
+		return
+	}
+	status, err := postTechnicianSelfBind(cfg)
+	if err != nil {
+		log.Printf("auto-vinculaÃ§Ã£o tÃ©cnica adiada: %v", err)
+		return
+	}
+	if status == http.StatusOK || status == http.StatusConflict {
+		log.Printf("auto-vinculaÃ§Ã£o tÃ©cnica conferida (status %d)", status)
+		return
+	}
+	log.Printf("auto-vinculaÃ§Ã£o tÃ©cnica recusada (status %d)", status)
+}
+
 func postTechnicianSelfBind(cfg *agentConfig) (int, error) {
 	credentialPath := filepath.Join(tgdeskDataDir(), "identity", "technician.dat")
 	credential, err := unprotectMachineCredential(credentialPath)

@@ -104,6 +104,11 @@ class _AdminRegionsTabState extends State<AdminRegionsTab> {
             onPressed: () => _edit(region),
           ),
           IconButton(
+            tooltip: 'Municípios IBGE',
+            icon: const Icon(Icons.location_city_outlined, size: 18),
+            onPressed: () => _municipalities(region),
+          ),
+          IconButton(
             tooltip: 'Remover',
             icon: const Icon(Icons.delete_outline, size: 18),
             onPressed: () => _confirmarRemocao(region),
@@ -142,10 +147,10 @@ class _AdminRegionsTabState extends State<AdminRegionsTab> {
     final key = TextEditingController(text: region?['key']?.toString() ?? '');
     final label =
         TextEditingController(text: region?['label']?.toString() ?? '');
-    final lat = TextEditingController(
-        text: region?['center_lat']?.toString() ?? '');
-    final lon = TextEditingController(
-        text: region?['center_lon']?.toString() ?? '');
+    final lat =
+        TextEditingController(text: region?['center_lat']?.toString() ?? '');
+    final lon =
+        TextEditingController(text: region?['center_lon']?.toString() ?? '');
     final raio =
         TextEditingController(text: (region?['radius_km'] ?? 50).toString());
     var ativo = region?['active'] != false;
@@ -179,8 +184,8 @@ class _AdminRegionsTabState extends State<AdminRegionsTab> {
                 TextField(
                     controller: lon,
                     keyboardType: TextInputType.number,
-                    decoration:
-                        const InputDecoration(labelText: 'Longitude do centro')),
+                    decoration: const InputDecoration(
+                        labelText: 'Longitude do centro')),
                 TextField(
                     controller: raio,
                     keyboardType: TextInputType.number,
@@ -228,5 +233,189 @@ class _AdminRegionsTabState extends State<AdminRegionsTab> {
               double.tryParse(raio.text.trim().replaceAll(',', '.')) ?? 50,
           'active': ativo,
         }));
+  }
+
+  Future<void> _municipalities(Map<String, dynamic> region) async {
+    final regionId = region['id']?.toString() ?? '';
+    final search = TextEditingController();
+    final uf = TextEditingController();
+    var linked = <dynamic>[];
+    var results = <dynamic>[];
+    var relationKind = 'commercial';
+    var loading = true;
+    var loadRequested = false;
+
+    Future<void> load(StateSetter setLocal) async {
+      linked = await TgdeskApi.regionMunicipalities(regionId);
+      loading = false;
+      setLocal(() {});
+    }
+
+    Future<void> runSearch(StateSetter setLocal) async {
+      results = await TgdeskApi.brazilMunicipalities(
+        query: search.text,
+        uf: uf.text,
+        limit: 160,
+      );
+      setLocal(() {});
+    }
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setLocal) {
+          if (loading) {
+            if (!loadRequested) {
+              loadRequested = true;
+              Future.microtask(() => load(setLocal));
+            }
+          }
+          return AlertDialog(
+            title: Text('Municípios de ${region['label']}'),
+            content: SizedBox(
+              width: 760,
+              height: 620,
+              child: Column(
+                children: [
+                  Row(children: [
+                    Expanded(
+                      child: TextField(
+                        controller: search,
+                        decoration: const InputDecoration(
+                          labelText: 'Buscar município ou região',
+                          hintText: 'Ex.: Manhumirim, Manhuaçu, Belo Horizonte',
+                        ),
+                        onSubmitted: (_) => runSearch(setLocal),
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    SizedBox(
+                      width: 90,
+                      child: TextField(
+                        controller: uf,
+                        decoration: const InputDecoration(labelText: 'UF'),
+                        onSubmitted: (_) => runSearch(setLocal),
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: 'Buscar',
+                      icon: const Icon(Icons.search),
+                      onPressed: () => runSearch(setLocal),
+                    ),
+                  ]),
+                  DropdownButtonFormField<String>(
+                    value: relationKind,
+                    decoration:
+                        const InputDecoration(labelText: 'Relação da cidade'),
+                    items: const [
+                      DropdownMenuItem(
+                          value: 'commercial', child: Text('Região comercial')),
+                      DropdownMenuItem(
+                          value: 'metropolitan',
+                          child: Text('Região metropolitana')),
+                      DropdownMenuItem(
+                          value: 'immediate', child: Text('Região imediata')),
+                      DropdownMenuItem(
+                          value: 'intermediate',
+                          child: Text('Região intermediária')),
+                      DropdownMenuItem(
+                          value: 'capital', child: Text('Capital')),
+                    ],
+                    onChanged: (v) =>
+                        setLocal(() => relationKind = v ?? 'commercial'),
+                  ),
+                  const SizedBox(height: 8),
+                  Expanded(
+                    child: Row(children: [
+                      Expanded(
+                        child: _MunicipalityList(
+                          title: 'Vinculados',
+                          items: linked,
+                          trailingBuilder: (item) => IconButton(
+                            icon: const Icon(Icons.delete_outline),
+                            onPressed: () async {
+                              await TgdeskApi.deleteRegionMunicipality(
+                                regionId,
+                                (item['ibge_id'] as num).toInt(),
+                                item['relation_kind']?.toString() ??
+                                    'commercial',
+                              );
+                              await load(setLocal);
+                            },
+                          ),
+                        ),
+                      ),
+                      const VerticalDivider(),
+                      Expanded(
+                        child: _MunicipalityList(
+                          title: 'Resultado IBGE',
+                          items: results,
+                          trailingBuilder: (item) => IconButton(
+                            icon: const Icon(Icons.add_location_alt_outlined),
+                            onPressed: () async {
+                              await TgdeskApi.addRegionMunicipality(
+                                regionId,
+                                (item['ibge_id'] as num).toInt(),
+                                relationKind,
+                              );
+                              await load(setLocal);
+                            },
+                          ),
+                        ),
+                      ),
+                    ]),
+                  ),
+                ],
+              ),
+            ),
+            actions: [
+              TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text('Fechar')),
+            ],
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _MunicipalityList extends StatelessWidget {
+  const _MunicipalityList({
+    required this.title,
+    required this.items,
+    required this.trailingBuilder,
+  });
+
+  final String title;
+  final List<dynamic> items;
+  final Widget Function(Map<String, dynamic> item) trailingBuilder;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+      Text(title, style: Theme.of(context).textTheme.titleSmall),
+      const SizedBox(height: 8),
+      Expanded(
+        child: ListView.builder(
+          itemCount: items.length,
+          itemBuilder: (context, index) {
+            final item = Map<String, dynamic>.from(items[index] as Map);
+            return ListTile(
+              dense: true,
+              title: Text('${item['name']} / ${item['uf_sigla']}'),
+              subtitle: Text([
+                if (item['relation_kind'] != null) item['relation_kind'],
+                item['immediate_region_name'],
+                item['intermediate_region_name'],
+              ]
+                  .where((value) => value != null && '$value'.isNotEmpty)
+                  .join(' · ')),
+              trailing: trailingBuilder(item),
+            );
+          },
+        ),
+      ),
+    ]);
   }
 }

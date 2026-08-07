@@ -55,6 +55,12 @@ class _AdminOsCatalogTabState extends State<AdminOsCatalogTab> {
   @override
   Widget build(BuildContext context) {
     final parts = _channel.parts;
+    final consumables = parts
+        .where((part) => part['item_kind']?.toString() == 'consumable')
+        .toList(growable: false);
+    final physicalParts = parts
+        .where((part) => part['item_kind']?.toString() != 'consumable')
+        .toList(growable: false);
     final services = _channel.services;
     return Scaffold(
       floatingActionButton: Row(mainAxisSize: MainAxisSize.min, children: [
@@ -84,14 +90,23 @@ class _AdminOsCatalogTabState extends State<AdminOsCatalogTab> {
           else
             ...services.map(_serviceCard),
           const SizedBox(height: TgdeskSpacing.lg),
-          Text('Peças', style: Theme.of(context).textTheme.titleSmall),
-          if (parts.isEmpty)
+          Text('Pe?as', style: Theme.of(context).textTheme.titleSmall),
+          if (physicalParts.isEmpty)
             const Padding(
               padding: EdgeInsets.symmetric(vertical: TgdeskSpacing.sm),
-              child: Text('Nenhuma peça cadastrada.'),
+              child: Text('Nenhuma pe?a cadastrada.'),
             )
           else
-            ...parts.map(_partCard),
+            ...physicalParts.map(_partCard),
+          const SizedBox(height: TgdeskSpacing.lg),
+          Text('Consum?veis', style: Theme.of(context).textTheme.titleSmall),
+          if (consumables.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: TgdeskSpacing.sm),
+              child: Text('Nenhum consum?vel cadastrado.'),
+            )
+          else
+            ...consumables.map(_partCard),
           const SizedBox(height: 80),
         ],
       ),
@@ -130,8 +145,8 @@ class _AdminOsCatalogTabState extends State<AdminOsCatalogTab> {
           IconButton(
             tooltip: 'Remover',
             icon: const Icon(Icons.delete_outline, size: 18),
-            onPressed: () => _run(
-                () => TgdeskApi.deleteService(service['id'].toString())),
+            onPressed: () =>
+                _run(() => TgdeskApi.deleteService(service['id'].toString())),
           ),
         ]),
       ),
@@ -141,9 +156,11 @@ class _AdminOsCatalogTabState extends State<AdminOsCatalogTab> {
   Widget _partCard(Map<String, dynamic> part) {
     final ativo = part['active'] != false;
     final custo = (part['cost_cents'] as num?)?.toInt() ?? 0;
+    final consumable = part['item_kind']?.toString() == 'consumable';
     return Card(
       child: ListTile(
-        leading: const Icon(Icons.memory_outlined),
+        leading:
+            Icon(consumable ? Icons.cable_outlined : Icons.memory_outlined),
         title: Text('${part['sku']} — ${part['label']}'),
         subtitle: Text('${_escopo(part)}'
             '${custo > 0 ? ' · custo ${moeda(custo)}' : ''}'),
@@ -198,6 +215,8 @@ class _AdminOsCatalogTabState extends State<AdminOsCatalogTab> {
             ? ''
             : moeda((part['cost_cents'] as num?)?.toInt() ?? 0));
     var tipo = part?['ticket_type_key']?.toString();
+    var itemKind = part?['item_kind']?.toString() ?? 'part';
+    var requiresInvoice = part?['requires_invoice_photo'] != false;
     var ativo = part?['active'] != false;
 
     final ok = await showDialog<bool>(
@@ -222,6 +241,16 @@ class _AdminOsCatalogTabState extends State<AdminOsCatalogTab> {
                 TextField(
                     controller: unit,
                     decoration: const InputDecoration(labelText: 'Unidade')),
+                DropdownButtonFormField<String>(
+                  value: itemKind,
+                  decoration: const InputDecoration(labelText: 'Tipo de item'),
+                  items: const [
+                    DropdownMenuItem(value: 'part', child: Text('Peça')),
+                    DropdownMenuItem(
+                        value: 'consumable', child: Text('Consumível')),
+                  ],
+                  onChanged: (v) => setLocal(() => itemKind = v ?? 'part'),
+                ),
                 TextField(
                     controller: preco,
                     decoration:
@@ -234,6 +263,14 @@ class _AdminOsCatalogTabState extends State<AdminOsCatalogTab> {
                 ),
                 const SizedBox(height: TgdeskSpacing.sm),
                 _tipoDropdown(tipo, (v) => setLocal(() => tipo = v)),
+                SwitchListTile(
+                  contentPadding: EdgeInsets.zero,
+                  title: const Text('Exige foto da nota fiscal'),
+                  subtitle: const Text(
+                      'Obrigatória para entrar no custo final do atendimento.'),
+                  value: requiresInvoice,
+                  onChanged: (v) => setLocal(() => requiresInvoice = v),
+                ),
                 SwitchListTile(
                   contentPadding: EdgeInsets.zero,
                   title: const Text('Ativa'),
@@ -259,6 +296,8 @@ class _AdminOsCatalogTabState extends State<AdminOsCatalogTab> {
           'sku': sku.text.trim(),
           'label': label.text.trim(),
           'unit': unit.text.trim(),
+          'item_kind': itemKind,
+          'requires_invoice_photo': requiresInvoice,
           'price_cents': centavosDe(preco.text) ?? 0,
           'cost_cents': centavosDe(custo.text) ?? 0,
           'ticket_type_key': tipo,
@@ -274,8 +313,8 @@ class _AdminOsCatalogTabState extends State<AdminOsCatalogTab> {
         text: service == null
             ? ''
             : moeda((service['price_cents'] as num?)?.toInt() ?? 0));
-    final duracao =
-        TextEditingController(text: (service?['duration_min'] ?? 60).toString());
+    final duracao = TextEditingController(
+        text: (service?['duration_min'] ?? 60).toString());
     final manual =
         TextEditingController(text: service?['manual_url']?.toString() ?? '');
     var tipo = service?['ticket_type_key']?.toString();
@@ -313,8 +352,7 @@ class _AdminOsCatalogTabState extends State<AdminOsCatalogTab> {
                   controller: manual,
                   decoration: const InputDecoration(
                       labelText: 'Manual (URL do PDF)',
-                      helperText:
-                          'O que o técnico consulta antes de executar'),
+                      helperText: 'O que o técnico consulta antes de executar'),
                 ),
                 const SizedBox(height: TgdeskSpacing.sm),
                 _tipoDropdown(tipo, (v) => setLocal(() => tipo = v)),
@@ -325,7 +363,8 @@ class _AdminOsCatalogTabState extends State<AdminOsCatalogTab> {
                   items: const [
                     DropdownMenuItem(value: null, child: Text('As duas')),
                     DropdownMenuItem(value: 'virtual', child: Text('Remoto')),
-                    DropdownMenuItem(value: 'onsite', child: Text('Presencial')),
+                    DropdownMenuItem(
+                        value: 'onsite', child: Text('Presencial')),
                   ],
                   onChanged: (v) => setLocal(() => modo = v),
                 ),

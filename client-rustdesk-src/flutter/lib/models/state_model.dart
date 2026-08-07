@@ -58,6 +58,8 @@ class StateGlobal {
   // cálculo original já está certo.
   double tgdeskEmbedTop = 0;
   double tgdeskEmbedLeft = 0;
+  double tgdeskEmbedRight = 0;
+  double tgdeskEmbedBottom = 0;
   RxBool get showTabBar => _showTabBar;
   RxDouble get resizeEdgeSize => _resizeEdgeSize;
   RxDouble get windowBorderWidth => _windowBorderWidth;

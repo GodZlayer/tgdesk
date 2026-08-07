@@ -27,9 +27,9 @@ func TestDiagnosticCancellationStopsWorkAndReportsCancelled(t *testing.T) {
 	}
 }
 
-func TestCompleteDiagnosticCatalogHasTwentyNineGroupedTests(t *testing.T) {
-	if len(completeDiagnosticTests) != 29 {
-		t.Fatalf("complete suite has %d tests, expected 29", len(completeDiagnosticTests))
+func TestCompleteDiagnosticCatalogHasThirtyTwoGroupedTests(t *testing.T) {
+	if len(completeDiagnosticTests) != 32 {
+		t.Fatalf("complete suite has %d tests, expected 32", len(completeDiagnosticTests))
 	}
 	seen := map[string]bool{}
 	for _, test := range completeDiagnosticTests {

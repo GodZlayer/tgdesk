@@ -148,9 +148,10 @@ func (s *Server) DeleteRegion(w http.ResponseWriter, r *http.Request, id string)
 
 type regionAssignRequest struct {
 	// 'organization', 'device' ou 'technician'.
-	Target   string  `json:"target"`
-	TargetID string  `json:"target_id"`
-	RegionID *string `json:"region_id"`
+	Target         string  `json:"target"`
+	TargetID       string  `json:"target_id"`
+	RegionID       *string `json:"region_id"`
+	MunicipalityID *int    `json:"municipality_id"`
 }
 
 // AssignRegion põe uma entidade numa região à mão.
@@ -173,12 +174,18 @@ func (s *Server) AssignRegion(w http.ResponseWriter, r *http.Request) {
 		writeErrCode(w, 400, "alvo_obrigatorio", "informe o alvo")
 		return
 	}
+	if req.RegionID == nil && req.MunicipalityID != nil {
+		req.RegionID = s.regionForMunicipality(r.Context(), req.MunicipalityID)
+	}
 	var table, column string
+	hasMunicipality := false
 	switch req.Target {
 	case "organization":
 		table, column = "organizations", "id"
+		hasMunicipality = true
 	case "device":
 		table, column = "devices", "id"
+		hasMunicipality = true
 	case "technician":
 		table, column = "freelancer_profiles", "technician_id"
 	default:
@@ -186,9 +193,13 @@ func (s *Server) AssignRegion(w http.ResponseWriter, r *http.Request) {
 			"o alvo deve ser organization, device ou technician")
 		return
 	}
-	tag, err := s.Pool.Exec(r.Context(),
-		`UPDATE `+table+` SET region_id=$2 WHERE `+column+`=$1`,
-		req.TargetID, req.RegionID)
+	query := `UPDATE ` + table + ` SET region_id=$2 WHERE ` + column + `=$1`
+	args := []any{req.TargetID, req.RegionID}
+	if hasMunicipality {
+		query = `UPDATE ` + table + ` SET region_id=$2, municipality_id=$3 WHERE ` + column + `=$1`
+		args = append(args, req.MunicipalityID)
+	}
+	tag, err := s.Pool.Exec(r.Context(), query, args...)
 	if err != nil {
 		writeErrCode(w, 400, "falha_atribuir", "falha ao atribuir a região")
 		return
@@ -268,38 +279,130 @@ func (s *Server) regionAt(ctx context.Context, lat, lon float64) *string {
 // dispositivo; se nenhum dos dois disser onde é, ele fica sem região, e o preço
 // dele é o global. Chutar uma região seria pior do que não ter: cobraria pelo
 // mercado de um lugar em que ele não está.
-func (s *Server) regionForTicket(ctx context.Context, ticketID string) *string {
-	var lat, lon float64
-	var deviceRegion, orgRegion *string
+type ticketTerritory struct {
+	RegionID       *string
+	MunicipalityID *int
+}
+
+func (s *Server) regionForMunicipality(ctx context.Context, municipalityID *int) *string {
+	if municipalityID == nil || *municipalityID == 0 {
+		return nil
+	}
+	var regionID string
 	err := s.Pool.QueryRow(ctx, `
-		SELECT coalesce((t.location->>'latitude')::float8,0),
-		       coalesce((t.location->>'longitude')::float8,0),
-		       d.region_id, o.region_id
-		FROM support_tickets t
-		LEFT JOIN devices d       ON d.id = t.device_id
-		LEFT JOIN organizations o ON o.id = t.organization_id
-		WHERE t.id=$1`, ticketID).Scan(&lat, &lon, &deviceRegion, &orgRegion)
+		SELECT rm.region_id
+		FROM region_municipalities rm
+		JOIN regions r ON r.id=rm.region_id AND r.active
+		WHERE rm.municipality_id=$1
+		ORDER BY CASE rm.relation_kind
+			WHEN 'commercial' THEN 10
+			WHEN 'local' THEN 20
+			WHEN 'immediate' THEN 30
+			WHEN 'metropolitan' THEN 40
+			WHEN 'capital' THEN 50
+			WHEN 'manual' THEN 60
+			ELSE 100
+		END, r.position, r.label
+		LIMIT 1`, *municipalityID).Scan(&regionID)
 	if err != nil {
 		return nil
 	}
+	return &regionID
+}
+
+func (s *Server) territoryForTicket(ctx context.Context, ticketID string) ticketTerritory {
+	var lat, lon float64
+	var deviceRegion, orgRegion *string
+	var municipalityID, deviceMunicipalityID, orgMunicipalityID *int
+	var city, uf *string
+	err := s.Pool.QueryRow(ctx, `
+		SELECT coalesce((t.location->>'latitude')::float8,0),
+		       coalesce((t.location->>'longitude')::float8,0),
+		       COALESCE(
+		         t.municipality_id,
+		         CASE WHEN t.location->>'municipality_id' ~ '^[0-9]+$'
+		              THEN (t.location->>'municipality_id')::integer END,
+		         CASE WHEN t.location->>'ibge_id' ~ '^[0-9]+$'
+		              THEN (t.location->>'ibge_id')::integer END),
+		       d.region_id, o.region_id, d.municipality_id, o.municipality_id,
+		       COALESCE(t.location->>'city', t.location->>'cidade', t.location->>'municipio'),
+		       COALESCE(t.location->>'uf', t.location->>'state')
+		FROM support_tickets t
+		LEFT JOIN devices d       ON d.id = t.device_id
+		LEFT JOIN organizations o ON o.id = t.organization_id
+		WHERE t.id=$1`, ticketID).Scan(&lat, &lon, &municipalityID,
+		&deviceRegion, &orgRegion, &deviceMunicipalityID, &orgMunicipalityID,
+		&city, &uf)
+	if err != nil {
+		return ticketTerritory{}
+	}
+	if municipalityID == nil {
+		municipalityID = s.municipalityByName(ctx, city, uf)
+	}
+	if municipalityID == nil {
+		municipalityID = deviceMunicipalityID
+	}
+	if municipalityID == nil {
+		municipalityID = orgMunicipalityID
+	}
+	if byMunicipality := s.regionForMunicipality(ctx, municipalityID); byMunicipality != nil {
+		return ticketTerritory{RegionID: byMunicipality, MunicipalityID: municipalityID}
+	}
 	if byPoint := s.regionAt(ctx, lat, lon); byPoint != nil {
-		return byPoint
+		return ticketTerritory{RegionID: byPoint, MunicipalityID: municipalityID}
 	}
 	if deviceRegion != nil {
-		return deviceRegion
+		return ticketTerritory{RegionID: deviceRegion, MunicipalityID: municipalityID}
 	}
-	return orgRegion
+	return ticketTerritory{RegionID: orgRegion, MunicipalityID: municipalityID}
+}
+
+func (s *Server) regionForTicket(ctx context.Context, ticketID string) *string {
+	return s.territoryForTicket(ctx, ticketID).RegionID
+}
+
+func (s *Server) municipalityByName(ctx context.Context, city, uf *string) *int {
+	if city == nil || strings.TrimSpace(*city) == "" {
+		return nil
+	}
+	name := strings.TrimSpace(*city)
+	state := ""
+	if uf != nil {
+		state = strings.ToUpper(strings.TrimSpace(*uf))
+	}
+	var id int
+	var err error
+	if state != "" {
+		err = s.Pool.QueryRow(ctx, `
+			SELECT ibge_id FROM brazil_municipalities
+			WHERE lower(name) = lower($1)
+			  AND upper(uf_sigla) = $2
+			LIMIT 1`, name, state).Scan(&id)
+	} else {
+		err = s.Pool.QueryRow(ctx, `
+			SELECT ibge_id FROM brazil_municipalities
+			WHERE lower(name) = lower($1)
+			ORDER BY uf_sigla
+			LIMIT 1`, name).Scan(&id)
+	}
+	if err != nil {
+		return nil
+	}
+	return &id
 }
 
 // StampTicketRegion congela a região do chamado. É chamada na abertura, e o
 // valor gravado é o que a precificação usa dali em diante: a empresa pode mudar
 // de região amanhã, mas o que precificou este chamado foi onde ele nasceu.
 func (s *Server) StampTicketRegion(ctx context.Context, ticketID string) {
-	regionID := s.regionForTicket(ctx, ticketID)
-	if regionID == nil {
+	territory := s.territoryForTicket(ctx, ticketID)
+	if territory.RegionID == nil && territory.MunicipalityID == nil {
 		return
 	}
 	_, _ = s.Pool.Exec(ctx,
-		`UPDATE support_tickets SET region_id=$2 WHERE id=$1 AND region_id IS NULL`,
-		ticketID, *regionID)
+		`UPDATE support_tickets
+		 SET region_id=COALESCE(region_id,$2),
+		     municipality_id=COALESCE(municipality_id,$3)
+		 WHERE id=$1`,
+		ticketID, territory.RegionID, territory.MunicipalityID)
 }
