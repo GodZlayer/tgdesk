@@ -14,10 +14,10 @@ CREATE TABLE IF NOT EXISTS brazil_municipalities (
     immediate_region_name TEXT NOT NULL,
     intermediate_region_id INTEGER NOT NULL,
     intermediate_region_name TEXT NOT NULL,
-    microregion_id INTEGER NOT NULL,
-    microregion_name TEXT NOT NULL,
-    mesoregion_id INTEGER NOT NULL,
-    mesoregion_name TEXT NOT NULL,
+    microregion_id INTEGER,
+    microregion_name TEXT,
+    mesoregion_id INTEGER,
+    mesoregion_name TEXT,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
@@ -682,7 +682,7 @@ INSERT INTO brazil_municipalities(ibge_id,name,uf_id,uf_sigla,uf_name,macroregio
     (3201001,'Boa Esperança',32,'ES','Espírito Santo',3,'SE','Sudeste',320003,'São Mateus',3202,'São Mateus',32002,'Nova Venécia',3201,'Noroeste Espírito-santense'),
     (3107109,'Boa Esperança',31,'MG','Minas Gerais',3,'SE','Sudeste',310046,'Três Pontas - Boa Esperança',3108,'Varginha',31050,'Varginha',3110,'Sul/Sudoeste de Minas'),
     (4103024,'Boa Esperança do Iguaçu',41,'PR','Paraná',4,'S','Sul',410012,'Dois Vizinhos',4103,'Cascavel',41026,'Francisco Beltrão',4107,'Sudoeste Paranaense'),
-    (5101837,'Boa Esperança do Norte',51,'MT','Mato Grosso',5,'CO','Centro-Oeste',510008,'Sorriso',5103,'Sinop',None,NULL,None,NULL),
+    (5101837,'Boa Esperança do Norte',51,'MT','Mato Grosso',5,'CO','Centro-Oeste',510008,'Sorriso',5103,'Sinop',NULL,NULL,NULL,NULL),
     (3506706,'Boa Esperança do Sul',35,'SP','São Paulo',3,'SE','Sudeste',350036,'Araraquara',3509,'Araraquara',35024,'Araraquara',3505,'Araraquara'),
     (2201770,'Boa Hora',22,'PI','Piauí',2,'NE','Nordeste',220005,'Barras',2201,'Teresina',22001,'Baixo Parnaíba Piauiense',2201,'Norte Piauiense'),
     (2903706,'Boa Nova',29,'BA','Bahia',2,'NE','Nordeste',290011,'Vitória da Conquista',2904,'Vitória da Conquista',29028,'Vitória da Conquista',2906,'Centro Sul Baiano'),
