@@ -685,6 +685,9 @@ class TgdeskApi {
   static Future<List<dynamic>> regions() async =>
       await _send('GET', '/api/v1/support/regions') as List<dynamic>;
 
+  static Future<List<dynamic>> regionalCostIndex() async =>
+      await _send('GET', '/api/v1/admin/regional-cost-index') as List<dynamic>;
+
   static Future<void> saveRegion(Map<String, dynamic> region) async =>
       await _send('POST', '/api/v1/admin/regions', body: region);
 

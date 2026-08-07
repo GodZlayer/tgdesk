@@ -258,7 +258,20 @@ class _SectionTile extends StatelessWidget {
           : Theme.of(context).colorScheme.surface,
       child: ListTile(
         onTap: onTap,
-        leading: Icon(section.icon),
+        leading: Container(
+          width: 42,
+          height: 42,
+          decoration: BoxDecoration(
+            color: selected
+                ? Theme.of(context).colorScheme.primary
+                : Theme.of(context).colorScheme.primaryContainer,
+            borderRadius: BorderRadius.circular(14),
+          ),
+          child: Icon(section.icon,
+              color: selected
+                  ? Theme.of(context).colorScheme.onPrimary
+                  : Theme.of(context).colorScheme.primary),
+        ),
         title: Text(section.title,
             style: const TextStyle(fontWeight: FontWeight.w700)),
         subtitle: Text(section.description, maxLines: 2),
