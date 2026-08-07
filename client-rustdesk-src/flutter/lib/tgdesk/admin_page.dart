@@ -13,7 +13,136 @@ class AdminPage extends StatefulWidget {
   const AdminPage({super.key});
 
   @override
-  State<AdminPage> createState() => _AdminPageState();
+  State<AdminPage> createState() => _AdminDashboardState();
+}
+
+class _AdminDashboardState extends State<AdminPage> {
+  int _selected = 0;
+
+  static const _legacyItems = <({String title, String subtitle, IconData icon})>[
+    (title: 'Auditoria', subtitle: 'Eventos, relações e visão executiva', icon: Icons.timeline_outlined),
+    (title: 'Regiões', subtitle: 'Mapa, cidades e preço dinâmico', icon: Icons.map_outlined),
+    (title: 'Catálogo', subtitle: 'Serviços, peças e consumíveis', icon: Icons.inventory_2_outlined),
+    (title: 'Precificação', subtitle: 'Percentuais e distribuição da OS', icon: Icons.percent_outlined),
+    (title: 'Chamados', subtitle: 'Taxonomia operacional', icon: Icons.category_outlined),
+    (title: 'Vinculados', subtitle: 'Organizações, redes e pessoas', icon: Icons.account_tree_outlined),
+    (title: 'Cotas', subtitle: 'Direitos de uso e limites', icon: Icons.rule_folder_outlined),
+  ];
+
+  static const _items = <({String title, String subtitle, IconData icon})>[
+    (title: 'Auditoria', subtitle: 'Eventos, rela\u{00e7}\u{00f5}es e vis\u{00e3}o executiva', icon: Icons.timeline_outlined),
+    (title: 'Regi\u{00f5}es', subtitle: 'Mapa, cidades e pre\u{00e7}o din\u{00e2}mico', icon: Icons.map_outlined),
+    (title: 'Cat\u{00e1}logo', subtitle: 'Servi\u{00e7}os, pe\u{00e7}as e consum\u{00ed}veis', icon: Icons.inventory_2_outlined),
+    (title: 'Precifica\u{00e7}\u{00e3}o', subtitle: 'Percentuais e distribui\u{00e7}\u{00e3}o da OS', icon: Icons.percent_outlined),
+    (title: 'Chamados', subtitle: 'Taxonomia operacional', icon: Icons.category_outlined),
+    (title: 'Vinculados', subtitle: 'Organiza\u{00e7}\u{00f5}es, redes e pessoas', icon: Icons.account_tree_outlined),
+    (title: 'Cotas', subtitle: 'Direitos de uso e limites', icon: Icons.rule_folder_outlined),
+  ];
+
+  Widget _content() {
+    switch (_selected) {
+      case 0: return const _AuditEditor();
+      case 1: return const AdminRegionsTab();
+      case 2: return const AdminOsCatalogTab();
+      case 3: return const AdminPricingTab();
+      case 4: return const AdminTicketTypesTab();
+      case 5: return const _LinkedEditor();
+      default: return const _QuotaEditor();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final item = _items[_selected];
+    final scheme = Theme.of(context).colorScheme;
+    return Material(
+      color: scheme.surface,
+      child: Row(children: [
+        SizedBox(
+          width: 292,
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: scheme.surfaceContainerHighest,
+              border: Border(right: BorderSide(color: scheme.outlineVariant)),
+            ),
+            child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 24, 20, 18),
+                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                  Icon(Icons.dashboard_customize_outlined, color: scheme.primary, size: 34),
+                  const SizedBox(height: 12),
+                  Text('Painel administrativo', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
+                  const SizedBox(height: 6),
+                  const Text('Uma mesa visual para governar toda a operação TGDesk.'),
+                ]),
+              ),
+              Expanded(child: ListView.builder(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                itemCount: _items.length,
+                itemBuilder: (context, index) {
+                  final nav = _items[index];
+                  return Padding(
+                    padding: const EdgeInsets.only(bottom: 6),
+                    child: ListTile(
+                      selected: index == _selected,
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
+                      leading: Icon(nav.icon),
+                      title: Text(nav.title, style: const TextStyle(fontWeight: FontWeight.w700)),
+                      subtitle: Text(nav.subtitle),
+                      onTap: () => setState(() => _selected = index),
+                    ),
+                  );
+                },
+              )),
+            ]),
+          ),
+        ),
+        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(28, 24, 28, 16),
+            child: Row(children: [
+              Icon(item.icon, color: scheme.primary, size: 32),
+              const SizedBox(width: 14),
+              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                Text(item.title, style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
+                Text(item.subtitle),
+              ])),
+              _KpiChip(label: 'Servidor', value: 'tempo real', color: scheme.primary),
+              const SizedBox(width: 10),
+              _KpiChip(label: 'Fonte', value: 'regras server-side', color: scheme.tertiary),
+            ]),
+          ),
+          const Divider(height: 1),
+          Expanded(child: Padding(padding: const EdgeInsets.all(20), child: _content())),
+        ])),
+      ]),
+    );
+  }
+}
+
+class _KpiChip extends StatelessWidget {
+  const _KpiChip({required this.label, required this.value, required this.color});
+  final String label;
+  final String value;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) => Container(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+        decoration: BoxDecoration(color: color.withOpacity(.12), borderRadius: BorderRadius.circular(12)),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(label, style: Theme.of(context).textTheme.labelSmall),
+          Text(value, style: TextStyle(color: color, fontWeight: FontWeight.w800)),
+        ]),
+      );
+
+}
+
+class _LegacyAdminPage extends StatefulWidget {
+  const _LegacyAdminPage({super.key});
+
+  @override
+  State<_LegacyAdminPage> createState() => _AdminPageState();
 }
 
 class _AdminSection {
@@ -34,7 +163,7 @@ class _AdminSection {
   final String? badge;
 }
 
-class _AdminPageState extends State<AdminPage> {
+class _AdminPageState extends State<_LegacyAdminPage> {
   int _selected = 0;
   String _filter = '';
   String _slideTemplate = 'investor';

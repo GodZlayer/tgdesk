@@ -42,7 +42,7 @@ func (s *Server) ExportAdminSlideshowPDF(w http.ResponseWriter, r *http.Request)
 	sections := s.slideshowSections(r.Context(), since)
 	domainSlide := append([]string{"Dom?nios auditados"}, sections...)
 	slides := [][]string{
-		{"TGDesk", "Painel administrativo absoluto", "Template: " + template, "Per?odo: ?ltimos " + strconv.Itoa(days) + " dias"},
+		{"TGDesk", "Painel administrativo absoluto", "Template: " + template, "Período: últimos " + strconv.Itoa(days) + " dias"},
 		{"Resumo executivo", "Chamados: " + fmt.Sprint(metrics["tickets_opened"]), "OS criadas: " + fmt.Sprint(metrics["service_orders_created"]), "Volume OS: " + centsText(metrics["service_orders_total_cents"]), "Dispositivos ativos: " + fmt.Sprint(metrics["active_devices"])},
 		domainSlide,
 		{"Vinculados", "Organiza??es: " + fmt.Sprint(metrics["organizations"]), "T?cnicos dispon?veis: " + fmt.Sprint(metrics["available_technicians"]), "Regi?es ativas: " + fmt.Sprint(metrics["active_regions"]), "Eventos de risco: " + fmt.Sprint(metrics["risk_events"])},
