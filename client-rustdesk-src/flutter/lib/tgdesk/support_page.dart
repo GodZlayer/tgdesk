@@ -712,6 +712,7 @@ class _SupportPageState extends State<SupportPage> {
       children: [
         _relatoSection(ticket),
         _diagnosisSection(ticket),
+        _osDecisionSection(ticket),
       ],
     );
   }
@@ -918,6 +919,93 @@ class _SupportPageState extends State<SupportPage> {
               style: Theme.of(context).textTheme.bodySmall),
       ]),
     );
+  }
+
+  Widget _osDecisionSection(Map<String, dynamic> ticket) {
+    final context = _diagnosticContextForOs(ticket);
+    if (context.isEmpty) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 22),
+      child: Container(
+        padding: const EdgeInsets.all(14),
+        decoration: BoxDecoration(
+          color: Theme.of(this.context)
+              .colorScheme
+              .primaryContainer
+              .withOpacity(.32),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+              color:
+                  Theme.of(this.context).colorScheme.primary.withOpacity(.22)),
+        ),
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Row(children: [
+            Icon(Icons.assignment_outlined,
+                color: Theme.of(this.context).colorScheme.primary),
+            const SizedBox(width: 8),
+            Text('Base para construir a OS',
+                style: Theme.of(this.context)
+                    .textTheme
+                    .titleSmall
+                    ?.copyWith(fontWeight: FontWeight.w700)),
+          ]),
+          const SizedBox(height: 8),
+          Text(context),
+        ]),
+      ),
+    );
+  }
+
+  String _diagnosticContextForOs(Map<String, dynamic> ticket) {
+    final buffer = StringBuffer();
+    final deviceId = ticket['device_id']?.toString();
+    final hardware = deviceId == null ? null : _control.deviceHealth[deviceId];
+    final events =
+        _control.ticketEvents[ticket['id']?.toString() ?? ''] ?? const [];
+    Map<String, dynamic>? diagnosis;
+    for (final event in events) {
+      if (event['type'] == 'diagnosis' && event['payload'] is Map) {
+        diagnosis = Map<String, dynamic>.from(event['payload'] as Map);
+      }
+    }
+    if (diagnosis != null) {
+      final level = diagnosis['level']?.toString();
+      buffer.writeln(
+          'Diagnóstico automático: ${TgdeskHealthText.technicalTitle(level)}.');
+      final issues = (diagnosis['issues'] as List? ?? const [])
+          .whereType<Map>()
+          .map((item) => Map<String, dynamic>.from(item))
+          .take(4);
+      for (final issue in issues) {
+        buffer.writeln(
+            '- ${TgdeskHealthText.categoryLabel(issue['category']?.toString())}: ${TgdeskHealthText.technical(issue)}');
+      }
+    }
+    final hardwareMap = _mapOf(hardware);
+    if (hardwareMap.isNotEmpty) {
+      final cpu = _mapOf(hardwareMap['cpu']);
+      final memory = _mapOf(hardwareMap['memory_summary']);
+      final storage = _listOf(hardwareMap['storage']);
+      final gpus = _listOf(hardwareMap['gpus']);
+      if (cpu.isNotEmpty ||
+          memory.isNotEmpty ||
+          storage.isNotEmpty ||
+          gpus.isNotEmpty) {
+        buffer.writeln(
+            'Inventário: ${cpu['model'] ?? 'CPU não identificada'}, memória ${_bytes(memory['total_bytes'])}, ${storage.length} disco(s), ${gpus.length} GPU(s).');
+      }
+    }
+    final runs = deviceId == null
+        ? const <String, Map<String, dynamic>>{}
+        : (_control.diagnosticRuns[deviceId] ??
+            const <String, Map<String, dynamic>>{});
+    if (runs.isNotEmpty) {
+      final completed =
+          runs.values.where((run) => run['status'] == 'completed').length;
+      buffer.writeln(
+          'Testes executados: ${runs.length}, concluídos: $completed.');
+    }
+    return buffer.toString().trim();
   }
 
   Color _severityColor(String? severity) {
@@ -1237,8 +1325,7 @@ class _SupportPageState extends State<SupportPage> {
               ),
               DropdownButtonFormField<String>(
                 value: typeKey,
-                decoration:
-                    const InputDecoration(labelText: 'Tipo de chamado'),
+                decoration: const InputDecoration(labelText: 'Tipo de chamado'),
                 items: tipos
                     .map((tipo) => DropdownMenuItem(
                           value: tipo['key']?.toString(),
@@ -1343,12 +1430,15 @@ class _SupportPageState extends State<SupportPage> {
     // O tipo de OS vem do catálogo. O admin cadastra tipos "os_*" com os campos
     // que a OS precisa: peças, serviços, local, instrução, manual, etc.
     final osTypes = _control.ticketTypes
-        .where((t) => (t['key']?.toString() ?? '').startsWith('os_') && t['active'] == true)
+        .where((t) =>
+            (t['key']?.toString() ?? '').startsWith('os_') &&
+            t['active'] == true)
         .toList(growable: false);
     if (osTypes.isEmpty) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('Nenhum tipo de OS cadastrado. Peça ao admin para criar em Catálogo > Tipos.')));
+            content: Text(
+                'Nenhum tipo de OS cadastrado. Peça ao admin para criar em Catálogo > Tipos.')));
       }
       return;
     }
@@ -1363,6 +1453,22 @@ class _SupportPageState extends State<SupportPage> {
           content: SizedBox(
             width: 600,
             child: Column(mainAxisSize: MainAxisSize.min, children: [
+              if (_diagnosticContextForOs(ticket).isNotEmpty) ...[
+                Container(
+                  width: double.infinity,
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color:
+                        Theme.of(context).colorScheme.surfaceContainerHighest,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Text(
+                    _diagnosticContextForOs(ticket),
+                    style: Theme.of(context).textTheme.bodySmall,
+                  ),
+                ),
+                const SizedBox(height: 12),
+              ],
               DropdownButtonFormField<String>(
                 value: selectedOsType,
                 decoration: const InputDecoration(labelText: 'Tipo de OS'),
@@ -1399,8 +1505,8 @@ class _SupportPageState extends State<SupportPage> {
                 child: const Text('Cancelar')),
             FilledButton(
               onPressed: () async {
-                final falta = ticketTypeFormPending(
-                    selectedOsType, osFormData, {
+                final falta =
+                    ticketTypeFormPending(selectedOsType, osFormData, {
                   'modality': ticket['modality'] ?? 'virtual',
                   'standalone': (ticket['standalone'] == true).toString(),
                   'priority': (ticket['priority'] as num? ?? 2).toString(),
@@ -1425,17 +1531,23 @@ class _SupportPageState extends State<SupportPage> {
         osFormData['scope_notes']?.toString() ??
         osFormData['instrucao']?.toString() ??
         '';
+    final diagnosticContext = _diagnosticContextForOs(ticket);
+    final enrichedScopeNotes = [
+      if (scopeNotes.trim().isNotEmpty) scopeNotes.trim(),
+      if (diagnosticContext.isNotEmpty) 'Contexto técnico:\n$diagnosticContext',
+    ].join('\n\n');
     final osType = osFormData['os_type']?.toString() ??
         (ticket['modality'] == 'onsite' ? 'onsite' : 'virtual');
     final items = _parseOsItems(osFormData);
     final values = _parseOsValues(osFormData);
     final scheduledAt = _parseDateTime(osFormData['agendada_para']);
-    final scheduledLocation = _parseLocation(osFormData['local'] ?? osFormData['location']);
+    final scheduledLocation =
+        _parseLocation(osFormData['local'] ?? osFormData['location']);
 
     await _action(() async {
       await TgdeskApi.convertTicketToServiceOrder(
         ticket['id'].toString(),
-        scopeNotes: scopeNotes,
+        scopeNotes: enrichedScopeNotes,
         osType: osType,
         items: items,
         values: values,
@@ -1451,7 +1563,10 @@ class _SupportPageState extends State<SupportPage> {
     final raw = data['pecas'] ?? data['servicos'] ?? data['items'];
     if (raw == null) return const [];
     if (raw is List) {
-      return raw.whereType<Map>().map((e) => Map<String, dynamic>.from(e)).toList();
+      return raw
+          .whereType<Map>()
+          .map((e) => Map<String, dynamic>.from(e))
+          .toList();
     }
     if (raw is Map) return [Map<String, dynamic>.from(raw)];
     return const [];
@@ -1459,7 +1574,13 @@ class _SupportPageState extends State<SupportPage> {
 
   Map<String, dynamic> _parseOsValues(Map<String, dynamic> data) {
     final out = <String, dynamic>{};
-    for (final key in ['valor', 'valor_estimado', 'estimated', 'preco', 'price']) {
+    for (final key in [
+      'valor',
+      'valor_estimado',
+      'estimated',
+      'preco',
+      'price'
+    ]) {
       if (data[key] != null) {
         final v = num.tryParse(data[key].toString());
         if (v != null) out['estimated'] = v.toDouble();

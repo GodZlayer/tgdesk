@@ -22,6 +22,8 @@ const maxBrandLogoBytes = 1024 * 1024
 type brandRecord struct {
 	Enabled     bool
 	Name        string
+	NameMode    string
+	NameSuffix  string
 	LogoFile    string
 	FaviconFile string
 	UpdatedAt   time.Time
@@ -46,13 +48,18 @@ func readBrandLogo(fileName string) []byte {
 }
 
 func brandJSON(record brandRecord, includeLogo bool) map[string]any {
+	applicationName := brandApplicationName(record)
 	result := map[string]any{
-		"enabled":       record.Enabled,
-		"name":          record.Name,
-		"has_logo":      record.LogoFile != "",
-		"has_favicon":   record.FaviconFile != "",
-		"updated_at":    record.UpdatedAt.UTC().Format(time.RFC3339Nano),
-		"asset_version": record.UpdatedAt.UTC().UnixNano(),
+		"enabled":          record.Enabled,
+		"name":             record.Name,
+		"name_mode":        record.NameMode,
+		"name_suffix":      record.NameSuffix,
+		"application_name": applicationName,
+		"shortcut_name":    applicationName,
+		"has_logo":         record.LogoFile != "",
+		"has_favicon":      record.FaviconFile != "",
+		"updated_at":       record.UpdatedAt.UTC().Format(time.RFC3339Nano),
+		"asset_version":    record.UpdatedAt.UTC().UnixNano(),
 	}
 	if includeLogo {
 		if logo := readBrandLogo(record.LogoFile); len(logo) > 0 {
@@ -69,6 +76,29 @@ func brandJSON(record brandRecord, includeLogo bool) map[string]any {
 	return result
 }
 
+func brandApplicationName(record brandRecord) string {
+	name := strings.TrimSpace(record.Name)
+	if name == "" {
+		return "TGDesk"
+	}
+	suffix := strings.TrimSpace(record.NameSuffix)
+	if suffix == "" || record.NameMode == "" || record.NameMode == "brand_only" {
+		return name
+	}
+	switch record.NameMode {
+	case "brand_suffix":
+		return name + suffix
+	case "suffix_brand":
+		return suffix + name
+	case "brand_dash_suffix":
+		return name + "-" + suffix
+	case "brand_space_suffix":
+		return name + " " + suffix
+	default:
+		return name
+	}
+}
+
 func brandingChanged(previous, latest string) bool {
 	return previous != latest
 }
@@ -76,10 +106,13 @@ func brandingChanged(previous, latest string) bool {
 func (s *Server) technicianBrand(ctx context.Context, technicianID string) (brandRecord, error) {
 	var record brandRecord
 	err := s.Pool.QueryRow(ctx, `
-		SELECT branding_enabled,brand_name,brand_logo_file,brand_favicon_file,
-		       branding_updated_at
+		SELECT branding_enabled,brand_name,
+		       COALESCE(brand_name_mode,'brand_only'),
+		       COALESCE(brand_name_suffix,''),
+		       brand_logo_file,brand_favicon_file,branding_updated_at
 		FROM technicians WHERE id=$1`, technicianID).
-		Scan(&record.Enabled, &record.Name, &record.LogoFile,
+		Scan(&record.Enabled, &record.Name, &record.NameMode, &record.NameSuffix,
+			&record.LogoFile,
 			&record.FaviconFile, &record.UpdatedAt)
 	return record, err
 }
@@ -104,6 +137,8 @@ func (s *Server) getBranding(w http.ResponseWriter, r *http.Request, technicianI
 
 type updateBrandingRequest struct {
 	Name          string `json:"name"`
+	NameMode      string `json:"name_mode"`
+	NameSuffix    string `json:"name_suffix"`
 	LogoBase64    string `json:"logo_base64"`
 	RemoveLogo    bool   `json:"remove_logo"`
 	FaviconBase64 string `json:"favicon_base64"`
@@ -136,8 +171,25 @@ func (s *Server) updateBranding(w http.ResponseWriter, r *http.Request, technici
 		return
 	}
 	req.Name = strings.TrimSpace(req.Name)
+	req.NameMode = strings.TrimSpace(req.NameMode)
+	req.NameSuffix = strings.TrimSpace(req.NameSuffix)
 	if len(req.Name) < 2 || len(req.Name) > 40 {
 		writeErrCode(w, http.StatusBadRequest, "nome_deve_possuir_entre_2", "o nome deve possuir entre 2 e 40 caracteres")
+		return
+	}
+	if req.NameMode == "" {
+		req.NameMode = "brand_only"
+	}
+	validMode := map[string]bool{
+		"brand_only": true, "brand_suffix": true, "suffix_brand": true,
+		"brand_dash_suffix": true, "brand_space_suffix": true,
+	}
+	if !validMode[req.NameMode] {
+		writeErrCode(w, http.StatusBadRequest, "modo_nome_marca_invalido", "modo do nome da marca inválido")
+		return
+	}
+	if len([]rune(req.NameSuffix)) > 24 {
+		writeErrCode(w, http.StatusBadRequest, "sufixo_marca_maior_24", "sufixo da marca deve possuir até 24 caracteres")
 		return
 	}
 
@@ -206,9 +258,10 @@ func (s *Server) updateBranding(w http.ResponseWriter, r *http.Request, technici
 		}
 	}
 	if _, err := s.Pool.Exec(r.Context(), `
-		UPDATE technicians SET brand_name=$1,brand_logo_file=$2,brand_favicon_file=$3,
-			branding_updated_at=now() WHERE id=$4`,
-		req.Name, logoFile, faviconFile, technicianID); err != nil {
+		UPDATE technicians SET brand_name=$1,brand_name_mode=$2,brand_name_suffix=$3,
+			brand_logo_file=$4,brand_favicon_file=$5,
+			branding_updated_at=now() WHERE id=$6`,
+		req.Name, req.NameMode, req.NameSuffix, logoFile, faviconFile, technicianID); err != nil {
 		writeErrCode(w, http.StatusInternalServerError, "falha_salvar_personalizacao", "falha ao salvar personalização")
 		return
 	}
@@ -252,14 +305,17 @@ func (s *Server) deviceBranding(ctx context.Context, deviceID string) (map[strin
 	var technicianID string
 	var record brandRecord
 	err := s.Pool.QueryRow(ctx, `
-		SELECT t.id,t.branding_enabled,t.brand_name,t.brand_logo_file,
-		       t.brand_favicon_file,t.branding_updated_at
+		SELECT t.id,t.branding_enabled,t.brand_name,
+		       COALESCE(t.brand_name_mode,'brand_only'),
+		       COALESCE(t.brand_name_suffix,''),
+		       t.brand_logo_file,t.brand_favicon_file,t.branding_updated_at
 		FROM devices d
 		JOIN networks n ON n.id=d.network_id
 		JOIN organizations o ON o.id=n.organization_id
 		JOIN technicians t ON t.id=o.owner_technician_id
 		WHERE d.id=$1 AND d.role='host' AND d.state='ativo'`, deviceID).
-		Scan(&technicianID, &record.Enabled, &record.Name, &record.LogoFile,
+		Scan(&technicianID, &record.Enabled, &record.Name, &record.NameMode,
+			&record.NameSuffix, &record.LogoFile,
 			&record.FaviconFile, &record.UpdatedAt)
 	if err != nil || !record.Enabled || strings.TrimSpace(record.Name) == "" {
 		return map[string]any{"enabled": false, "name": "TGDesk"}, "default"

@@ -9,7 +9,6 @@ import 'api_client.dart';
 import 'branding_window_icon.dart';
 import 'devices_page.dart';
 import 'admin_page.dart';
-import 'technicians_page.dart';
 import 'window_frame.dart';
 import 'client_home_page.dart';
 import 'agent_deploy.dart';
@@ -34,7 +33,10 @@ class _HubHomePageState extends State<HubHomePage> {
 
   String get _productName {
     if (_branding['enabled'] != true) return 'TGDesk';
-    final name = _branding['name']?.toString().trim() ?? '';
+    final name =
+        (_branding['application_name']?.toString().trim().isNotEmpty ?? false)
+            ? _branding['application_name']?.toString().trim() ?? ''
+            : _branding['name']?.toString().trim() ?? '';
     return name.isEmpty ? 'TGDesk' : name;
   }
 
@@ -152,9 +154,6 @@ class _HubHomePageState extends State<HubHomePage> {
       if (isSuperAdmin)
         const NavigationRailDestination(
             icon: Icon(Icons.admin_panel_settings), label: Text('Admin')),
-      if (isSuperAdmin)
-        const NavigationRailDestination(
-            icon: Icon(Icons.badge), label: Text('Técnicos')),
       if (!isSuperAdmin && _brandingEnabled)
         const NavigationRailDestination(
             icon: Icon(Icons.palette_outlined), label: Text('Minha marca')),
@@ -165,7 +164,6 @@ class _HubHomePageState extends State<HubHomePage> {
       const TgdeskClientHomePage(embedded: true),
       const SupportPage(),
       if (isSuperAdmin) const AdminPage(),
-      if (isSuperAdmin) const TechniciansPage(),
       if (!isSuperAdmin && _brandingEnabled) const BrandingPage(),
     ];
 

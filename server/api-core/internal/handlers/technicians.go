@@ -13,6 +13,7 @@ func (s *Server) ListTechnicians(w http.ResponseWriter, r *http.Request) {
 	rs, err := s.Pool.Query(r.Context(), `
 		SELECT t.id, t.username, t.role, t.created_via_env, t.status, t.created_at,
 		       t.branding_enabled,t.brand_name,t.brand_logo_file<>'',
+		       COALESCE(t.brand_name_mode,'brand_only'),COALESCE(t.brand_name_suffix,''),
 		       t.name_style, tc.template, tc.active
 		FROM technicians t
 		LEFT JOIN technician_name_styles tc ON tc.key = t.name_style
@@ -28,12 +29,13 @@ func (s *Server) ListTechnicians(w http.ResponseWriter, r *http.Request) {
 		var t models.Technician
 		var brandingEnabled, hasBrandLogo bool
 		var brandName string
+		var brandNameMode, brandNameSuffix string
 		var nameStyle *string
 		var styleTemplate *string
 		var styleActive *bool
 		if err := rs.Scan(&t.ID, &t.Username, &t.Role, &t.CreatedViaEnv, &t.Status,
 			&t.CreatedAt, &brandingEnabled, &brandName, &hasBrandLogo,
-			&nameStyle, &styleTemplate, &styleActive); err != nil {
+			&brandNameMode, &brandNameSuffix, &nameStyle, &styleTemplate, &styleActive); err != nil {
 			writeErrCode(w, http.StatusInternalServerError, "falha_ler_tecnicos", "falha ao ler técnicos")
 			return
 		}
@@ -42,6 +44,8 @@ func (s *Server) ListTechnicians(w http.ResponseWriter, r *http.Request) {
 		_ = json.Unmarshal(item, &data)
 		data["branding_enabled"] = brandingEnabled
 		data["brand_name"] = brandName
+		data["brand_name_mode"] = brandNameMode
+		data["brand_name_suffix"] = brandNameSuffix
 		data["has_brand_logo"] = hasBrandLogo
 		// Nome de exibição montado em cima do username. Sem estilo, ou com um
 		// estilo que não está mais ativo, cai para "só o nome" — nunca quebra.

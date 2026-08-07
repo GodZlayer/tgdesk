@@ -39,7 +39,10 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
     if (widget.embedded || _status?['state'] != 'ativo') return 'TGDesk';
     final branding = _branding;
     if (branding['enabled'] != true) return 'TGDesk';
-    final name = branding['name']?.toString().trim() ?? '';
+    final name =
+        (branding['application_name']?.toString().trim().isNotEmpty ?? false)
+            ? branding['application_name']?.toString().trim() ?? ''
+            : branding['name']?.toString().trim() ?? '';
     return name.isEmpty ? 'TGDesk' : name;
   }
 
@@ -47,13 +50,11 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
 
   Widget _clientBrandTitle() {
     final encoded = _branding['logo_base64']?.toString() ?? '';
+    if (encoded.isNotEmpty) {
+      return Image.memory(base64Decode(encoded),
+          height: 25, width: 72, fit: BoxFit.contain);
+    }
     return Row(mainAxisSize: MainAxisSize.min, children: [
-      if (encoded.isNotEmpty)
-        Padding(
-          padding: const EdgeInsets.only(right: 8),
-          child: Image.memory(base64Decode(encoded),
-              height: 25, width: 72, fit: BoxFit.contain),
-        ),
       Text(_productName,
           style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 15)),
     ]);
@@ -149,12 +150,18 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
           if ((pedido['motivo']?.toString() ?? '').isNotEmpty) ...[
             const SizedBox(height: TgdeskSpacing.xs),
             Text('Motivo: ${pedido['motivo']}',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(color: TgdeskTextColors.strong)),
+                style: Theme.of(context)
+                    .textTheme
+                    .bodySmall
+                    ?.copyWith(color: TgdeskTextColors.strong)),
           ],
           const SizedBox(height: TgdeskSpacing.xs),
           Text(
               'Se você recusar, o técnico continua podendo fazer testes, mas não controla a máquina.',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: TgdeskTextColors.body)),
+              style: Theme.of(context)
+                  .textTheme
+                  .bodySmall
+                  ?.copyWith(color: TgdeskTextColors.body)),
           const SizedBox(height: TgdeskSpacing.sm),
           Row(children: [
             FilledButton(
@@ -176,7 +183,8 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
   Widget _supervisorInvitePanel() => Container(
         width: double.infinity,
         margin: const EdgeInsets.only(top: TgdeskSpacing.md),
-        padding: const EdgeInsets.symmetric(horizontal: TgdeskSpacing.lg, vertical: TgdeskSpacing.md),
+        padding: const EdgeInsets.symmetric(
+            horizontal: TgdeskSpacing.lg, vertical: TgdeskSpacing.md),
         decoration: BoxDecoration(
           color: TgdeskColors.seed.withOpacity(.05),
           border: Border.all(color: TgdeskColors.seed.withOpacity(.3)),
@@ -189,7 +197,10 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
             child: Text(
                 'Recebeu um código para supervisionar outra organização? '
                 'Resgate aqui para passar a ver os chamados dela.',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(color: TgdeskTextColors.strong)),
+                style: Theme.of(context)
+                    .textTheme
+                    .bodySmall
+                    ?.copyWith(color: TgdeskTextColors.strong)),
           ),
           TextButton(
             onPressed: _resgatarConviteSupervisor,
@@ -346,9 +357,7 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
       ),
       child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
         Row(children: [
-          Icon(statusIcon,
-              size: 20,
-              color: accentColor),
+          Icon(statusIcon, size: 20, color: accentColor),
           const SizedBox(width: TgdeskSpacing.sm),
           Expanded(
               child: Text(texto,
@@ -357,7 +366,10 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
         if ((os['escopo']?.toString() ?? '').isNotEmpty) ...[
           const SizedBox(height: TgdeskSpacing.xs),
           Text('Serviço: ${os['escopo']}',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: TgdeskTextColors.body)),
+              style: Theme.of(context)
+                  .textTheme
+                  .bodySmall
+                  ?.copyWith(color: TgdeskTextColors.body)),
         ],
         if ((os['instrucao']?.toString() ?? '').isNotEmpty) ...[
           const SizedBox(height: TgdeskSpacing.xs),
@@ -371,7 +383,10 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
         if (agendada.isNotEmpty) ...[
           const SizedBox(height: TgdeskSpacing.xs),
           Text('Agendado para ${_dataLegivel(agendada)}',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: TgdeskTextColors.strong)),
+              style: Theme.of(context)
+                  .textTheme
+                  .bodySmall
+                  ?.copyWith(color: TgdeskTextColors.strong)),
         ],
         if (aguardaEle) ...[
           const SizedBox(height: TgdeskSpacing.sm),
@@ -438,11 +453,11 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
         const Divider(height: TgdeskSpacing.md),
         Row(children: [
           const Expanded(
-              child: Text('Total',
-                  style: TextStyle(fontWeight: FontWeight.w600))),
+              child:
+                  Text('Total', style: TextStyle(fontWeight: FontWeight.w600))),
           Text(moeda(total),
-              style: const TextStyle(
-                  fontWeight: FontWeight.w700, fontSize: 16)),
+              style:
+                  const TextStyle(fontWeight: FontWeight.w700, fontSize: 16)),
         ]),
       ]),
     );
@@ -487,7 +502,10 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
         const SizedBox(height: TgdeskSpacing.sm),
         if (mensagens.isEmpty)
           Text('Assim que um técnico assumir, a conversa aparece aqui.',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(color: TgdeskTextColors.body))
+              style: Theme.of(context)
+                  .textTheme
+                  .bodySmall
+                  ?.copyWith(color: TgdeskTextColors.body))
         else
           ConstrainedBox(
             constraints: const BoxConstraints(maxHeight: 150),
@@ -499,20 +517,34 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
                   final doCliente = m['from_client'] == true;
                   return Padding(
                     padding: const EdgeInsets.only(bottom: TgdeskSpacing.xs),
-                    child: Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                      Icon(doCliente ? Icons.person_outline : Icons.support_agent_outlined,
-                          size: 16, color: TgdeskColors.seed),
-                      const SizedBox(width: TgdeskSpacing.xs),
-                      Expanded(
-                        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                          Text(doCliente ? 'Você' : 'Técnico',
-                              style: Theme.of(context).textTheme.labelSmall?.copyWith(
-                                  fontWeight: FontWeight.w600, color: TgdeskColors.seed)),
-                          Text(m['message']?.toString() ?? '',
-                              style: Theme.of(context).textTheme.bodySmall),
+                    child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(
+                              doCliente
+                                  ? Icons.person_outline
+                                  : Icons.support_agent_outlined,
+                              size: 16,
+                              color: TgdeskColors.seed),
+                          const SizedBox(width: TgdeskSpacing.xs),
+                          Expanded(
+                            child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(doCliente ? 'Você' : 'Técnico',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .labelSmall
+                                          ?.copyWith(
+                                              fontWeight: FontWeight.w600,
+                                              color: TgdeskColors.seed)),
+                                  Text(m['message']?.toString() ?? '',
+                                      style: Theme.of(context)
+                                          .textTheme
+                                          .bodySmall),
+                                ]),
+                          ),
                         ]),
-                      ),
-                    ]),
                   );
                 }).toList(),
               ),
@@ -529,11 +561,12 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
               controller: _chatController,
               style: const TextStyle(fontSize: 13),
               decoration: InputDecoration(
-                isDense: true,
-                hintText: 'Escreva para o técnico (opcional)',
-                border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(TgdeskSpacing.xs),
-                    borderSide: BorderSide(color: TgdeskColors.seed.withOpacity(.3)))),
+                  isDense: true,
+                  hintText: 'Escreva para o técnico (opcional)',
+                  border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(TgdeskSpacing.xs),
+                      borderSide: BorderSide(
+                          color: TgdeskColors.seed.withOpacity(.3)))),
               onSubmitted: (_) => _sendChat(),
             ),
           ),
@@ -614,8 +647,7 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
 
   void _logSelfBind(String message) {
     try {
-      final dir = Directory(
-          '${tgdeskDataHome()}${Platform.pathSeparator}logs');
+      final dir = Directory('${tgdeskDataHome()}${Platform.pathSeparator}logs');
       if (!dir.existsSync()) dir.createSync(recursive: true);
       File('${dir.path}${Platform.pathSeparator}ui.log').writeAsStringSync(
           '${DateTime.now().toIso8601String()} self-bind: $message\n',
@@ -737,7 +769,8 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
           const Text('Conectando este computador ao TGDesk',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600)),
           const SizedBox(height: TgdeskSpacing.sm),
-          const Text('Estamos aplicando a configuração escolhida na instalação.',
+          const Text(
+              'Estamos aplicando a configuração escolhida na instalação.',
               style: TextStyle(color: TgdeskTextColors.body)),
           if (code.isNotEmpty) ...[
             const SizedBox(height: TgdeskSpacing.xl),
@@ -855,13 +888,15 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            TgdeskHealthText.clientTitle(health['client_level']?.toString()),
+                            TgdeskHealthText.clientTitle(
+                                health['client_level']?.toString()),
                             style: const TextStyle(
                                 fontSize: 26, fontWeight: FontWeight.w600),
                           ),
                           const SizedBox(height: TgdeskSpacing.xs),
                           Text(
-                            _brandText(TgdeskHealthText.clientSummary(health['client_level']?.toString())),
+                            _brandText(TgdeskHealthText.clientSummary(
+                                health['client_level']?.toString())),
                             style: const TextStyle(
                                 fontSize: 15, color: TgdeskTextColors.support),
                           ),
@@ -876,21 +911,33 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
                   // A tela só escolhe ícone e cor.
                   Row(children: [
                     Expanded(
-                        child: _serverCard(healthMetrics, 'processing',
-                            'Experiência de uso', Icons.speed_outlined,
-                            processingState, cpuLevel)),
+                        child: _serverCard(
+                            healthMetrics,
+                            'processing',
+                            'Experiência de uso',
+                            Icons.speed_outlined,
+                            processingState,
+                            cpuLevel)),
                     const SizedBox(width: TgdeskSpacing.md),
                     Expanded(
-                        child: _serverCard(healthMetrics, 'memory', 'Memória',
-                            Icons.view_module_outlined, memoryState,
+                        child: _serverCard(
+                            healthMetrics,
+                            'memory',
+                            'Memória',
+                            Icons.view_module_outlined,
+                            memoryState,
                             memoryLevel)),
                   ]),
                   const SizedBox(height: TgdeskSpacing.md),
                   Row(children: [
                     Expanded(
-                        child: _serverCard(healthMetrics, 'storage',
-                            'Armazenamento', Icons.storage_outlined,
-                            storageState, storageLevel)),
+                        child: _serverCard(
+                            healthMetrics,
+                            'storage',
+                            'Armazenamento',
+                            Icons.storage_outlined,
+                            storageState,
+                            storageLevel)),
                     const SizedBox(width: TgdeskSpacing.md),
                     Expanded(
                         child: _clientInsightCard(
@@ -926,7 +973,8 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
                             ]),
                       ),
                       Text(_collectedLabel(),
-                          style: const TextStyle(color: TgdeskTextColors.muted)),
+                          style:
+                              const TextStyle(color: TgdeskTextColors.muted)),
                     ]),
                   ),
                   const SizedBox(height: TgdeskSpacing.md),
@@ -1057,8 +1105,8 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
     // Título, estado e narrativa são desta camada. Do servidor vem o que
     // só ele sabe: nível, desde quando a condição dura e para onde caminha.
     final detalhe = TgdeskHealthText.cardNarrative(m, categoria);
-    return _clientInsightCard(tituloPadrao, estadoPadrao,
-        _brandText(detalhe), icon, _indicatorColor(nivel));
+    return _clientInsightCard(tituloPadrao, estadoPadrao, _brandText(detalhe),
+        icon, _indicatorColor(nivel));
   }
 
   Widget _clientInsightCard(String title, String state, String detail,

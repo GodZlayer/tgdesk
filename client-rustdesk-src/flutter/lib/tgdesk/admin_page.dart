@@ -6,6 +6,7 @@ import 'admin_catalog_page.dart';
 import 'admin_os_catalog_tab.dart';
 import 'admin_regions_tab.dart';
 import 'api_client.dart';
+import 'technicians_page.dart';
 import 'theme.dart';
 
 class AdminPage extends StatefulWidget {
@@ -1028,6 +1029,27 @@ class _LinkedEditorState extends State<_LinkedEditor> {
             devices: devices,
             technicians: technicians,
             onNode: _openNode,
+          ),
+          const SizedBox(height: TgdeskSpacing.lg),
+          Card(
+            child: Padding(
+              padding: const EdgeInsets.all(TgdeskSpacing.md),
+              child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(children: [
+                      const Icon(Icons.badge_outlined),
+                      const SizedBox(width: 10),
+                      Text('Técnicos, supervisores e permissões',
+                          style: Theme.of(context).textTheme.titleLarge),
+                    ]),
+                    const SizedBox(height: 8),
+                    const Text(
+                        'Esta gestão saiu do menu lateral e agora pertence a Vinculados: técnicos, supervisores, branding, estilos de nome, chaves e vínculos ficam no mesmo contexto operacional.'),
+                    const SizedBox(height: 12),
+                    const SizedBox(height: 720, child: TechniciansPage()),
+                  ]),
+            ),
           ),
         ],
       ),

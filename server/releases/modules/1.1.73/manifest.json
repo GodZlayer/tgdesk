@@ -1,7 +1,7 @@
 {
     "format_version":  1,
     "version":  "1.1.73",
-    "generated_at":  "2026-08-07T05:15:02.6557902+00:00",
+    "generated_at":  "2026-08-07T06:55:50.8132764+00:00",
     "processes":  [
                       "tgdesk.exe"
                   ],
@@ -324,7 +324,7 @@
                   },
                   {
                       "path":  "tgdesk.exe",
-                      "sha256":  "dce5144d5b179288c9fc0485e18127a226be69f395c4115898233e1ffa3e217a",
+                      "sha256":  "64bc4ff6b18678d8b5daa1d4768faf36dd87492d6b17eff9243d430d45ed0ec7",
                       "size":  460288,
                       "scope":  "service"
                   },

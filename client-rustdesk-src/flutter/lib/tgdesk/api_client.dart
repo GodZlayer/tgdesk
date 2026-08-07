@@ -406,12 +406,16 @@ class TgdeskApi {
 
   static Future<Map<String, dynamic>> updateMyBranding(
           String name,
+          String nameMode,
+          String nameSuffix,
           String? logoBase64,
           bool removeLogo,
           String? faviconBase64,
           bool removeFavicon) async =>
       await _send('PUT', '/api/v1/branding/me', body: {
         'name': name,
+        'name_mode': nameMode,
+        'name_suffix': nameSuffix,
         if (logoBase64 != null) 'logo_base64': logoBase64,
         'remove_logo': removeLogo,
         if (faviconBase64 != null) 'favicon_base64': faviconBase64,
@@ -426,12 +430,16 @@ class TgdeskApi {
   static Future<Map<String, dynamic>> updateTechnicianBranding(
           String technicianId,
           String name,
+          String nameMode,
+          String nameSuffix,
           String? logoBase64,
           bool removeLogo,
           String? faviconBase64,
           bool removeFavicon) async =>
       await _send('PUT', '/api/v1/technicians/$technicianId/branding', body: {
         'name': name,
+        'name_mode': nameMode,
+        'name_suffix': nameSuffix,
         if (logoBase64 != null) 'logo_base64': logoBase64,
         'remove_logo': removeLogo,
         if (faviconBase64 != null) 'favicon_base64': faviconBase64,

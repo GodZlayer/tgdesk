@@ -3,7 +3,7 @@
 ; uso único validada pelo servidor dentro do próprio TGDesk.
 
 #define MyAppName "TGDesk"
-#define MyAppVersion "1.1.73"
+#define MyAppVersion "1.2.0"
 #define MyAppPublisher "TGDesk"
 #ifndef TGDeskServerHost
   #define TGDeskServerHost "127.0.0.1"
@@ -27,7 +27,7 @@ OutputDir=.\output
 ; esta linha por texto exato para garantir que o instalador esta identificado
 ; com a versao publicada. Derivar aqui apagaria essa verificacao. As duas
 ; versoes deste arquivo sobem juntas, no passo 1 do fluxo de release.
-OutputBaseFilename=tgdesk-installer-1.1.73
+OutputBaseFilename=tgdesk-installer-1.2.0
 Compression=lzma2
 SolidCompression=yes
 ArchitecturesInstallIn64BitMode=x64compatible
@@ -132,7 +132,7 @@ end;
 
 { Chamadas pelo motor do Inno, inclusive antes de o wizard existir — dai as
   guardas contra pagina nula. Sem marca escolhida, tudo cai no padrao TGDesk. }
-function BrandDisplayName(Param: string): string;
+function BrandBaseName: string;
 var
   Index: Integer;
   Clean: string;
@@ -142,16 +142,22 @@ begin
     exit;
   { O nome vira arquivo .lnk e nome de pasta do menu Iniciar. Caractere
     proibido em caminho faria a criacao do atalho falhar e derrubaria a
-    instalacao inteira por causa de um nome cadastrado no servidor. }
+    instalacao inteira por causa de um nome cadastrado no servidor.
+    Espacos e pontuacao neutra saem para formar o padrao MarcaDesk/MarcaAssist. }
   Clean := '';
   for Index := 1 to Length(SelectedTechnicianName) do
-    if Pos(SelectedTechnicianName[Index], '\/:*?"<>|') = 0 then
+    if Pos(SelectedTechnicianName[Index], '\/:*?"<>| -_.') = 0 then
       Clean := Clean + SelectedTechnicianName[Index];
   Clean := Trim(Clean);
-  if Length(Clean) > 60 then
-    Clean := Trim(Copy(Clean, 1, 60));
+  if Length(Clean) > 48 then
+    Clean := Trim(Copy(Clean, 1, 48));
   if Clean <> '' then
     Result := Clean;
+end;
+
+function BrandDisplayName(Param: string): string;
+begin
+  Result := BrandBaseName;
 end;
 
 function BrandIconFile(Param: string): string;
@@ -542,10 +548,20 @@ begin
         SelectedTechnicianID + '/branding', Body) then
     begin
       BrandingPayload := Body;
-      { O nome da marca ganha do nome do tecnico quando existe: e como o
-        cliente conhece quem atende ele. }
+      { O nome de aplicacao/atalho escolhido pelo supervisor ganha do nome
+        tecnico. Se ele nao configurou composicao, usa a marca base. }
       Cursor := 1;
-      BrandName := JsonStringAfter(Body, Cursor, 'name');
+      BrandName := JsonStringAfter(Body, Cursor, 'shortcut_name');
+      if Trim(BrandName) = '' then
+      begin
+        Cursor := 1;
+        BrandName := JsonStringAfter(Body, Cursor, 'application_name');
+      end;
+      if Trim(BrandName) = '' then
+      begin
+        Cursor := 1;
+        BrandName := JsonStringAfter(Body, Cursor, 'name');
+      end;
       if Trim(BrandName) <> '' then
         SelectedTechnicianName := BrandName;
     end;

@@ -366,8 +366,10 @@ class InputModel {
               !model.isViewCamera) {
             _sideButtonDownModels[mb] = model;
             // Fire-and-forget to avoid blocking the platform channel handler.
-            unawaited(model._sendMouseUnchecked(type, mb).catchError((Object e) {
-              debugPrint('[InputModel] failed to send side button $type for $mb: $e');
+            unawaited(
+                model._sendMouseUnchecked(type, mb).catchError((Object e) {
+              debugPrint(
+                  '[InputModel] failed to send side button $type for $mb: $e');
             }));
           }
         } else {
@@ -377,8 +379,10 @@ class InputModel {
           // release always goes through even if permissions changed.
           final model = _sideButtonDownModels.remove(mb);
           if (model != null) {
-            unawaited(model._sendMouseUnchecked(type, mb).catchError((Object e) {
-              debugPrint('[InputModel] failed to send side button $type for $mb: $e');
+            unawaited(
+                model._sendMouseUnchecked(type, mb).catchError((Object e) {
+              debugPrint(
+                  '[InputModel] failed to send side button $type for $mb: $e');
             }));
           }
         }
@@ -1617,12 +1621,12 @@ class InputModel {
   /// Desktop and web desktop continue to use the global position directly
   /// because their pointer mapping is window-based.
   Offset _pointerPositionForRemoteCanvas(PointerEvent event) {
-    if (isDesktop || isWebDesktop) {
-      return event.position;
-    }
     final mediaData = MediaQueryData.fromView(
         WidgetsBinding.instance.platformDispatcher.views.first);
     final adjustY = parent.target?.canvasModel.getAdjustY() ?? 0.0;
+    if (isDesktop || isWebDesktop) {
+      return Offset(event.localPosition.dx, event.localPosition.dy - adjustY);
+    }
     return Offset(
       event.localPosition.dx - mediaData.padding.left,
       event.localPosition.dy - mediaData.padding.top - adjustY,
@@ -1660,7 +1664,8 @@ class InputModel {
     if (e is PointerScrollEvent) {
       final rawDx = e.scrollDelta.dx;
       final rawDy = e.scrollDelta.dy;
-      final dominantDelta = rawDx.abs() > rawDy.abs() ? rawDx.abs() : rawDy.abs();
+      final dominantDelta =
+          rawDx.abs() > rawDy.abs() ? rawDx.abs() : rawDy.abs();
       final isSmooth = dominantDelta < 1;
       final nowUs = DateTime.now().microsecondsSinceEpoch;
       final dtUs = _lastWheelTsUs == 0 ? 0 : nowUs - _lastWheelTsUs;
@@ -1941,8 +1946,6 @@ class InputModel {
     // A posicao do ponteiro aqui e GLOBAL — medida do canto da janela —, entao
     // sem descontar isto o cursor chega na maquina remota deslocado
     // exatamente pelo tamanho da barra de titulo e da barra lateral.
-    y -= stateGlobal.tgdeskEmbedTop;
-    x -= stateGlobal.tgdeskEmbedLeft;
     if (isMove) {
       final canvasModel = parent.target!.canvasModel;
 

@@ -37,11 +37,13 @@ type tgdeskStatus struct {
 }
 
 type BrandingState struct {
-	Enabled       bool   `json:"enabled"`
-	Name          string `json:"name"`
-	LogoBase64    string `json:"logo_base64,omitempty"`
-	FaviconBase64 string `json:"favicon_base64,omitempty"`
-	UpdatedAt     string `json:"updated_at,omitempty"`
+	Enabled         bool   `json:"enabled"`
+	Name            string `json:"name"`
+	ApplicationName string `json:"application_name,omitempty"`
+	ShortcutName    string `json:"shortcut_name,omitempty"`
+	LogoBase64      string `json:"logo_base64,omitempty"`
+	FaviconBase64   string `json:"favicon_base64,omitempty"`
+	UpdatedAt       string `json:"updated_at,omitempty"`
 }
 
 func syncBrandFavicon(branding BrandingState) {

@@ -123,19 +123,11 @@ fn make_tray() -> hbb_common::ResultType<()> {
         tray_menu.append_items(&[&open_i]).ok();
     }
     let tooltip = |count: usize| {
+        let app_name = tray_brand_name();
         if count == 0 {
-            format!(
-                "{} {}",
-                crate::get_app_name(),
-                translate("Service is running".to_owned()),
-            )
+            format!("{} - {}", app_name, translate("Service is running".to_owned()))
         } else {
-            format!(
-                "{} - {}\n{}",
-                crate::get_app_name(),
-                translate("Ready".to_owned()),
-                translate("{".to_string() + &format!("{count}") + "} sessions"),
-            )
+            format!("{} - {}", app_name, tray_access_status(count))
         }
     };
     let mut _tray_icon: Arc<Mutex<Option<TrayIcon>>> = Default::default();
@@ -325,6 +317,54 @@ async fn start_query_session_count(sender: std::sync::mpsc::Sender<Data>) {
             }
         }
         hbb_common::sleep(1.).await;
+    }
+}
+
+#[cfg(windows)]
+fn tray_brand_name() -> String {
+    let default_name = crate::get_app_name();
+    let Some(program_data) = std::env::var_os("PROGRAMDATA") else {
+        return default_name;
+    };
+    let status_path = std::path::PathBuf::from(program_data)
+        .join("TGDesk")
+        .join("state")
+        .join("status.json");
+    let Ok(data) = std::fs::read_to_string(status_path) else {
+        return default_name;
+    };
+    let Ok(json) = serde_json::from_str::<serde_json::Value>(&data) else {
+        return default_name;
+    };
+    let Some(branding) = json.get("branding").and_then(|value| value.as_object()) else {
+        return default_name;
+    };
+    if branding.get("enabled").and_then(|value| value.as_bool()) != Some(true) {
+        return default_name;
+    }
+    for key in ["application_name", "shortcut_name", "name"] {
+        if let Some(name) = branding
+            .get(key)
+            .and_then(|value| value.as_str())
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+        {
+            return name.to_owned();
+        }
+    }
+    default_name
+}
+
+#[cfg(not(windows))]
+fn tray_brand_name() -> String {
+    crate::get_app_name()
+}
+
+fn tray_access_status(count: usize) -> String {
+    if count == 1 {
+        "1 técnico/supervisor/admin está acessando".to_owned()
+    } else {
+        format!("{count} técnicos/supervisores/admins estão acessando")
     }
 }
 

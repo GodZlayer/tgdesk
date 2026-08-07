@@ -24,7 +24,7 @@ docker compose --project-directory $PSScriptRoot exec -T postgres `
     psql -v ON_ERROR_STOP=1 -U tgdesk -d tgdesk -c $sql | Out-Null
 
 $resolvedKeyPath = [IO.Path]::GetFullPath((Join-Path $PSScriptRoot $AdminKeyPath))
-& (Join-Path $PSScriptRoot '..\installers\New-TGDeskAdminKey.ps1') `
+& (Join-Path $PSScriptRoot '..\installers\legacy-scripts\New-TGDeskAdminKey.ps1') `
     -OutputPath $resolvedKeyPath -ExpiresInHours 168
 
 Write-Output "Controle TGDesk reiniciado."
