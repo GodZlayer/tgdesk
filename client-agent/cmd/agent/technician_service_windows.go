@@ -127,11 +127,25 @@ func runTechnicianService(serverURL string) int {
 	// O laço também vigia: se o túnel cair, ele volta. Um serviço que só sobe
 	// a rede uma vez e dorme não é serviço, é script de inicialização.
 	appendAgentLog("vpn-service: túnel de pé; supervisionando")
+	// A vigilância confere de perto e age de longe.
+	//
+	// Conferir a cada 30 segundos é barato: é um dial TCP. Mas AGIR a cada 30
+	// segundos não é — cada ação cria um adaptador WireGuardNT, e criar
+	// adaptador em laço é o padrão que leva o driver a ser descarregado com
+	// E/S pendente (BSOD 0xCE). Depois de uma tentativa, espera de verdade
+	// antes da seguinte: o aperto de mão do WireGuard leva dezenas de segundos,
+	// e insistir por cima dele destrói o que estava quase pronto.
+	const esperaEntreTentativas = 5 * time.Minute
+	var ultimaTentativa time.Time
 	for {
 		time.Sleep(30 * time.Second)
 		if tunelDoDispositivoResponde(5 * time.Second) {
 			continue
 		}
+		if time.Since(ultimaTentativa) < esperaEntreTentativas {
+			continue
+		}
+		ultimaTentativa = time.Now()
 		appendAgentLog("vpn-service: túnel caiu; subindo de novo")
 		if code := runTechnician([]string{"--server", serverURL, "--token", token}); code != 0 {
 			appendAgentLog("vpn-service: falha ao restabelecer o túnel (código %d)", code)

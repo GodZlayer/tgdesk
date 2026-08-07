@@ -346,6 +346,12 @@ func NewRouter(s *Server) http.Handler {
 	mux.Handle("POST /api/v1/technicians/{id}/enrollment-key", admin(func(w http.ResponseWriter, r *http.Request) {
 		s.CreateTechnicianEnrollmentKey(w, r, r.PathValue("id"))
 	}))
+	// Cotas: quanto cada organização pode usar do que será cobrado. Só o admin
+	// lê e escreve — é decisão do dono do produto, como os percentuais.
+	mux.Handle("GET /api/v1/admin/quotas", admin(s.ListQuotas))
+	mux.Handle("POST /api/v1/admin/quotas", admin(s.SaveQuota))
+	mux.Handle("POST /api/v1/admin/product-defaults", admin(s.SaveProductDefaults))
+
 	mux.Handle("GET /api/v1/admin/audit", admin(s.ListAuditLog))
 	mux.Handle("DELETE /api/v1/admin/guest-devices/{id}", admin(func(w http.ResponseWriter, r *http.Request) {
 		s.DeleteGuestDevice(w, r, r.PathValue("id"))

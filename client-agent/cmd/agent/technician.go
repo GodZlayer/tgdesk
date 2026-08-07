@@ -87,11 +87,15 @@ func runTechnician(args []string) int {
 	_ = fs.String("token", os.Getenv("TGDESK_TOKEN"), "JWT do técnico logado no Hub")
 	_ = fs.Parse(args)
 
-	// Remove o adaptador antigo, se a máquina vem de uma versão anterior: duas
-	// rotas para o mesmo /16 é justamente o que estamos eliminando.
-	if err := stopWireGuardNT("TGDesk-Tech"); err == nil {
-		log.Println("adaptador TGDesk-Tech removido — o técnico passa a usar o túnel do dispositivo")
-	}
+	// Remove o adaptador antigo UMA vez por processo, se a máquina vem de uma
+	// versão anterior: duas rotas para o mesmo /16 é o que estamos eliminando.
+	//
+	// Uma vez, e não a cada chamada, porque o serviço reinvoca esta função em
+	// laço para supervisionar o túnel — e mexer no driver WireGuardNT a cada
+	// volta é metade do padrão que leva a DRIVER_UNLOADED_WITHOUT_CANCELLING_
+	// PENDING_OPERATIONS. Depois da primeira remoção o adaptador não volta a
+	// existir: nada neste código o cria.
+	removerAdaptadorLegadoUmaVez()
 	log.Println("papel de técnico usa o túnel do dispositivo (tgdesk0); nenhum adaptador adicional é criado")
 
 	// E se o túnel do dispositivo não estiver de pé, esta função o sobe.
@@ -117,38 +121,34 @@ func runTechnician(args []string) int {
 		log.Println("aviso: dispositivo ainda não vinculado; o túnel sobe quando ele for")
 		return 0
 	}
-	// Tenta de novo até o prazo, em vez de desistir na primeira.
+	// UMA criação de adaptador, e depois só espera.
 	//
-	// A primeira tentativa criou o adaptador e o gateway não respondeu em 30
-	// segundos — o aperto de mão do WireGuard e o registro do peer nem sempre
-	// fecham nesse tempo. Só que desistir ali deixava os 90 segundos seguintes
-	// do orçamento do atualizador passando com ninguém tentando nada, e a
-	// atualização revertia por falta de uma segunda tentativa.
+	// A versão anterior desta função recriava o adaptador a cada tentativa
+	// falha, até três vezes em cem segundos — e o serviço reinvocava tudo a
+	// cada trinta. Criar e destruir adaptador WireGuardNT em laço é
+	// exatamente o padrão que produz DRIVER_UNLOADED_WITHOUT_CANCELLING_
+	// PENDING_OPERATIONS: o handle de cada criação nunca é fechado, e o driver
+	// acaba descarregado com E/S pendente. Esta máquina teve um BSOD 0xCE
+	// depois que essa versão entrou.
 	//
-	// O prazo fica abaixo do que o atualizador tolera esperar pela rede: não
-	// adianta seguir tentando depois que ele já desistiu.
-	deadline := time.Now().Add(100 * time.Second)
-	for tentativa := 1; ; tentativa++ {
-		err := bringUpTunnel(cfg)
-		if err == nil {
-			log.Println("túnel do dispositivo ativo")
-			return 0
-		}
-		if time.Now().After(deadline) {
-			log.Printf("aviso: túnel do dispositivo não subiu em %d tentativas: %v",
-				tentativa, err)
-			return 0
-		}
-		log.Printf("túnel do dispositivo: tentativa %d falhou (%v); tentando de novo",
-			tentativa, err)
-		// Se o gateway responder enquanto esperamos, acabou: o adaptador da
-		// tentativa anterior pode ter fechado o aperto de mão depois do prazo
-		// dela.
-		if tunelDoDispositivoResponde(5 * time.Second) {
-			log.Println("túnel do dispositivo ativo")
-			return 0
-		}
+	// Não consigo provar a causa sem o minidump, mas o padrão é indefensável
+	// de qualquer forma: o aperto de mão do WireGuard demora, e recriar o
+	// adaptador no meio dele destrói justamente o que estava prestes a
+	// completar. Cria uma vez e espera — que é o que faltava na versão que
+	// desistia em trinta segundos.
+	if err := bringUpTunnel(cfg); err != nil {
+		log.Printf("aviso: não foi possível criar o túnel do dispositivo: %v", err)
+		return 0
 	}
+	// A espera vai até um pouco antes do que o atualizador tolera: seguir
+	// esperando depois que ele desistiu não serve para nada.
+	if tunelDoDispositivoResponde(90 * time.Second) {
+		log.Println("túnel do dispositivo ativo")
+	} else {
+		log.Println("aviso: túnel criado, mas o hub não respondeu no prazo; " +
+			"o adaptador fica de pé e a próxima verificação reavalia")
+	}
+	return 0
 }
 
 // tunelDoDispositivoResponde diz se o hub já é alcançável.
@@ -159,4 +159,18 @@ func tunelDoDispositivoResponde(timeout time.Duration) bool {
 	}
 	conexao.Close()
 	return true
+}
+
+// adaptadorLegadoRemovido garante que a limpeza do TGDesk-Tech aconteça uma vez
+// só na vida do processo.
+var adaptadorLegadoRemovido bool
+
+func removerAdaptadorLegadoUmaVez() {
+	if adaptadorLegadoRemovido {
+		return
+	}
+	adaptadorLegadoRemovido = true
+	if err := stopWireGuardNT("TGDesk-Tech"); err == nil {
+		log.Println("adaptador TGDesk-Tech removido — o técnico passa a usar o túnel do dispositivo")
+	}
 }

@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -113,6 +114,30 @@ func (s *Server) CreateTechnicianEnrollmentKey(w http.ResponseWriter, r *http.Re
 			claims.TechnicianID).Scan(&orgID) != nil {
 			writeErrCode(w, http.StatusBadRequest, "emissor_sem_organizacao",
 				"chave vinculada exige que quem a emite seja dono de uma organização")
+			return
+		}
+		// A cota é do admin, e é conferida na EMISSÃO.
+		//
+		// Conferir aqui e não no consumo é o que torna o limite útil: quem
+		// emite descobre na hora que não tem vaga, em vez de entregar a chave a
+		// alguém e essa pessoa descobrir na instalação. E a contagem inclui as
+		// chaves emitidas e não usadas — senão emitir dez de uma vez furaria
+		// qualquer teto.
+		var teto, usadas int
+		if s.Pool.QueryRow(r.Context(), `
+			SELECT COALESCE(q.max_affiliated_supervisors, d.max_affiliated_supervisors),
+			       affiliated_supervisors_used($1)
+			FROM product_defaults d
+			LEFT JOIN organization_quotas q ON q.organization_id=$1
+			WHERE d.singleton`, orgID).Scan(&teto, &usadas) != nil {
+			writeErrCode(w, http.StatusInternalServerError, "falha_ler_cota",
+				"falha ao ler a cota da organização")
+			return
+		}
+		if usadas >= teto {
+			writeErrCode(w, http.StatusForbidden, "cota_de_vinculados_esgotada",
+				fmt.Sprintf("cota de supervisores vinculados esgotada (%d de %d em uso, "+
+					"contando chaves emitidas e ainda não usadas)", usadas, teto))
 			return
 		}
 		affiliated = &orgID
