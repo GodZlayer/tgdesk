@@ -452,7 +452,7 @@ class _BrandingPageState extends State<BrandingPage> {
                     key: ValueKey(
                         'favicon-preview-${_bytesKey(_faviconPreview)}-$size'),
                     fit: BoxFit.cover,
-                    gaplessPlayback: false,
+                    gaplessPlayback: true,
                     filterQuality: FilterQuality.medium),
           ),
           const SizedBox(height: 5),

@@ -218,6 +218,15 @@ class _DevicesPageState extends State<DevicesPage> {
           ),
           if (org['can_manage'] == true) ...[
             IconButton(
+              icon: Icon(org['status'] == 'suspensa'
+                  ? Icons.play_circle_outline
+                  : Icons.pause_circle_outline),
+              tooltip: org['status'] == 'suspensa'
+                  ? 'Reativar organização'
+                  : 'Suspender organização',
+              onPressed: () => _toggleOwnedOrganization(org),
+            ),
+            IconButton(
               icon: const Icon(Icons.add_circle_outline),
               tooltip: 'Criar rede nesta organização',
               onPressed: () => _openCreateNetworkDialog(org),
@@ -597,6 +606,25 @@ class _DevicesPageState extends State<DevicesPage> {
         ],
       ),
     );
+  }
+
+  Future<void> _toggleOwnedOrganization(dynamic organization) async {
+    try {
+      if (organization['status'] == 'suspensa') {
+        await TgdeskApi.resumeOrganization(organization['id'] as String);
+      } else {
+        final confirmed = await showTgdeskConfirmSuspendDialog(
+            context, 'a organização "${organization['name']}"');
+        if (!confirmed) return;
+        await TgdeskApi.suspendOrganization(organization['id'] as String);
+      }
+      await _load();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Erro: $e')));
+      }
+    }
   }
 
   Future<void> _toggleOwnedNetwork(dynamic network) async {

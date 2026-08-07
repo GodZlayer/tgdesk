@@ -33,7 +33,7 @@ type tgdeskStatus struct {
 	// a tela só acompanha o que o servidor mandou fazer.
 	Updating       bool                 `json:"updating"`
 	UpdateProgress *updatecore.Progress `json:"update_progress,omitempty"`
-	Branding        BrandingState    `json:"branding"`
+	Branding       BrandingState        `json:"branding"`
 }
 
 type BrandingState struct {
@@ -43,6 +43,7 @@ type BrandingState struct {
 	ShortcutName    string `json:"shortcut_name,omitempty"`
 	LogoBase64      string `json:"logo_base64,omitempty"`
 	FaviconBase64   string `json:"favicon_base64,omitempty"`
+	BrandingVersion int64  `json:"branding_version,omitempty"`
 	UpdatedAt       string `json:"updated_at,omitempty"`
 }
 

@@ -1,0 +1,2 @@
+ALTER TABLE technicians
+    ADD COLUMN IF NOT EXISTS branding_revision BIGINT NOT NULL DEFAULT 1;

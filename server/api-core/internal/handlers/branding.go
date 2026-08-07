@@ -26,6 +26,7 @@ type brandRecord struct {
 	NameSuffix  string
 	LogoFile    string
 	FaviconFile string
+	Revision    int64
 	UpdatedAt   time.Time
 }
 
@@ -60,6 +61,7 @@ func brandJSON(record brandRecord, includeLogo bool) map[string]any {
 		"has_favicon":      record.FaviconFile != "",
 		"updated_at":       record.UpdatedAt.UTC().Format(time.RFC3339Nano),
 		"asset_version":    record.UpdatedAt.UTC().UnixNano(),
+		"branding_version": record.Revision,
 	}
 	if includeLogo {
 		if logo := readBrandLogo(record.LogoFile); len(logo) > 0 {
@@ -109,11 +111,11 @@ func (s *Server) technicianBrand(ctx context.Context, technicianID string) (bran
 		SELECT branding_enabled,brand_name,
 		       COALESCE(brand_name_mode,'brand_only'),
 		       COALESCE(brand_name_suffix,''),
-		       brand_logo_file,brand_favicon_file,branding_updated_at
+		       brand_logo_file,brand_favicon_file,branding_revision,branding_updated_at
 		FROM technicians WHERE id=$1`, technicianID).
 		Scan(&record.Enabled, &record.Name, &record.NameMode, &record.NameSuffix,
 			&record.LogoFile,
-			&record.FaviconFile, &record.UpdatedAt)
+			&record.FaviconFile, &record.Revision, &record.UpdatedAt)
 	return record, err
 }
 
@@ -259,7 +261,7 @@ func (s *Server) updateBranding(w http.ResponseWriter, r *http.Request, technici
 	}
 	if _, err := s.Pool.Exec(r.Context(), `
 		UPDATE technicians SET brand_name=$1,brand_name_mode=$2,brand_name_suffix=$3,
-			brand_logo_file=$4,brand_favicon_file=$5,
+			brand_logo_file=$4,brand_favicon_file=$5,branding_revision=branding_revision+1,
 			branding_updated_at=now() WHERE id=$6`,
 		req.Name, req.NameMode, req.NameSuffix, logoFile, faviconFile, technicianID); err != nil {
 		writeErrCode(w, http.StatusInternalServerError, "falha_salvar_personalizacao", "falha ao salvar personalização")
@@ -288,7 +290,7 @@ func (s *Server) SetTechnicianBrandingEnabled(w http.ResponseWriter, r *http.Req
 		return
 	}
 	tag, err := s.Pool.Exec(r.Context(), `
-		UPDATE technicians SET branding_enabled=$1,branding_updated_at=now()
+		UPDATE technicians SET branding_enabled=$1,branding_revision=branding_revision+1,branding_updated_at=now()
 		WHERE id=$2 AND role='supervisor'`, req.Enabled, technicianID)
 	if err != nil || tag.RowsAffected() == 0 {
 		writeErrCode(w, http.StatusNotFound, "tecnico_encontrado", "técnico não encontrado")
@@ -308,7 +310,7 @@ func (s *Server) deviceBranding(ctx context.Context, deviceID string) (map[strin
 		SELECT t.id,t.branding_enabled,t.brand_name,
 		       COALESCE(t.brand_name_mode,'brand_only'),
 		       COALESCE(t.brand_name_suffix,''),
-		       t.brand_logo_file,t.brand_favicon_file,t.branding_updated_at
+		       t.brand_logo_file,t.brand_favicon_file,t.branding_revision,t.branding_updated_at
 		FROM devices d
 		JOIN networks n ON n.id=d.network_id
 		JOIN organizations o ON o.id=n.organization_id
@@ -316,10 +318,10 @@ func (s *Server) deviceBranding(ctx context.Context, deviceID string) (map[strin
 		WHERE d.id=$1 AND d.role='host' AND d.state='ativo'`, deviceID).
 		Scan(&technicianID, &record.Enabled, &record.Name, &record.NameMode,
 			&record.NameSuffix, &record.LogoFile,
-			&record.FaviconFile, &record.UpdatedAt)
+			&record.FaviconFile, &record.Revision, &record.UpdatedAt)
 	if err != nil || !record.Enabled || strings.TrimSpace(record.Name) == "" {
 		return map[string]any{"enabled": false, "name": "TGDesk"}, "default"
 	}
-	signature := fmt.Sprintf("%s:%d", technicianID, record.UpdatedAt.UnixNano())
+	signature := fmt.Sprintf("%s:%d", technicianID, record.Revision)
 	return brandJSON(record, true), signature
 }
