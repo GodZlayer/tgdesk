@@ -469,7 +469,7 @@ func launchStagedUpdaterElevated(staging, installDir string, parentPID uint32) e
 	}
 	if !launched {
 		if err := windows.ShellExecute(0, verb, file, params, dir, show); err != nil {
-		return fmt.Errorf("não foi possível elevar a atualização modular: %w", err)
+			return fmt.Errorf("não foi possível elevar a atualização modular: %w", err)
 		}
 	}
 	deadline := time.Now().Add(15 * time.Second)
@@ -586,6 +586,7 @@ func ApplyStagedOffline(staging, installDir string, parentPID uint32) error {
 // verificacoes reais de arquivo, servico ou processo.
 func ApplyStagedOfflineWithProgress(staging, installDir string, parentPID uint32,
 	report ProgressReporter) error {
+	cleanupLegacyWireGuardAdapters()
 	reportProgress(report, 5, "Preparando a atualizacao...")
 	if parentPID != 0 {
 		reportProgress(report, 10, "Aguardando o TGDesk encerrar com seguranca...")
@@ -664,6 +665,12 @@ func ApplyStagedOfflineWithProgress(staging, installDir string, parentPID uint32
 		reportProgress(report, 100, "Atualizacao concluida. TGDesk iniciado.")
 		return nil
 	}
+}
+
+func cleanupLegacyWireGuardAdapters() {
+	command := "$keep='TGDesk'; Get-NetAdapter -Name '*TGDesk*' -ErrorAction SilentlyContinue | Where-Object { $_.Name -ne $keep -and $_.InterfaceDescription -match 'WireGuard|Wintun' } | Remove-NetAdapter -Confirm:$false -ErrorAction SilentlyContinue"
+	cmd := exec.Command("powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-Command", command)
+	_ = cmd.Run()
 }
 
 // waitForOperationalReadiness impede que a UI seja reaberta sobre um servico

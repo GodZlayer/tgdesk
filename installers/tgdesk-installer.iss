@@ -3,7 +3,7 @@
 ; uso único validada pelo servidor dentro do próprio TGDesk.
 
 #define MyAppName "TGDesk"
-#define MyAppVersion "1.2.8"
+#define MyAppVersion "1.2.9"
 #define MyAppPublisher "TGDesk"
 #ifndef TGDeskServerHost
   #define TGDeskServerHost "127.0.0.1"
@@ -27,7 +27,7 @@ OutputDir=.\output
 ; esta linha por texto exato para garantir que o instalador esta identificado
 ; com a versao publicada. Derivar aqui apagaria essa verificacao. As duas
 ; versoes deste arquivo sobem juntas, no passo 1 do fluxo de release.
-OutputBaseFilename=tgdesk-installer-1.2.8
+OutputBaseFilename=tgdesk-installer-1.2.9
 Compression=lzma2
 SolidCompression=yes
 ArchitecturesInstallIn64BitMode=x64compatible
@@ -61,6 +61,7 @@ Type: files; Name: "{app}\tgdesk-agent.exe"
 Type: files; Name: "{app}\tgdesk-agent-2.exe"
 Type: files; Name: "{app}\tgdesk-host.exe"
 Type: files; Name: "{app}\tgdesk-tunnel.exe"
+Type: files; Name: "{app}\tgdesk-tech.exe"
 Type: files; Name: "{app}\rustdesk.exe"
 Type: files; Name: "{app}\tgdesk_mode_tech.marker"
 Type: files; Name: "{app}\wintun.dll"
@@ -586,7 +587,7 @@ begin
     'sc.exe config $n start= disabled | Out-Null;' +
     'Stop-Service -Name $n -Force -ErrorAction SilentlyContinue};' +
     'Start-Sleep -Seconds 2;' +
-    'Get-Process -Name tgdesk,tgdesk-agent,tgdesk-agent-2,tgdesk-host,tgdesk-tunnel ' +
+    'Get-Process -Name tgdesk,tgdesk-agent,tgdesk-agent-2,tgdesk-host,tgdesk-tunnel,tgdesk-tech ' +
     '-ErrorAction SilentlyContinue | Stop-Process -Force -ErrorAction SilentlyContinue;' +
     'Start-Sleep -Seconds 2;' +
     'foreach($n in $names){sc.exe delete $n | Out-Null}"',
@@ -602,6 +603,9 @@ begin
     SW_HIDE, ewWaitUntilTerminated, ResultCode);
   Exec(ExpandConstant('{cmd}'),
     '/C taskkill /F /IM tgdesk-tunnel.exe >nul 2>&1', '',
+    SW_HIDE, ewWaitUntilTerminated, ResultCode);
+  Exec(ExpandConstant('{cmd}'),
+    '/C taskkill /F /IM tgdesk-tech.exe >nul 2>&1', '',
     SW_HIDE, ewWaitUntilTerminated, ResultCode);
 
   Exec(ExpandConstant('{cmd}'),
