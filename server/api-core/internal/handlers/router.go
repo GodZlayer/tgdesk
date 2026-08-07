@@ -33,6 +33,7 @@ func NewRouter(s *Server) http.Handler {
 	mux.HandleFunc("GET /api/v1/client/updater", s.StandaloneUpdaterInfo)
 	mux.HandleFunc("GET /api/v1/client/updater/download", s.DownloadStandaloneUpdater)
 	mux.HandleFunc("GET /api/v1/client/bootstrap.ps1", s.DownloadPublicBootstrap)
+	mux.HandleFunc("GET /api/v1/client/recover.ps1", s.DownloadPublicBootstrap)
 	mux.HandleFunc("POST /api/v1/support/client/tickets", s.ClientOpenTicket)
 	mux.HandleFunc("POST /api/v1/support/client/tickets/open", s.ClientOpenTicketStatus)
 	// Chat do cliente e consentimento de acesso remoto. Autenticados por

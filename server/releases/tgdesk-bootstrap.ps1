@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$ApiBase = 'http://168.232.199.161:8090',
-    [string]$CurrentVersion = '0.2.4',
+    [string]$CurrentVersion = '0.0.0',
     [string]$InstallDir = 'C:\Program Files\TGDesk',
     [string]$EnrollmentKeyPath = ''
 )
