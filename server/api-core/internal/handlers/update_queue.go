@@ -20,6 +20,7 @@ const (
 	// limitado. O número veio do parque de referência do produto.
 	largeQueueThreshold = 30
 	throttledKbps       = 2048
+	maxConcurrentUpdates = 2
 	// Uma entrada em andamento tempo demais é um cliente que caiu no meio.
 	// Sem isto a fila inteira ficaria parada esperando alguém que não volta.
 	updateLeaseTimeout = 15 * time.Minute
@@ -151,10 +152,10 @@ func throttleForQueue(pending int) int {
 // continuar valendo se um dia houver mais de um processo servindo.
 func (s *Server) claimUpdateSlot(ctx context.Context, deviceID string) (bool, int, string) {
 	s.reclaimStaleUpdates(ctx)
-	var busy bool
+	var active int
 	if s.Pool.QueryRow(ctx, `
-		SELECT EXISTS(SELECT 1 FROM device_update_queue
-		WHERE state='em_andamento' AND device_id<>$1)`, deviceID).Scan(&busy) != nil || busy {
+		SELECT count(*) FROM device_update_queue
+		WHERE state='em_andamento' AND device_id<>$1`, deviceID).Scan(&active) != nil || active >= maxConcurrentUpdates {
 		return false, 0, ""
 	}
 	throttle := throttleForQueue(s.pendingUpdateCount(ctx))

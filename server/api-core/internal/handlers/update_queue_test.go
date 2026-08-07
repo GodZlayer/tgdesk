@@ -45,10 +45,10 @@ func TestComparacaoDeVersaoNaoAdivinha(t *testing.T) {
 
 // Um dispositivo por vez é a regra, e ela é resolvida no banco para continuar
 // valendo se um dia houver mais de um processo servindo.
-func TestVagaDeAtualizacaoEExclusiva(t *testing.T) {
+func TestVagasDeAtualizacaoLimitadas(t *testing.T) {
 	source := functionSource(t, "update_queue.go",
 		"func (s *Server) claimUpdateSlot", "func nullableThrottle")
-	if !strings.Contains(source, "state='em_andamento' AND device_id<>$1") {
+	if !strings.Contains(source, "count(*) FROM device_update_queue") {
 		t.Error("a vaga precisa ser recusada quando outro dispositivo já atualiza")
 	}
 	if !strings.Contains(source, "FOR UPDATE SKIP LOCKED") {
