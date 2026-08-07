@@ -17,17 +17,21 @@ Future<void> applyClientBrandingWindowIcon(
   final encoded = branding['favicon_base64']?.toString() ?? '';
   final hash =
       branding['favicon_sha256']?.toString() ?? encoded.hashCode.toString();
-  if (encoded.isEmpty || hash == _appliedFaviconHash) return;
-  final bytes = base64Decode(encoded);
-  if (bytes.length < 6 || bytes[0] != 0 || bytes[1] != 0 || bytes[2] != 1) {
-    return;
-  }
+  if (encoded.isEmpty) return;
   final brandingRoot =
       Platform.environment['ProgramData'] ?? Directory.systemTemp.path;
   final directory = Directory(
       '$brandingRoot${Platform.pathSeparator}TGDesk${Platform.pathSeparator}branding');
-  await directory.create(recursive: true);
   final path = '${directory.path}${Platform.pathSeparator}favicon.ico';
+  if (hash == _appliedFaviconHash) {
+    await _syncClientShortcuts(branding, path);
+    return;
+  }
+  final bytes = base64Decode(encoded);
+  if (bytes.length < 6 || bytes[0] != 0 || bytes[1] != 0 || bytes[2] != 1) {
+    return;
+  }
+  await directory.create(recursive: true);
   await File(path).writeAsBytes(bytes, flush: true);
   await _syncClientShortcuts(branding, path);
   final windowClass = 'TGDESK_RUNNER_WIN32_WINDOW'.toNativeUtf16();

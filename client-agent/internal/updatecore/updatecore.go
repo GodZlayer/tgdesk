@@ -454,8 +454,23 @@ func launchStagedUpdaterElevated(staging, installDir string, parentPID uint32) e
 	if mainWindowIsOnScreen(installDir) {
 		show = int32(windows.SW_SHOWNORMAL)
 	}
-	if err := windows.ShellExecute(0, verb, file, params, dir, show); err != nil {
+	args := []string{"--apply-staged", "--staging", staging, "--install-dir", installDir,
+		"--parent", fmt.Sprint(parentPID), "--ready-file", readyFile}
+	launched := false
+	token := windows.GetCurrentProcessToken()
+	launched = token.IsElevated()
+	token.Close()
+	if launched {
+		command := exec.Command(updaterExe, args...)
+		command.Dir = installDir
+		if err := command.Start(); err != nil {
+			launched = false
+		}
+	}
+	if !launched {
+		if err := windows.ShellExecute(0, verb, file, params, dir, show); err != nil {
 		return fmt.Errorf("não foi possível elevar a atualização modular: %w", err)
+		}
 	}
 	deadline := time.Now().Add(15 * time.Second)
 	for time.Now().Before(deadline) {
