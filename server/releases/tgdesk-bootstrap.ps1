@@ -1,7 +1,7 @@
 [CmdletBinding()]
 param(
     [string]$ApiBase = 'http://168.232.199.161:8090',
-    [string]$CurrentVersion = '0.0.0',
+    [string]$CurrentVersion = '',
     [string]$InstallDir = 'C:\Program Files\TGDesk',
     [string]$EnrollmentKeyPath = ''
 )
@@ -40,6 +40,14 @@ function Get-PublicFile([string]$Uri, [string]$Destination) {
 
 Assert-Administrator
 $ApiBase = $ApiBase.TrimEnd('/')
+if ([string]::IsNullOrWhiteSpace($CurrentVersion)) {
+    $installedVersionPath = Join-Path $InstallDir 'version.txt'
+    $CurrentVersion = if (Test-Path -LiteralPath $installedVersionPath) {
+        (Get-Content -LiteralPath $installedVersionPath -Raw).Trim()
+    } else {
+        '0.0.0'
+    }
+}
 $identityPath = 'C:\ProgramData\TGDesk\identity\device.json'
 $identityBefore = if (Test-Path -LiteralPath $identityPath) {
     (Get-FileHash -LiteralPath $identityPath -Algorithm SHA256).Hash

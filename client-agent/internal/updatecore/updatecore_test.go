@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -140,6 +141,16 @@ func TestProgressReporterPublishesMeasuredPhase(t *testing.T) {
 	reportProgress(func(event ProgressEvent) { received = event }, 48, "Instalando")
 	if received.Percent != 48 || received.Message != "Instalando" {
 		t.Fatalf("unexpected progress event: %#v", received)
+	}
+}
+
+func TestPrivateNetworkReadinessDoesNotTriggerRollback(t *testing.T) {
+	source, err := os.ReadFile("updatecore.go")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(source), "return fmt.Errorf(\"servico iniciou, mas a rede privada") {
+		t.Fatal("private network timeout must not roll back an otherwise valid update")
 	}
 }
 

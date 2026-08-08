@@ -805,7 +805,14 @@ func waitForOperationalReadiness(report ProgressReporter, timeout time.Duration)
 		reportProgress(report, 78, "Servico ativo; aguardando a rede privada administrativa...")
 		time.Sleep(750 * time.Millisecond)
 	}
-	return fmt.Errorf("servico iniciou, mas a rede privada administrativa nao ficou pronta: %v", lastError)
+	// A VPN administrativa é uma verificação de saúde, não uma condição para
+	// confirmar a troca de arquivos. Reverter aqui recolocava uma versão velha
+	// quando justamente a atualização continha a recuperação da rede. O Host
+	// continua reconectando em segundo plano e o próximo heartbeat confirma o
+	// retorno; manter os binários novos é o único caminho para se recuperar.
+	log.Printf("update: serviço reiniciado, mas a rede privada ainda não ficou pronta: %v", lastError)
+	reportProgress(report, 78, "Servico atualizado; rede privada reconectando em segundo plano...")
+	return nil
 }
 
 func ensureInteractiveStartup(installDir string) error {
