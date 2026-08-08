@@ -42,6 +42,12 @@ static KEYBOARD_HOOKED: AtomicBool = AtomicBool::new(false);
 #[cfg(all(feature = "flutter", any(target_os = "windows", target_os = "macos", target_os = "linux")))]
 static EXIT_SHORTCUT_KEY_DOWN: AtomicBool = AtomicBool::new(false);
 
+// Native escape chord for TGDesk/Parsec-style system-key capture. It must be
+// handled in the rdev grab loop because the remote canvas owns focus after a
+// click and can consume the key before Flutter receives it.
+#[cfg(all(feature = "flutter", target_os = "windows"))]
+static TGDESK_SYSTEM_KEYS_SHORTCUT_DOWN: AtomicBool = AtomicBool::new(false);
+
 // Track whether relative mouse mode is currently active.
 // This is set by Flutter via set_relative_mouse_mode_state() and checked
 // by the rdev grab loop to determine if exit shortcuts should be processed.
@@ -617,6 +623,28 @@ fn start_grab_loop() {
             // fix #2211：CAPS LOCK don't work
             if key == Key::CapsLock || key == Key::NumLock {
                 return Some(event);
+            }
+
+            #[cfg(all(feature = "flutter", target_os = "windows"))]
+            {
+                let (ctrl, shift, _, _) = client::get_modifiers_state(false, false, false, false);
+                if key == Key::KeyI && is_press && ctrl && shift {
+                    // Keep the chord out of the remote peer and notify the
+                    // active TGDesk session through Flutter's event stream.
+                    if !TGDESK_SYSTEM_KEYS_SHORTCUT_DOWN.swap(true, Ordering::SeqCst) {
+                        let _ = crate::flutter::push_global_event(
+                            crate::flutter::APP_TYPE_MAIN,
+                            r#"{"name":"tgdesk_system_keys_toggle"}"#.to_string(),
+                        );
+                    }
+                    return None;
+                }
+                if key == Key::KeyI
+                    && !is_press
+                    && TGDESK_SYSTEM_KEYS_SHORTCUT_DOWN.swap(false, Ordering::SeqCst)
+                {
+                    return None;
+                }
             }
 
             let _scan_code = event.position_code;
