@@ -1479,43 +1479,50 @@ class _LinkedEditorState extends State<_LinkedEditor> {
           'o ${_linkedKindLabel(node['kind']?.toString() ?? '').toLowerCase()} "${_nodeTitle(node)}"');
       if (!confirmed) return;
     }
-    if (action == 'suspend_device') {
-      await TgdeskApi.suspendDevice(id);
-    }
-    if (action == 'suspend_technician') {
-      await TgdeskApi.suspendTechnician(id);
-    }
-    if (action == 'suspend_organization') {
-      await TgdeskApi.suspendOrganization(id);
-    }
-    if (action == 'suspend_network') {
-      await TgdeskApi.suspendNetwork(id);
-    }
-    if (action == 'resume_device') {
-      await TgdeskApi.resumeDevice(id);
-    }
-    if (action == 'resume_technician') {
-      await TgdeskApi.resumeTechnician(id);
-    }
-    if (action == 'resume_organization') {
-      await TgdeskApi.resumeOrganization(id);
-    }
-    if (action == 'resume_network') {
-      await TgdeskApi.resumeNetwork(id);
-    }
-    if (action == 'suspend_subnetwork') {
-      await TgdeskApi.suspendSubnetwork(id);
-    }
-    if (action == 'resume_subnetwork') {
-      await TgdeskApi.resumeSubnetwork(id);
-    }
-    if (mounted) Navigator.pop(context);
-    await _load();
-    if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-          content: Text(action.startsWith('resume_')
-              ? '${_linkedKindLabel(node['kind']?.toString() ?? '')} reativado.'
-              : '${_linkedKindLabel(node['kind']?.toString() ?? '')} suspenso.')));
+    try {
+      if (action == 'suspend_device') {
+        await TgdeskApi.suspendDevice(id);
+      }
+      if (action == 'suspend_technician') {
+        await TgdeskApi.suspendTechnician(id);
+      }
+      if (action == 'suspend_organization') {
+        await TgdeskApi.suspendOrganization(id);
+      }
+      if (action == 'suspend_network') {
+        await TgdeskApi.suspendNetwork(id);
+      }
+      if (action == 'resume_device') {
+        await TgdeskApi.resumeDevice(id);
+      }
+      if (action == 'resume_technician') {
+        await TgdeskApi.resumeTechnician(id);
+      }
+      if (action == 'resume_organization') {
+        await TgdeskApi.resumeOrganization(id);
+      }
+      if (action == 'resume_network') {
+        await TgdeskApi.resumeNetwork(id);
+      }
+      if (action == 'suspend_subnetwork') {
+        await TgdeskApi.suspendSubnetwork(id);
+      }
+      if (action == 'resume_subnetwork') {
+        await TgdeskApi.resumeSubnetwork(id);
+      }
+      if (mounted) Navigator.pop(context);
+      await _load();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(action.startsWith('resume_')
+                ? '${_linkedKindLabel(node['kind']?.toString() ?? '')} reativado.'
+                : '${_linkedKindLabel(node['kind']?.toString() ?? '')} suspenso.')));
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text('Não foi possível concluir a ação: $error')));
+      }
     }
   }
 
@@ -2004,7 +2011,14 @@ bool _nodeIsSuspended(Map<String, dynamic> node) {
   final kind = node['kind']?.toString();
   final state = node['state']?.toString();
   final status = node['status']?.toString();
-  return kind == 'device' ? state == 'suspenso' : status == 'suspensa';
+  if (kind == 'device') return state == 'suspenso';
+  // Supervisors/technicians use the masculine status (`suspenso`), while
+  // organizations and networks use the feminine status (`suspensa`). Keep
+  // both forms here so the action button always mirrors the server state.
+  if (kind == 'technician') {
+    return status == 'suspenso' || status == 'suspensa';
+  }
+  return status == 'suspensa' || state == 'suspenso';
 }
 
 class _LinkedMapPainter extends CustomPainter {
