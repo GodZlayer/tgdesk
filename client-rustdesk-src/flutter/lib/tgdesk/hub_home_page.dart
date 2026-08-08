@@ -308,9 +308,13 @@ class _HubHomePageState extends State<HubHomePage> {
             // ciclo de vida da conexão.
             return Row(
               children: [
-                Offstage(
-                  offstage: emTelaCheia && ativa >= 0,
-                  child: NavigationRail(
+                // Offstage still lays out its child. In fullscreen that left
+                // the rail in the Row constraints even though it was not
+                // painted, so remove it from layout entirely.
+                if (emTelaCheia && ativa >= 0)
+                  const SizedBox.shrink()
+                else
+                  NavigationRail(
                     // Com uma sessão à frente, nenhum destino fica marcado: o que
                     // a tela mostra é a máquina remota, não uma das telas do Hub.
                     selectedIndex: ativa < 0 ? _index : null,
@@ -321,7 +325,6 @@ class _HubHomePageState extends State<HubHomePage> {
                     labelType: NavigationRailLabelType.all,
                     destinations: destinations,
                   ),
-                ),
                 SizedBox(
                   width: emTelaCheia && ativa >= 0 ? 0 : 1,
                   child: const VerticalDivider(width: 1),

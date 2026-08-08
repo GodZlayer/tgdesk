@@ -152,6 +152,17 @@ class _RemotePageState extends State<RemotePage>
     _ffi = FFI(widget.sessionId);
     _ffi.canvasModel.tgdeskEmbedded = widget.tgdeskEmbedded;
     widget.tgdeskSessionReady?.call(_ffi);
+    // The integrated Hub does not use RustDesk's legacy --connect bootstrap.
+    // Install the low-level hook after the Flutter window exists so
+    // Ctrl+Shift+I is seen even while the native remote canvas owns focus.
+    if (widget.tgdeskEmbedded && isWindows) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) {
+          unawaited(bind.hostStopSystemKeyPropagate(
+              stopped: _systemKeysCapture.value));
+        }
+      });
+    }
     Get.put<FFI>(_ffi, tag: widget.id);
     _ffi.imageModel.addCallbackOnFirstImage((String peerId) {
       _ffi.canvasModel.activateLocalCursor();

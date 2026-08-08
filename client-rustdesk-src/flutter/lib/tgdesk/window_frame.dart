@@ -332,6 +332,12 @@ class _TgdeskWindowScaffoldState extends State<TgdeskWindowScaffold>
   }
 
   Widget _buildFrame(BuildContext context, {required bool semBarra}) {
+    // In fullscreen there is no shell chrome at all. Returning the remote
+    // surface directly avoids keeping a Column/Expanded layout boundary that
+    // can retain the pre-fullscreen title-bar constraints for one frame.
+    if (semBarra) {
+      return SizedBox.expand(child: widget.child);
+    }
     return Column(
       children: [
         if (!semBarra) _buildTitleBar(context),
@@ -381,9 +387,7 @@ class _TgdeskWindowScaffoldState extends State<TgdeskWindowScaffold>
             _WindowButton(
                 icon: Icons.remove, onTap: _minimize, tooltip: 'Minimizar'),
             _WindowButton(
-                icon: _maximized
-                    ? Icons.filter_none
-                    : Icons.crop_square,
+                icon: _maximized ? Icons.filter_none : Icons.crop_square,
                 onTap: _toggleMaximize,
                 tooltip: _maximized ? 'Restaurar' : 'Maximizar'),
             _WindowButton(

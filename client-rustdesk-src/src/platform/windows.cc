@@ -782,7 +782,15 @@ extern "C"
         // Make sure a message queue is created
         PeekMessage(&msg, NULL, 0, 0, PM_NOREMOVE | PM_NOYIELD);
 
-        hook = SetWindowsHookEx(WH_KEYBOARD_LL, keyboard_hook, GetModuleHandle(0), 0);
+        // Flutter links this callback into libtgdeskcore.dll. Resolve the
+        // module containing the callback instead of assuming the executable
+        // owns it; otherwise Windows may reject the global hook silently.
+        HMODULE hook_module = nullptr;
+        GetModuleHandleExW(
+            GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
+                GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
+            reinterpret_cast<LPCWSTR>(&keyboard_hook), &hook_module);
+        hook = SetWindowsHookEx(WH_KEYBOARD_LL, keyboard_hook, hook_module, 0);
         // If something goes wrong then there is not much we can do.
         // Just sit around and wait for WM_QUIT...
 
