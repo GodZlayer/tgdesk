@@ -63,6 +63,18 @@ void main() {
       }
     });
 
+    test('keeps the remote action visible while peer readiness is pending', () {
+      final pending = {...remoteDevice, 'presence': 'offline', 'remote_ready': false};
+      expect(
+          TgdeskDeviceUiPolicy.hasRemoteIdentity(
+              localDeviceId: 'local', device: pending),
+          isTrue);
+      expect(
+          TgdeskDeviceUiPolicy.canOfferRemote(
+              localDeviceId: 'local', device: pending),
+          isFalse);
+    });
+
     test('network badge aggregates the most severe device', () {
       expect(
           TgdeskDeviceUiPolicy.aggregateSeverity(

@@ -63,18 +63,27 @@ class TgdeskClientUiPolicy {
 class TgdeskDeviceUiPolicy {
   const TgdeskDeviceUiPolicy._();
 
-  static bool canOfferRemote({
+  /// A identidade RustDesk pertence ao dispositivo e é suficiente para
+  /// manter a ação visível na lista. A disponibilidade momentânea do canal é
+  /// decidida separadamente por [canOfferRemote].
+  static bool hasRemoteIdentity({
     required String? localDeviceId,
     required Map<String, dynamic> device,
   }) {
     final id = device['id']?.toString() ?? '';
+    final local = localDeviceId?.trim() ?? '';
     final remoteId = device['rustdesk_id']?.toString().trim() ?? '';
-    return id.isNotEmpty &&
-        id != localDeviceId &&
-        device['state'] == 'ativo' &&
+    return id.isNotEmpty && (local.isEmpty || id != local) &&
+        device['state'] == 'ativo' && remoteId.isNotEmpty;
+  }
+
+  static bool canOfferRemote({
+    required String? localDeviceId,
+    required Map<String, dynamic> device,
+  }) {
+    return hasRemoteIdentity(localDeviceId: localDeviceId, device: device) &&
         device['presence'] == 'online' &&
-        device['remote_ready'] == true &&
-        remoteId.isNotEmpty;
+        device['remote_ready'] == true;
   }
 
   static TgdeskSeverity aggregateSeverity(Iterable<Object?> levels) =>

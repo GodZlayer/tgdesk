@@ -1053,14 +1053,30 @@ class _DevicesPageState extends State<DevicesPage> {
             tooltip: 'Organizações, redes e sub-redes deste dispositivo',
             onPressed: () => _openDeviceNetworksDialog(d),
           ),
-        if (TgdeskDeviceUiPolicy.canOfferRemote(
+        if (TgdeskDeviceUiPolicy.hasRemoteIdentity(
             localDeviceId: _localDeviceId,
-            device: Map<String, dynamic>.from(d as Map)))
+            device: Map<String, dynamic>.from(d)))
           IconButton(
-            icon: const Icon(Icons.desktop_windows_outlined,
-                color: TgdeskColors.seed),
-            tooltip: 'Abrir acesso remoto no TGDesk',
+            icon: Icon(Icons.desktop_windows_outlined,
+                color: TgdeskDeviceUiPolicy.canOfferRemote(
+                        localDeviceId: _localDeviceId,
+                        device: Map<String, dynamic>.from(d))
+                    ? TgdeskColors.seed
+                    : Theme.of(context).colorScheme.outline),
+            tooltip: TgdeskDeviceUiPolicy.canOfferRemote(
+                    localDeviceId: _localDeviceId,
+                    device: Map<String, dynamic>.from(d))
+                ? 'Abrir acesso remoto no TGDesk'
+                : 'Acesso remoto aguardando o dispositivo ficar online',
             onPressed: () async {
+              final deviceMap = Map<String, dynamic>.from(d);
+              if (!TgdeskDeviceUiPolicy.canOfferRemote(
+                  localDeviceId: _localDeviceId, device: deviceMap)) {
+                ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+                    content: Text(
+                        'Acesso remoto aguardando o dispositivo ficar online.')));
+                return;
+              }
               try {
                 final credential =
                     await TgdeskApi.remoteCredential(d['id'] as String);
