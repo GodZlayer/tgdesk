@@ -160,6 +160,7 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
   bool _clipboardEnabled = false;
   bool _fileTransferEnabled = false;
   final RxBool _captureSystemKeys = false.obs;
+  int _lastSystemKeysShortcutMicros = 0;
   Color _color = const Color(0xffff3b30);
   double _strokeWidth = 5;
   Offset? _lastPoint;
@@ -175,6 +176,10 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
     // global de entrada precisa ser preparado aqui uma vez por sessÃ£o.
     bind.mainInitInputSource();
     stateGlobal.getInputSource(force: true);
+    // O canvas remoto pode manter o foco e consumir Ctrl+Shift+I antes de o
+    // Focus.onKeyEvent do shell receber a tecla. O handler global garante que
+    // o atalho continue funcionando como no Parsec, mas só para a aba ativa.
+    HardwareKeyboard.instance.addHandler(_handleGlobalKeyEvent);
     // Este estado Ã© lido pelo shell antes de o filho RemotePage entrar na
     // Ã¡rvore. Sem registrar os estados compartilhados neste ponto, o GetX
     // lanÃ§a "Instance not found" no primeiro frame e o Hub fica cinza.
@@ -209,6 +214,7 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
 
   @override
   void dispose() {
+    HardwareKeyboard.instance.removeHandler(_handleGlobalKeyEvent);
     if (_inputBlocked.isTrue) {
       bind.sessionToggleOption(sessionId: _sessionId, value: 'unblock-input');
     }
@@ -309,6 +315,34 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
         : 'Atalhos do Windows liberados neste computador');
   }
 
+  bool _isActiveKeyboardSession() {
+    if (!widget.embedded) return true;
+    return RemoteSessionsManager.instance.active?.deviceId == widget.deviceId;
+  }
+
+  bool _toggleSystemKeysFromShortcut() {
+    final now = DateTime.now().microsecondsSinceEpoch;
+    // Windows/Flutter podem entregar o mesmo KeyDown ao handler global e ao
+    // FocusNode. Evita duas alternâncias e mantém uma única notificação.
+    if (now - _lastSystemKeysShortcutMicros < 100000) return true;
+    _lastSystemKeysShortcutMicros = now;
+    _toggleSystemKeys();
+    return true;
+  }
+
+  bool _handleGlobalKeyEvent(KeyEvent event) {
+    if (!mounted || event is! KeyDownEvent || !_isActiveKeyboardSession()) {
+      return false;
+    }
+    final keys = HardwareKeyboard.instance;
+    if (event.logicalKey == LogicalKeyboardKey.keyI &&
+        keys.isControlPressed &&
+        keys.isShiftPressed) {
+      return _toggleSystemKeysFromShortcut();
+    }
+    return false;
+  }
+
   void _clearDrawing() {
     setState(_segments.clear);
     _sendAnnotation(const {'t': 'ClearDrawing'});
@@ -370,8 +404,9 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
     }
     if (keys.isControlPressed && keys.isShiftPressed) {
       if (event.logicalKey == LogicalKeyboardKey.keyI) {
-        _toggleSystemKeys();
-        return KeyEventResult.handled;
+        return _toggleSystemKeysFromShortcut()
+            ? KeyEventResult.handled
+            : KeyEventResult.ignored;
       }
       if (event.logicalKey == LogicalKeyboardKey.keyB) {
         _toggleInputBlock();
