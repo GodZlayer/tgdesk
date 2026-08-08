@@ -159,6 +159,7 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
   bool _eraser = false;
   bool _clipboardEnabled = false;
   bool _fileTransferEnabled = false;
+  final RxBool _captureSystemKeys = false.obs;
   Color _color = const Color(0xffff3b30);
   double _strokeWidth = 5;
   Offset? _lastPoint;
@@ -247,12 +248,25 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
         : 'Entrada local do cliente liberada');
   }
 
-  void _notify(String text) => BotToast.showText(
-        text: text,
-        duration: const Duration(seconds: 3),
-        clickClose: true,
-        onlyOne: true,
-      );
+  void _notify(String text) {
+    final messenger = ScaffoldMessenger.maybeOf(context);
+    if (messenger != null) {
+      messenger
+        ..hideCurrentSnackBar()
+        ..showSnackBar(SnackBar(
+          content: Text(text),
+          duration: const Duration(seconds: 3),
+          behavior: SnackBarBehavior.floating,
+        ));
+      return;
+    }
+    BotToast.showText(
+      text: text,
+      duration: const Duration(seconds: 3),
+      clickClose: true,
+      onlyOne: true,
+    );
+  }
 
   void _toggleDrawing() {
     setState(() {
@@ -283,6 +297,16 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
     _notify(_fileTransferEnabled
         ? 'Transferência de arquivos ativada'
         : 'Transferência de arquivos desativada');
+  }
+
+  void _toggleSystemKeys() {
+    _captureSystemKeys.toggle();
+    if (isWindows) {
+      bind.hostStopSystemKeyPropagate(stopped: _captureSystemKeys.value);
+    }
+    _notify(_captureSystemKeys.value
+        ? 'Atalhos do Windows enviados ao computador remoto'
+        : 'Atalhos do Windows liberados neste computador');
   }
 
   void _clearDrawing() {
@@ -345,6 +369,10 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
       return KeyEventResult.handled;
     }
     if (keys.isControlPressed && keys.isShiftPressed) {
+      if (event.logicalKey == LogicalKeyboardKey.keyI) {
+        _toggleSystemKeys();
+        return KeyEventResult.handled;
+      }
       if (event.logicalKey == LogicalKeyboardKey.keyB) {
         _toggleInputBlock();
         return KeyEventResult.handled;
@@ -508,6 +536,8 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
             tgdeskToolbarMenuBuilder: _tgdeskToolbarMenu,
             tgdeskSessionReady: (ffi) => _ffi = ffi,
             tgdeskShortcutHandler: _handleTgdeskShortcut,
+            tgdeskCaptureSystemKeys: _captureSystemKeys,
+            tgdeskToggleSystemKeys: _toggleSystemKeys,
             tgdeskCloseSession: () {
               _notify('Sessão remota encerrada');
               RemoteSessionsManager.instance.close(widget.deviceId);

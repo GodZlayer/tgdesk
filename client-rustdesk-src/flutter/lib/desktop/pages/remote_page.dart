@@ -51,6 +51,8 @@ class RemotePage extends StatefulWidget {
     this.tgdeskCloseSession,
     this.tgdeskSessionReady,
     this.tgdeskShortcutHandler,
+    this.tgdeskCaptureSystemKeys,
+    this.tgdeskToggleSystemKeys,
   }) : super(key: key) {
     initSharedStates(id);
   }
@@ -70,6 +72,8 @@ class RemotePage extends StatefulWidget {
   final VoidCallback? tgdeskCloseSession;
   final ValueChanged<FFI>? tgdeskSessionReady;
   final KeyEventResult Function(KeyEvent event)? tgdeskShortcutHandler;
+  final RxBool? tgdeskCaptureSystemKeys;
+  final VoidCallback? tgdeskToggleSystemKeys;
   final SimpleWrapper<State<RemotePage>?> _lastState = SimpleWrapper(null);
   final DesktopTabController? tabController;
 
@@ -128,6 +132,8 @@ class _RemotePageState extends State<RemotePage>
   bool _waylandKeyboardModeNormalizing = false;
 
   SessionID get sessionId => _ffi.sessionId;
+  RxBool get _systemKeysCapture =>
+      widget.tgdeskCaptureSystemKeys ?? _captureSystemKeys;
 
   _RemotePageState(String id) {
     _initStates(id);
@@ -256,6 +262,11 @@ class _RemotePageState extends State<RemotePage>
   }
 
   void _toggleSystemKeyCapture() {
+    final externalToggle = widget.tgdeskToggleSystemKeys;
+    if (externalToggle != null) {
+      externalToggle();
+      return;
+    }
     _captureSystemKeys.toggle();
     if (isWindows) {
       // true: shortcuts such as Alt+Tab and the Windows key are kept by
@@ -520,12 +531,13 @@ class _RemotePageState extends State<RemotePage>
           tgdeskMode: widget.tgdeskEmbedded,
           tgdeskMenuBuilder: widget.tgdeskToolbarMenuBuilder,
           tgdeskCloseSession: widget.tgdeskCloseSession,
-          captureSystemKeys: _captureSystemKeys,
+          captureSystemKeys: _systemKeysCapture,
           toggleSystemKeys: _toggleSystemKeyCapture,
         );
 
     bodyWidget() {
       return Stack(
+        fit: StackFit.expand,
         children: [
           Container(
               color: kColorCanvas,
@@ -553,6 +565,7 @@ class _RemotePageState extends State<RemotePage>
                   inputModel: _ffi.inputModel,
                   child: getBodyForDesktop(context))),
           Stack(
+            fit: StackFit.expand,
             children: [
               _ffi.ffiModel.pi.isSet.isTrue &&
                       _ffi.ffiModel.waitForFirstImage.isTrue
@@ -574,16 +587,14 @@ class _RemotePageState extends State<RemotePage>
                             ));
                       }
                     }(),
-              // Use Overlay to enable rebuild every time on menu button click.
-              // Hide toolbar when relative mouse mode is active to prevent
-              // cursor from escaping to toolbar area.
-              Obx(() => _ffi.inputModel.relativeMouseMode.value
-                  ? const Offstage()
-                  : _ffi.ffiModel.pi.isSet.isTrue
-                      ? Overlay(initialEntries: [
-                          OverlayEntry(builder: remoteToolbar)
-                        ])
-                      : remoteToolbar(context)),
+              // Keep the toolbar as a stable child of the Stack. Recreating an
+              // OverlayEntry on every peer/display notification restarted the
+              // floating menu and made it blink together with the Hub brand.
+              Positioned.fill(
+                child: Obx(() => _ffi.inputModel.relativeMouseMode.value
+                    ? const Offstage()
+                    : remoteToolbar(context)),
+              ),
               _ffi.ffiModel.pi.isSet.isFalse ? emptyOverlay() : Offstage(),
             ],
           ),
@@ -729,7 +740,7 @@ class _RemotePageState extends State<RemotePage>
         onEnter: (evt) {
           if (!isWeb) {
             bind.hostStopSystemKeyPropagate(
-                stopped: widget.tgdeskEmbedded && _captureSystemKeys.value);
+                stopped: widget.tgdeskEmbedded && _systemKeysCapture.value);
           }
         },
         onExit: (evt) {
@@ -784,6 +795,7 @@ class _RemotePageState extends State<RemotePage>
       ),
     );
     return Stack(
+      fit: StackFit.expand,
       children: paints,
     );
   }

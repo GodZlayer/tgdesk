@@ -61,6 +61,30 @@ class _HubHomePageState extends State<HubHomePage> {
       map is Map ? ((map[key] as num?)?.toInt() ?? 0) : 0;
   bool _brandingEnabled = false;
 
+  TgdeskUpdateStatus? _parseUpdateStatus(Map<String, dynamic> status) {
+    if (status['updating'] != true) return null;
+    final progress = status['update_progress'];
+    return TgdeskUpdateStatus(
+      updating: true,
+      version: _text(progress, 'version'),
+      totalBytes: _int(progress, 'total_bytes'),
+      downloadedBytes: _int(progress, 'downloaded_bytes'),
+      bytesPerSecond: _int(progress, 'bytes_per_second'),
+      throttleKbps: _int(progress, 'throttle_kbps'),
+    );
+  }
+
+  bool _sameUpdateStatus(TgdeskUpdateStatus? a, TgdeskUpdateStatus? b) {
+    if (identical(a, b)) return true;
+    if (a == null || b == null) return a == b;
+    return a.updating == b.updating &&
+        a.version == b.version &&
+        a.totalBytes == b.totalBytes &&
+        a.downloadedBytes == b.downloadedBytes &&
+        a.bytesPerSecond == b.bytesPerSecond &&
+        a.throttleKbps == b.throttleKbps;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -112,28 +136,26 @@ class _HubHomePageState extends State<HubHomePage> {
       // pelo canal de controle — deviceBranding resolve pela organização dona
       // da rede do dispositivo, que no caso dele é a própria.
       final branding = status['branding'];
-      if (branding is Map) {
-        unawaited(
-            applyClientBrandingWindowIcon(Map<String, dynamic>.from(branding)));
+      final nextBranding = branding is Map
+          ? Map<String, dynamic>.from(branding)
+          : <String, dynamic>{};
+      final nextVersion = status['current_version']?.toString() ?? '';
+      final nextUpdateStatus = _parseUpdateStatus(status);
+      final brandingChanged = jsonEncode(nextBranding) != jsonEncode(_branding);
+      final changed = brandingChanged ||
+          nextVersion != _version ||
+          !_sameUpdateStatus(nextUpdateStatus, _updateStatus);
+      if (brandingChanged) {
+        unawaited(applyClientBrandingWindowIcon(nextBranding));
       }
+      if (!changed) return;
       setState(() {
-        _branding = branding is Map ? Map<String, dynamic>.from(branding) : {};
-        _version = status['current_version']?.toString() ?? '';
+        _branding = nextBranding;
+        _version = nextVersion;
         // O computador do técnico também é um dispositivo, e a atualização
         // dele é empurrada pelo servidor como a de qualquer outro. A barra só
         // acompanha.
-        _updateStatus = status['updating'] != true
-            ? null
-            : TgdeskUpdateStatus(
-                updating: true,
-                version: _text(status['update_progress'], 'version'),
-                totalBytes: _int(status['update_progress'], 'total_bytes'),
-                downloadedBytes:
-                    _int(status['update_progress'], 'downloaded_bytes'),
-                bytesPerSecond:
-                    _int(status['update_progress'], 'bytes_per_second'),
-                throttleKbps: _int(status['update_progress'], 'throttle_kbps'),
-              );
+        _updateStatus = nextUpdateStatus;
       });
     } catch (_) {}
   }
