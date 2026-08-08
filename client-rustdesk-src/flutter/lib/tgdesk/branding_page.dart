@@ -109,8 +109,7 @@ class _BrandingPageState extends State<BrandingPage> {
     if (source == null) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-              content: Text('Não foi possível abrir essa imagem.')),
+          const SnackBar(content: Text('Não foi possível abrir essa imagem.')),
         );
       }
       return;
@@ -145,8 +144,7 @@ class _BrandingPageState extends State<BrandingPage> {
     if (source == null) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-              content: Text('Não foi possível abrir essa imagem.')),
+          const SnackBar(content: Text('Não foi possível abrir essa imagem.')),
         );
       }
       return;

@@ -18,45 +18,6 @@ class AdminPage extends StatefulWidget {
 class _AdminDashboardState extends State<AdminPage> {
   int _selected = 0;
 
-  static const _legacyItems =
-      <({String title, String subtitle, IconData icon})>[
-    (
-      title: 'Auditoria',
-      subtitle: 'Eventos, relações e visão executiva',
-      icon: Icons.timeline_outlined
-    ),
-    (
-      title: 'Regiões',
-      subtitle: 'Mapa, cidades e preço dinâmico',
-      icon: Icons.map_outlined
-    ),
-    (
-      title: 'Catálogo',
-      subtitle: 'Serviços, peças e consumíveis',
-      icon: Icons.inventory_2_outlined
-    ),
-    (
-      title: 'Precificação',
-      subtitle: 'Percentuais e distribuição da OS',
-      icon: Icons.percent_outlined
-    ),
-    (
-      title: 'Chamados',
-      subtitle: 'Taxonomia operacional',
-      icon: Icons.category_outlined
-    ),
-    (
-      title: 'Vinculados',
-      subtitle: 'Organizações, redes e pessoas',
-      icon: Icons.account_tree_outlined
-    ),
-    (
-      title: 'Cotas',
-      subtitle: 'Direitos de uso e limites',
-      icon: Icons.rule_folder_outlined
-    ),
-  ];
-
   static const _items = <({String title, String subtitle, IconData icon})>[
     (
       title: 'Auditoria',
@@ -87,11 +48,6 @@ class _AdminDashboardState extends State<AdminPage> {
       title: 'Vinculados',
       subtitle: 'Organiza\u{00e7}\u{00f5}es, redes e pessoas',
       icon: Icons.account_tree_outlined
-    ),
-    (
-      title: 'Cotas',
-      subtitle: 'Direitos de uso e limites',
-      icon: Icons.rule_folder_outlined
     ),
   ];
 
@@ -379,8 +335,7 @@ class _AdminPageState extends State<_LegacyAdminPage> {
                     decoration: const InputDecoration(
                       prefixIcon: Icon(Icons.search),
                       labelText: 'Buscar configuração',
-                      helperText:
-                          'Um editor; sete domínios de configuração.',
+                      helperText: 'Um editor; sete domínios de configuração.',
                     ),
                     onChanged: (value) => setState(() {
                       _filter = value;
@@ -560,8 +515,7 @@ class _SectionHeader extends StatelessWidget {
               items: const [
                 DropdownMenuItem(value: 'investor', child: Text('Investidor')),
                 DropdownMenuItem(value: 'board', child: Text('Conselho')),
-                DropdownMenuItem(
-                    value: 'operations', child: Text('Operação')),
+                DropdownMenuItem(value: 'operations', child: Text('Operação')),
                 DropdownMenuItem(value: 'commercial', child: Text('Comercial')),
               ],
               onChanged: (value) {
@@ -666,8 +620,30 @@ class _FeesEditorState extends State<_FeesEditor> {
       final value = double.tryParse(percent.text.replaceAll(',', '.'));
       if (value == null || value < 0 || value > 100) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('Informe um percentual entre 0 e 100.')));
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text('Informe um percentual entre 0 e 100.')));
+        }
+        return;
+      }
+      double configured(String ruleRole) =>
+          (_rules
+                  .where((r) => r['kind'] == 'share' && r['role'] == ruleRole)
+                  .firstOrNull?['percent'] as num?)
+              ?.toDouble() ??
+          0;
+      final otherShares = ['tgdesk', 'supervisor', 'referrer_supervisor']
+          .where((item) => item != role)
+          .fold<double>(0, (sum, item) => sum + configured(item));
+      final currentPayment = (_rules
+                  .where((r) => r['kind'] == 'fee')
+                  .firstOrNull?['percent'] as num?)
+              ?.toDouble() ??
+          0;
+      final otherPayment = role == 'payment' ? 0 : currentPayment;
+      if (role != 'technician' && value + otherShares + otherPayment > 100) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+              content: Text('A soma das taxas não pode ultrapassar 100%.')));
         }
         return;
       }
@@ -689,11 +665,16 @@ class _FeesEditorState extends State<_FeesEditor> {
     if (_error != null) return Center(child: TgdeskErrorText(_error!));
     final roles = ['tgdesk', 'supervisor', 'referrer_supervisor', 'technician'];
     final payment = _rules.where((r) => r['kind'] == 'fee').firstOrNull;
-    double share(String role) =>
-        ((_rules.where((r) => r['kind'] == 'share' && r['role'] == role).firstOrNull?['percent'] as num?)?.toDouble() ?? 0);
+    double share(String role) => ((_rules
+                .where((r) => r['kind'] == 'share' && r['role'] == role)
+                .firstOrNull?['percent'] as num?)
+            ?.toDouble() ??
+        0);
     final paymentPercent = (payment?['percent'] as num?)?.toDouble() ?? 0;
-    final reserved = share('tgdesk') + share('supervisor') +
-        share('referrer_supervisor') + paymentPercent;
+    final reserved = share('tgdesk') +
+        share('supervisor') +
+        share('referrer_supervisor') +
+        paymentPercent;
     final technicianRemainder = (100 - reserved).clamp(0, 100).toDouble();
     return ListView(padding: const EdgeInsets.all(TgdeskSpacing.lg), children: [
       Text('Taxas e distribuição',
@@ -1493,6 +1474,11 @@ class _LinkedEditorState extends State<_LinkedEditor> {
     if (id.isEmpty) {
       return;
     }
+    if (action.startsWith('suspend_')) {
+      final confirmed = await showTgdeskConfirmSuspendDialog(context,
+          'o ${_linkedKindLabel(node['kind']?.toString() ?? '').toLowerCase()} "${_nodeTitle(node)}"');
+      if (!confirmed) return;
+    }
     if (action == 'suspend_device') {
       await TgdeskApi.suspendDevice(id);
     }
@@ -1505,8 +1491,32 @@ class _LinkedEditorState extends State<_LinkedEditor> {
     if (action == 'suspend_network') {
       await TgdeskApi.suspendNetwork(id);
     }
+    if (action == 'resume_device') {
+      await TgdeskApi.resumeDevice(id);
+    }
+    if (action == 'resume_technician') {
+      await TgdeskApi.resumeTechnician(id);
+    }
+    if (action == 'resume_organization') {
+      await TgdeskApi.resumeOrganization(id);
+    }
+    if (action == 'resume_network') {
+      await TgdeskApi.resumeNetwork(id);
+    }
+    if (action == 'suspend_subnetwork') {
+      await TgdeskApi.suspendSubnetwork(id);
+    }
+    if (action == 'resume_subnetwork') {
+      await TgdeskApi.resumeSubnetwork(id);
+    }
     if (mounted) Navigator.pop(context);
     await _load();
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+          content: Text(action.startsWith('resume_')
+              ? '${_linkedKindLabel(node['kind']?.toString() ?? '')} reativado.'
+              : '${_linkedKindLabel(node['kind']?.toString() ?? '')} suspenso.')));
+    }
   }
 
   Future<void> _editQuota(
@@ -1849,7 +1859,11 @@ class _OrganizationTree extends StatelessWidget {
                         title: Text(_nodeTitle(tech)),
                         subtitle:
                             Text('supervisor: ${tech['supervisor_id'] ?? '-'}'),
-                        onTap: () => onNode(tech)),
+                        onTap: () => onNode(tech),
+                        trailing: IconButton(
+                            tooltip: 'Gerenciar supervisor',
+                            icon: const Icon(Icons.tune_outlined),
+                            onPressed: () => onNode(tech))),
                   for (final net in networks.where((n) =>
                       n['organization_id']?.toString() ==
                       org['id']?.toString()))
@@ -1857,6 +1871,10 @@ class _OrganizationTree extends StatelessWidget {
                       leading: const Icon(Icons.lan_outlined),
                       title: Text(_nodeTitle(net)),
                       subtitle: Text('status: ${net['status'] ?? '-'}'),
+                      trailing: IconButton(
+                          tooltip: 'Gerenciar rede',
+                          icon: const Icon(Icons.tune_outlined),
+                          onPressed: () => onNode(net)),
                       children: [
                         for (final sub in subnetworks.where((s) =>
                             s['network_id']?.toString() ==
@@ -1865,6 +1883,10 @@ class _OrganizationTree extends StatelessWidget {
                             leading: const Icon(Icons.account_tree_outlined),
                             title: Text(_nodeTitle(sub)),
                             subtitle: Text('status: ${sub['status'] ?? '-'}'),
+                            trailing: IconButton(
+                                tooltip: 'Gerenciar sub-rede',
+                                icon: const Icon(Icons.tune_outlined),
+                                onPressed: () => onNode(sub)),
                             children: [
                               for (final dev in devices.where((d) =>
                                   d['subnetwork_id']?.toString() ==
@@ -1877,6 +1899,10 @@ class _OrganizationTree extends StatelessWidget {
                                   subtitle:
                                       Text('estado: ${dev['state'] ?? '-'}'),
                                   onTap: () => onNode(dev),
+                                  trailing: IconButton(
+                                      tooltip: 'Gerenciar dispositivo',
+                                      icon: const Icon(Icons.tune_outlined),
+                                      onPressed: () => onNode(dev)),
                                 ),
                             ],
                           ),
@@ -1892,7 +1918,11 @@ class _OrganizationTree extends StatelessWidget {
                               title: Text(_nodeTitle(dev)),
                               subtitle: Text(
                                   'estado: ${dev['state'] ?? '-'} · RustDesk: ${dev['rustdesk_id'] ?? '-'}'),
-                              onTap: () => onNode(dev)),
+                              onTap: () => onNode(dev),
+                              trailing: IconButton(
+                                  tooltip: 'Gerenciar dispositivo',
+                                  icon: const Icon(Icons.tune_outlined),
+                                  onPressed: () => onNode(dev))),
                       ],
                     ),
                 ],
@@ -1913,6 +1943,8 @@ class _LinkedNodeDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final kind = node['kind']?.toString() ?? '';
+    final suspended = _nodeIsSuspended(node);
+    final action = suspended ? 'resume_$kind' : 'suspend_$kind';
     return AlertDialog(
       title: Text(_nodeTitle(node)),
       content: SizedBox(
@@ -1929,28 +1961,50 @@ class _LinkedNodeDialog extends StatelessWidget {
         ),
       ),
       actions: [
-        if (kind == 'device')
+        if (const {
+          'device',
+          'technician',
+          'organization',
+          'network',
+          'subnetwork'
+        }.contains(kind))
           TextButton(
-              onPressed: () => onAction('suspend_device', node),
-              child: const Text('Suspender dispositivo')),
-        if (kind == 'technician')
+            onPressed: () => onAction(action, node),
+            child: Text(suspended
+                ? 'Reativar ${_linkedKindLabel(kind).toLowerCase()}'
+                : 'Suspender ${_linkedKindLabel(kind).toLowerCase()}'),
+          ),
+        if (kind == '__legacy_device__')
           TextButton(
-              onPressed: () => onAction('suspend_technician', node),
+              onPressed: () => onAction(action, node),
+              child: Text(suspended
+                  ? 'Reativar dispositivo'
+                  : 'Suspender dispositivo')),
+        if (kind == '__legacy_technician__')
+          TextButton(
+              onPressed: () => onAction(action, node),
               child: const Text('Suspender técnico')),
-        if (kind == 'organization')
+        if (kind == '__legacy_organization__')
           TextButton(
-              onPressed: () => onAction('suspend_organization', node),
+              onPressed: () => onAction(action, node),
               child: const Text('Suspender organização')),
-        if (kind == 'network')
+        if (kind == '__legacy_network__')
           TextButton(
-              onPressed: () => onAction('suspend_network', node),
-              child: const Text('Suspender rede')),
+              onPressed: () => onAction(action, node),
+              child: Text(suspended ? 'Reativar rede' : 'Suspender rede')),
         FilledButton(
             onPressed: () => Navigator.pop(context),
             child: const Text('Fechar')),
       ],
     );
   }
+}
+
+bool _nodeIsSuspended(Map<String, dynamic> node) {
+  final kind = node['kind']?.toString();
+  final state = node['state']?.toString();
+  final status = node['status']?.toString();
+  return kind == 'device' ? state == 'suspenso' : status == 'suspensa';
 }
 
 class _LinkedMapPainter extends CustomPainter {

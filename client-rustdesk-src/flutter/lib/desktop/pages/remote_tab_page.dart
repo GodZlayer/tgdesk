@@ -110,7 +110,8 @@ class _ConnectionTabPageState extends State<ConnectionTabPage> {
           tgdeskToolbarMenuBuilder:
               params['tgdeskToolbarMenuBuilder'] as WidgetBuilder?,
           tgdeskCloseSession: params['tgdeskCloseSession'] as VoidCallback?,
-          tgdeskSessionReady: params['tgdeskSessionReady'] as ValueChanged<FFI>?,
+          tgdeskSessionReady:
+              params['tgdeskSessionReady'] as ValueChanged<FFI>?,
           tgdeskShortcutHandler: params['tgdeskShortcutHandler']
               as KeyEventResult Function(KeyEvent event)?,
         ),
@@ -153,87 +154,92 @@ class _ConnectionTabPageState extends State<ConnectionTabPage> {
   Widget build(BuildContext context) {
     final child = Scaffold(
       backgroundColor: Theme.of(context).colorScheme.background,
-      body: _tgdeskEmbedded ? _buildEmbeddedBody() : DesktopTab(
-        controller: tabController,
-        onWindowCloseButton: handleWindowCloseButton,
-        tail: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            _RelativeMouseModeHint(tabController: tabController),
-            const AddButton(),
-          ],
-        ),
-        selectedBorderColor: MyTheme.accent,
-        pageViewBuilder: (pageView) => pageView,
-        labelGetter: DesktopTab.tablabelGetter,
-        tabBuilder: (key, icon, label, themeConf) => Obx(() {
-          final connectionType = ConnectionTypeState.find(key);
-          if (!connectionType.isValid()) {
-            return Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                icon,
-                label,
-              ],
-            );
-          } else {
-            bool secure = connectionType.secure.value == ConnectionType.strSecure;
-            bool direct = connectionType.direct.value == ConnectionType.strDirect;
-            String msgConn = getConnectionText(
-                secure, direct, connectionType.stream_type.value);
-            var msgFingerprint = '${translate('Fingerprint')}:\n';
-            var fingerprint = FingerprintState.find(key).value;
-            if (fingerprint.isEmpty) {
-              fingerprint = 'N/A';
-            }
-            if (fingerprint.length > 5 * 8) {
-              var first = fingerprint.substring(0, 39);
-              var second = fingerprint.substring(40);
-              msgFingerprint += '$first\n$second';
-            } else {
-              msgFingerprint += fingerprint;
-            }
+      body: _tgdeskEmbedded
+          ? _buildEmbeddedBody()
+          : DesktopTab(
+              controller: tabController,
+              onWindowCloseButton: handleWindowCloseButton,
+              tail: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  _RelativeMouseModeHint(tabController: tabController),
+                  const AddButton(),
+                ],
+              ),
+              selectedBorderColor: MyTheme.accent,
+              pageViewBuilder: (pageView) => pageView,
+              labelGetter: DesktopTab.tablabelGetter,
+              tabBuilder: (key, icon, label, themeConf) => Obx(() {
+                final connectionType = ConnectionTypeState.find(key);
+                if (!connectionType.isValid()) {
+                  return Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      icon,
+                      label,
+                    ],
+                  );
+                } else {
+                  bool secure =
+                      connectionType.secure.value == ConnectionType.strSecure;
+                  bool direct =
+                      connectionType.direct.value == ConnectionType.strDirect;
+                  String msgConn = getConnectionText(
+                      secure, direct, connectionType.stream_type.value);
+                  var msgFingerprint = '${translate('Fingerprint')}:\n';
+                  var fingerprint = FingerprintState.find(key).value;
+                  if (fingerprint.isEmpty) {
+                    fingerprint = 'N/A';
+                  }
+                  if (fingerprint.length > 5 * 8) {
+                    var first = fingerprint.substring(0, 39);
+                    var second = fingerprint.substring(40);
+                    msgFingerprint += '$first\n$second';
+                  } else {
+                    msgFingerprint += fingerprint;
+                  }
 
-            final tab = Row(
-              mainAxisAlignment: MainAxisAlignment.center,
-              children: [
-                icon,
-                Tooltip(
-                  message: '$msgConn\n$msgFingerprint',
-                  child: SvgPicture.asset(
-                    'assets/${connectionType.secure.value}${connectionType.direct.value}.svg',
-                    width: themeConf.iconSize,
-                    height: themeConf.iconSize,
-                  ).paddingOnly(right: 5),
-                ),
-                label,
-                unreadMessageCountBuilder(UnreadChatCountState.find(key))
-                    .marginOnly(left: 4),
-              ],
-            );
+                  final tab = Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      icon,
+                      Tooltip(
+                        message: '$msgConn\n$msgFingerprint',
+                        child: SvgPicture.asset(
+                          'assets/${connectionType.secure.value}${connectionType.direct.value}.svg',
+                          width: themeConf.iconSize,
+                          height: themeConf.iconSize,
+                        ).paddingOnly(right: 5),
+                      ),
+                      label,
+                      unreadMessageCountBuilder(UnreadChatCountState.find(key))
+                          .marginOnly(left: 4),
+                    ],
+                  );
 
-            return Listener(
-              onPointerDown: (e) {
-                if (e.kind != ui.PointerDeviceKind.mouse) {
-                  return;
-                }
-                final remotePage = tabController.state.value.tabs
-                    .firstWhere((tab) => tab.key == key)
-                    .page as RemotePage;
-                if (remotePage.ffi.ffiModel.pi.isSet.isTrue && e.buttons == 2) {
-                  showRightMenu(
-                    (CancelFunc cancelFunc) {
-                      return _tabMenuBuilder(key, cancelFunc);
+                  return Listener(
+                    onPointerDown: (e) {
+                      if (e.kind != ui.PointerDeviceKind.mouse) {
+                        return;
+                      }
+                      final remotePage = tabController.state.value.tabs
+                          .firstWhere((tab) => tab.key == key)
+                          .page as RemotePage;
+                      if (remotePage.ffi.ffiModel.pi.isSet.isTrue &&
+                          e.buttons == 2) {
+                        showRightMenu(
+                          (CancelFunc cancelFunc) {
+                            return _tabMenuBuilder(key, cancelFunc);
+                          },
+                          target: e.position,
+                        );
+                      }
                     },
-                    target: e.position,
+                    child: tab,
                   );
                 }
-              },
-              child: tab,
-            );
-          }
-        }),
-      ),
+              }),
+            ),
     );
     final tabWidget = isLinux
         ? buildVirtualWindowFrame(context, child)

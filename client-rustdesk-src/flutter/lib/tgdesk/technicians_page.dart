@@ -76,29 +76,34 @@ class _TechniciansPageState extends State<TechniciansPage> {
       context: context,
       builder: (ctx) => StatefulBuilder(builder: (ctx, setLocal) {
         return AlertDialog(
-          title: Text('Como "${tech['display_name'] ?? tech['username']}" é exibido'),
+          title: Text(
+              'Como "${tech['display_name'] ?? tech['username']}" é exibido'),
           content: SizedBox(
             width: 380,
-            child: Column(mainAxisSize: MainAxisSize.min, crossAxisAlignment: CrossAxisAlignment.start, children: [
-              const Text('Escolha o padrão do nome. {nome} vira o apelido do técnico.'),
-              const SizedBox(height: 12),
-              RadioListTile<String?>(
-                value: null,
-                groupValue: selected,
-                title: Text('Só o nome — sem extra'),
-                onChanged: (v) => setLocal(() => selected = v),
-              ),
-              const Divider(height: 8),
-              for (final st in _nameStyles)
-                RadioListTile<String>(
-                  value: st['key'] as String,
-                  groupValue: selected,
-                  title: Text(st['label'] as String),
-                  subtitle: Text((st['template'] as String)
-                      .replaceAll('{nome}', username)),
-                  onChanged: (v) => setLocal(() => selected = v),
-                ),
-            ]),
+            child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  const Text(
+                      'Escolha o padrão do nome. {nome} vira o apelido do técnico.'),
+                  const SizedBox(height: 12),
+                  RadioListTile<String?>(
+                    value: null,
+                    groupValue: selected,
+                    title: Text('Só o nome — sem extra'),
+                    onChanged: (v) => setLocal(() => selected = v),
+                  ),
+                  const Divider(height: 8),
+                  for (final st in _nameStyles)
+                    RadioListTile<String>(
+                      value: st['key'] as String,
+                      groupValue: selected,
+                      title: Text(st['label'] as String),
+                      subtitle: Text((st['template'] as String)
+                          .replaceAll('{nome}', username)),
+                      onChanged: (v) => setLocal(() => selected = v),
+                    ),
+                ]),
           ),
           actions: [
             TextButton(
@@ -355,32 +360,37 @@ class _TechniciansPageState extends State<TechniciansPage> {
                 leading: Icon(
                     t['role'] == 'super_admin' ? Icons.shield : Icons.person,
                     color: suspenso ? TgdeskColors.offline : null),
-                title: Text(
-                    (t['display_name']?.toString() ?? t['username']).toString()),
-                subtitle: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Text(t['role'] == 'super_admin'
-                      ? 'Administrador · acesso total'
-                      : scopes.isEmpty
-                          ? 'Sem redes atribuídas · nenhum dispositivo ficará visível'
-                          : 'Atende: ${scopes.join(' · ')}'),
-                  if (t['name_style'] != null && t['display_name']?.toString() != t['username']?.toString())
-                    Padding(
-                      padding: const EdgeInsets.only(top: 2),
-                      child: Text(
-                        'Exibido como "${t['display_name']}"',
-                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                            color: TgdeskColors.online),
-                      ),
-                    ),
-                ]),
+                title: Text((t['display_name']?.toString() ?? t['username'])
+                    .toString()),
+                subtitle: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(t['role'] == 'super_admin'
+                          ? 'Administrador · acesso total'
+                          : scopes.isEmpty
+                              ? 'Sem redes atribuídas · nenhum dispositivo ficará visível'
+                              : 'Atende: ${scopes.join(' · ')}'),
+                      if (t['name_style'] != null &&
+                          t['display_name']?.toString() !=
+                              t['username']?.toString())
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: Text(
+                            'Exibido como "${t['display_name']}"',
+                            style: Theme.of(context)
+                                .textTheme
+                                .bodySmall
+                                ?.copyWith(color: TgdeskColors.online),
+                          ),
+                        ),
+                    ]),
                 trailing: Row(mainAxisSize: MainAxisSize.min, children: [
                   if (t['role'] != 'super_admin')
                     IconButton(
                       icon: const Icon(Icons.badge_outlined),
                       tooltip: 'Escolher como o nome é exibido',
-                      onPressed: suspenso
-                          ? null
-                          : () => _openNameStyleDialog(t),
+                      onPressed:
+                          suspenso ? null : () => _openNameStyleDialog(t),
                     ),
                   IconButton(
                     icon: const Icon(Icons.vpn_key_outlined),

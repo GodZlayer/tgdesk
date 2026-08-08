@@ -492,6 +492,12 @@ class TgdeskApi {
   static Future<void> resumeNetwork(String id) async =>
       await _send('POST', '/api/v1/networks/$id/resume');
 
+  static Future<void> suspendSubnetwork(String id) async =>
+      await _send('POST', '/api/v1/subnetworks/$id/suspend');
+
+  static Future<void> resumeSubnetwork(String id) async =>
+      await _send('POST', '/api/v1/subnetworks/$id/resume');
+
   static Future<void> resumeOrganization(String id) async =>
       await _send('POST', '/api/v1/admin/resume/organization/$id');
 
@@ -692,19 +698,28 @@ class TgdeskApi {
       await _send('POST', '/api/v1/admin/regions', body: region);
 
   static Future<List<dynamic>> regionalServiceBounds(String regionId) async =>
-      await _send('GET', '/api/v1/admin/regions/$regionId/service-price-bounds') as List<dynamic>;
+      await _send('GET', '/api/v1/admin/regions/$regionId/service-price-bounds')
+          as List<dynamic>;
 
-  static Future<void> saveRegionalServiceBounds(String regionId, Map<String, dynamic> row) async =>
-      await _send('POST', '/api/v1/admin/regions/$regionId/service-price-bounds', body: row);
+  static Future<void> saveRegionalServiceBounds(
+          String regionId, Map<String, dynamic> row) async =>
+      await _send(
+          'POST', '/api/v1/admin/regions/$regionId/service-price-bounds',
+          body: row);
 
   static Future<List<dynamic>> regionCoverageAddresses(String regionId) async =>
-      await _send('GET', '/api/v1/admin/regions/$regionId/coverage-addresses') as List<dynamic>;
+      await _send('GET', '/api/v1/admin/regions/$regionId/coverage-addresses')
+          as List<dynamic>;
 
-  static Future<void> saveRegionCoverageAddress(String regionId, Map<String, dynamic> row) async =>
-      await _send('POST', '/api/v1/admin/regions/$regionId/coverage-addresses', body: row);
+  static Future<void> saveRegionCoverageAddress(
+          String regionId, Map<String, dynamic> row) async =>
+      await _send('POST', '/api/v1/admin/regions/$regionId/coverage-addresses',
+          body: row);
 
-  static Future<void> deleteRegionCoverageAddress(String regionId, String addressId) async =>
-      await _send('DELETE', '/api/v1/admin/regions/$regionId/coverage-addresses/$addressId');
+  static Future<void> deleteRegionCoverageAddress(
+          String regionId, String addressId) async =>
+      await _send('DELETE',
+          '/api/v1/admin/regions/$regionId/coverage-addresses/$addressId');
 
   static Future<void> deleteRegion(String id) async =>
       await _send('DELETE', '/api/v1/admin/regions/$id');

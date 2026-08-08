@@ -360,8 +360,22 @@ class _DevicesPageState extends State<DevicesPage> {
               tooltip: 'Renomear sub-rede',
               onPressed: () => _openRenameSubnetworkDialog(subnet),
             ),
+          if (subnet['can_manage'] == true)
+            IconButton(
+              icon: Icon(
+                subnet['status'] == 'suspensa'
+                    ? Icons.play_circle_outline
+                    : Icons.pause_circle_outline,
+                size: 20,
+              ),
+              tooltip: subnet['status'] == 'suspensa'
+                  ? 'Reativar sub-rede'
+                  : 'Suspender sub-rede',
+              onPressed: () => _toggleOwnedSubnetwork(subnet),
+            ),
         ]),
-        subtitle: Text('${devices.length} dispositivo(s)'),
+        subtitle: Text(
+            '${subnet['status'] ?? 'ativa'} · ${devices.length} dispositivo(s)'),
         children: devices.map<Widget>((d) => _buildDeviceTile(d)).toList(),
       ),
     );
@@ -442,7 +456,9 @@ class _DevicesPageState extends State<DevicesPage> {
                 Column(children: [
                   SelectableText(codigo!,
                       style: const TextStyle(
-                          fontSize: 26, letterSpacing: 4, fontWeight: FontWeight.bold)),
+                          fontSize: 26,
+                          letterSpacing: 4,
+                          fontWeight: FontWeight.bold)),
                   const SizedBox(height: 6),
                   const Text('Válido por 7 dias, uso único.',
                       style: TextStyle(fontSize: 11)),
@@ -636,6 +652,25 @@ class _DevicesPageState extends State<DevicesPage> {
             context, 'a rede "${network['name']}"');
         if (!confirmed) return;
         await TgdeskApi.suspendNetwork(network['id'] as String);
+      }
+      await _load();
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text('Erro: $e')));
+      }
+    }
+  }
+
+  Future<void> _toggleOwnedSubnetwork(dynamic subnetwork) async {
+    try {
+      if (subnetwork['status'] == 'suspensa') {
+        await TgdeskApi.resumeSubnetwork(subnetwork['id'] as String);
+      } else {
+        final confirmed = await showTgdeskConfirmSuspendDialog(
+            context, 'a sub-rede "${subnetwork['name']}"');
+        if (!confirmed) return;
+        await TgdeskApi.suspendSubnetwork(subnetwork['id'] as String);
       }
       await _load();
     } catch (e) {
@@ -1349,7 +1384,8 @@ class _DevicesPageState extends State<DevicesPage> {
             const SizedBox(width: 10),
             Expanded(
                 child: Text(
-                    TgdeskHealthText.technicalTitle(health['level']?.toString()),
+                    TgdeskHealthText.technicalTitle(
+                        health['level']?.toString()),
                     style: const TextStyle(
                         fontSize: 18, fontWeight: FontWeight.w600))),
             Text(response['collected_at']?.toString() ?? '',
@@ -1624,7 +1660,9 @@ class _DevicesPageState extends State<DevicesPage> {
           const SizedBox(height: 4),
           Text(TgdeskHealthText.technical(Map<String, dynamic>.from(issue))),
         ])),
-        Chip(label: Text(TgdeskHealthText.categoryLabel(issue['category']?.toString()))),
+        Chip(
+            label: Text(
+                TgdeskHealthText.categoryLabel(issue['category']?.toString()))),
       ]),
     );
   }
@@ -1693,7 +1731,8 @@ class _DevicesPageState extends State<DevicesPage> {
           if (!unavailable)
             Padding(
               padding: const EdgeInsets.only(bottom: 4, left: 2),
-              child: Text(suffix, style: TextStyle(color: TgdeskColors.offline)),
+              child:
+                  Text(suffix, style: TextStyle(color: TgdeskColors.offline)),
             ),
           const Spacer(),
           Text(state, style: TextStyle(color: color, fontSize: 12)),
@@ -1736,7 +1775,7 @@ class _DevicesPageState extends State<DevicesPage> {
       bytes /= 1024;
       unit++;
     }
-       return '${bytes.toStringAsFixed(unit < 3 ? 0 : 1)} ${units[unit]}';
+    return '${bytes.toStringAsFixed(unit < 3 ? 0 : 1)} ${units[unit]}';
   }
 
   String _bitSpeed(dynamic value) {
