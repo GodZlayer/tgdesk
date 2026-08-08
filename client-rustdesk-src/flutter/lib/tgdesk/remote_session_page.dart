@@ -5,7 +5,8 @@ import 'package:flutter/services.dart';
 import 'package:flutter_hbb/common.dart';
 import 'package:flutter_hbb/common/shared_state.dart';
 import 'package:flutter_hbb/consts.dart';
-import 'package:flutter_hbb/desktop/screen/desktop_remote_screen.dart';
+import 'package:flutter_hbb/desktop/pages/remote_page.dart';
+import 'package:flutter_hbb/desktop/widgets/remote_toolbar.dart';
 import 'package:flutter_hbb/models/platform_model.dart';
 import 'package:flutter_hbb/models/model.dart';
 import 'package:flutter_hbb/models/state_model.dart';
@@ -168,6 +169,11 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
   @override
   void initState() {
     super.initState();
+    // DesktopRemoteScreen fazia esta inicializaÃ§Ã£o antes de criar a aba
+    // nativa. O caminho embutido monta RemotePage diretamente, entÃ£o o estado
+    // global de entrada precisa ser preparado aqui uma vez por sessÃ£o.
+    bind.mainInitInputSource();
+    stateGlobal.getInputSource(force: true);
     _inputBlocked = BlockInputState.find(widget.remoteId);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await Future<void>.delayed(const Duration(milliseconds: 700));
@@ -512,23 +518,24 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          DesktopRemoteScreen(params: {
-            'id': widget.remoteId,
-            'windowId': 0,
-            'embedded': true,
+          RemotePage(
+            key: ValueKey(widget.remoteId),
+            id: widget.remoteId,
+            password: widget.credential,
+            forceRelay: false,
+            toolbarState: ToolbarState(),
+            tgdeskEmbedded: true,
             // Deixe o RustDesk negociar direto e usar relay como fallback.
             // Forçar relay aqui deixava a tela cinza quando o par estava na
             // mesma rede ou quando o relay ainda estava em reconexão.
-            'forceRelay': false,
-            'password': widget.credential,
-            'tgdeskToolbarMenuBuilder': _tgdeskToolbarMenu,
-            'tgdeskSessionReady': (ffi) => _ffi = ffi,
-            'tgdeskShortcutHandler': _handleTgdeskShortcut,
-            'tgdeskCloseSession': () {
+            tgdeskToolbarMenuBuilder: _tgdeskToolbarMenu,
+            tgdeskSessionReady: (ffi) => _ffi = ffi,
+            tgdeskShortcutHandler: _handleTgdeskShortcut,
+            tgdeskCloseSession: () {
               _notify('Sessão remota encerrada');
               RemoteSessionsManager.instance.close(widget.deviceId);
             },
-          }),
+          ),
           if (_drawing)
             Positioned.fill(
               child: LayoutBuilder(
