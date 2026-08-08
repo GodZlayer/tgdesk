@@ -828,6 +828,7 @@ class _ViewStyleUpdaterState extends State<_ViewStyleUpdater> {
         final newSize = Size(maxWidth, maxHeight);
         if (_lastSize != newSize) {
           _lastSize = newSize;
+          widget.canvasModel.setEmbeddedViewportSize(newSize);
           // Schedule the update for after the current frame to avoid setState during build.
           // Use _callbackScheduled flag to prevent accumulating multiple callbacks
           // when size changes rapidly before any callback executes.

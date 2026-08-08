@@ -1521,6 +1521,14 @@ class FfiModel with ChangeNotifier {
   }
 
   tryUseAllMyDisplaysForTheRemoteSession(String peerId) async {
+    // TGDesk keeps remote sessions inside one Hub tab. The original
+    // multi-window behavior opens one native window per local monitor and
+    // switches the session to display 0 first; doing that from an embedded
+    // session makes the virtual display appear to reset and can recreate the
+    // canvas while the user is working.
+    if (parent.target?.canvasModel.tgdeskEmbedded == true) {
+      return;
+    }
     if (bind.sessionGetUseAllMyDisplaysForTheRemoteSession(
             sessionId: sessionId) !=
         'Y') {
@@ -2203,6 +2211,11 @@ class CanvasModel with ChangeNotifier {
   // TGDesk measures the embedded remote area itself. The standalone RustDesk
   // window chrome must not be subtracted from that area a second time.
   bool tgdeskEmbedded = false;
+  // The integrated Hub content is smaller than the native window. Using
+  // ui.window here made the canvas include the title bar/navigation rail and
+  // shifted it whenever the Hub entered or left fullscreen.
+  Size? _tgdeskEmbeddedViewportSize;
+  int _viewStyleRequest = 0;
   // image offset of canvas
   double _x = 0;
   // image offset of canvas
@@ -2263,6 +2276,17 @@ class CanvasModel with ChangeNotifier {
   ViewStyle get viewStyle => _lastViewStyle;
   RxBool get imageOverflow => _imageOverflow;
 
+  void setEmbeddedViewportSize(Size size) {
+    if (!tgdeskEmbedded ||
+        !size.width.isFinite ||
+        !size.height.isFinite ||
+        size.width < 0 ||
+        size.height < 0) {
+      return;
+    }
+    _tgdeskEmbeddedViewportSize = size;
+  }
+
   _resetScroll() => setScrollPercent(0.0, 0.0);
 
   void setScrollPercent(double x, double y) {
@@ -2296,7 +2320,9 @@ class CanvasModel with ChangeNotifier {
 
   Size getSize() {
     final mediaData = MediaQueryData.fromView(ui.window);
-    final size = mediaData.size;
+    final size = tgdeskEmbedded
+        ? (_tgdeskEmbeddedViewportSize ?? mediaData.size)
+        : mediaData.size;
     // If minimized, w or h may be negative here.
     // O recuo do embutimento entra AQUI e no mapeamento do ponteiro, e em
     // nenhum outro lugar.
@@ -2362,8 +2388,9 @@ class CanvasModel with ChangeNotifier {
   updateSize() => _size = getSize();
 
   updateViewStyle({refreshMousePos = true, notify = true}) async {
+    final request = ++_viewStyleRequest;
     final style = await bind.sessionGetViewStyle(sessionId: sessionId);
-    if (style == null) {
+    if (style == null || request != _viewStyleRequest) {
       return;
     }
 
@@ -2377,6 +2404,10 @@ class CanvasModel with ChangeNotifier {
       displayWidth: displayWidth,
       displayHeight: displayHeight,
     );
+    final styleChanged = _lastViewStyle.style != viewStyle.style;
+    final displayGeometryChanged =
+        _lastViewStyle.displayWidth != viewStyle.displayWidth ||
+            _lastViewStyle.displayHeight != viewStyle.displayHeight;
     // If only the Custom scale percent changed, proceed to update even if
     // the basic ViewStyle fields are equal.
     // In Custom scale mode, the scale percent can change independently of the other
@@ -2386,7 +2417,7 @@ class CanvasModel with ChangeNotifier {
     if (_lastViewStyle == viewStyle && style != kRemoteViewStyleCustom) {
       return;
     }
-    if (_lastViewStyle.style != viewStyle.style) {
+    if (styleChanged) {
       _resetScroll();
     }
     _lastViewStyle = viewStyle;
@@ -2396,12 +2427,15 @@ class CanvasModel with ChangeNotifier {
     if (style == kRemoteViewStyleCustom) {
       try {
         _scale = await getSessionCustomScale(sessionId);
+        if (request != _viewStyleRequest) return;
       } catch (e, stack) {
         debugPrint('Error in getSessionCustomScale: $e');
         debugPrintStack(stackTrace: stack);
         _scale = 1.0;
       }
     }
+
+    if (request != _viewStyleRequest) return;
 
     _devicePixelRatio = ui.window.devicePixelRatio;
     if (kIgnoreDpi) {
@@ -2422,7 +2456,11 @@ class CanvasModel with ChangeNotifier {
     if (!isMobile && refreshMousePos) {
       parent.target?.inputModel.refreshMousePos();
     }
-    tryUpdateScrollStyle(Duration.zero, style);
+    // A local window resize must not reset the user's remote viewport. Only a
+    // real view-mode/display-geometry change needs the scroll-style reset.
+    if (styleChanged || displayGeometryChanged) {
+      tryUpdateScrollStyle(Duration.zero, style);
+    }
   }
 
   _resetCanvasOffset(int displayWidth, int displayHeight) {

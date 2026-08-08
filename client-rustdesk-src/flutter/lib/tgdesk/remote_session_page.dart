@@ -231,12 +231,6 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
     //
     // Zerar quando a última sai continua necessário: uma janela solta não tem
     // barra lateral nenhuma, e herdar o recuo do Hub a faria nascer torta.
-    if (RemoteSessionsManager.instance.sessions.isEmpty) {
-      stateGlobal.tgdeskEmbedTop = 0;
-      stateGlobal.tgdeskEmbedLeft = 0;
-      stateGlobal.tgdeskEmbedRight = 0;
-      stateGlobal.tgdeskEmbedBottom = 0;
-    }
     _focusNode.dispose();
     super.dispose();
   }
@@ -489,35 +483,14 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
   /// título tem altura fixa, mas a barra lateral muda de largura conforme os
   /// destinos visíveis, e cravar números aqui daria um cursor certo hoje e
   /// errado no primeiro destino novo.
-  final GlobalKey _areaKey = GlobalKey();
-
-  void _medirRecuo() {
-    final render = _areaKey.currentContext?.findRenderObject();
-    if (render is! RenderBox || !render.hasSize) return;
-    final origem = render.localToGlobal(Offset.zero);
-    final janela = MediaQuery.sizeOf(context);
-    final direita = (janela.width - origem.dx - render.size.width)
-        .clamp(0, double.infinity);
-    final inferior = (janela.height - origem.dy - render.size.height)
-        .clamp(0, double.infinity);
-    if (stateGlobal.tgdeskEmbedTop != origem.dy ||
-        stateGlobal.tgdeskEmbedLeft != origem.dx ||
-        stateGlobal.tgdeskEmbedRight != direita ||
-        stateGlobal.tgdeskEmbedBottom != inferior) {
-      stateGlobal.tgdeskEmbedTop = origem.dy;
-      stateGlobal.tgdeskEmbedLeft = origem.dx;
-      stateGlobal.tgdeskEmbedRight = direita.toDouble();
-      stateGlobal.tgdeskEmbedBottom = inferior.toDouble();
-    }
-  }
+  // RemotePage receives the exact embedded viewport constraints through its
+  // LayoutBuilder; no global window-coordinate recuo is needed here.
 
   Widget _buildContent() {
     // Medido a cada quadro: a janela muda de tamanho, a barra lateral aparece
     // e some, e a tela cheia zera os dois. Comparar antes de escrever mantém
     // isso barato.
-    WidgetsBinding.instance.addPostFrameCallback((_) => _medirRecuo());
     return Container(
-      key: _areaKey,
       color: Colors.black,
       child: Stack(
         fit: StackFit.expand,
