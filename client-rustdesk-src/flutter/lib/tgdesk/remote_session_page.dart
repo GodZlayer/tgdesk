@@ -160,7 +160,9 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
   bool _eraser = false;
   bool _clipboardEnabled = false;
   bool _fileTransferEnabled = false;
-  final RxBool _captureSystemKeys = false.obs;
+  // Começa com o grabber remoto ativo. Ctrl+Shift+I libera o teclado para o
+  // computador local; um novo clique no canvas retoma o controle remoto.
+  final RxBool _captureSystemKeys = true.obs;
   int _lastSystemKeysShortcutMicros = 0;
   Color _color = const Color(0xffff3b30);
   double _strokeWidth = 5;
@@ -177,6 +179,9 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
     // global de entrada precisa ser preparado aqui uma vez por sessÃ£o.
     bind.mainInitInputSource();
     stateGlobal.getInputSource(force: true);
+    if (isWindows) {
+      bind.hostStopSystemKeyPropagate(stopped: true);
+    }
     // O canvas remoto pode manter o foco e consumir Ctrl+Shift+I antes de o
     // Focus.onKeyEvent do shell receber a tecla. O handler global garante que
     // o atalho continue funcionando como no Parsec, mas só para a aba ativa.
@@ -318,10 +323,23 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
 
   void _toggleSystemKeys() {
     _captureSystemKeys.toggle();
+    final capture = _captureSystemKeys.value;
     if (isWindows) {
-      bind.hostStopSystemKeyPropagate(stopped: _captureSystemKeys.value);
+      bind.hostStopSystemKeyPropagate(stopped: capture);
     }
-    _notify(_captureSystemKeys.value
+    final ffi = _ffi;
+    if (ffi != null) {
+      if (capture) {
+        ffi.inputModel.enterOrLeave(true);
+        _focusNode.requestFocus();
+      } else {
+        // A flag nativa de propagação não basta: o rdev grabber do RustDesk
+        // também precisa ser liberado para Alt+Tab voltar ao computador local.
+        ffi.inputModel.enterOrLeave(false);
+        _focusNode.unfocus();
+      }
+    }
+    _notify(capture
         ? 'Atalhos do Windows enviados ao computador remoto'
         : 'Atalhos do Windows liberados neste computador');
   }

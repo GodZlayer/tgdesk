@@ -555,6 +555,17 @@ class _RemotePageState extends State<RemotePage>
                         });
                       }
                       if (imageFocused) {
+                        if (widget.tgdeskEmbedded &&
+                            widget.tgdeskCaptureSystemKeys != null &&
+                            !widget.tgdeskCaptureSystemKeys!.value) {
+                          // Ctrl+Shift+I releases the native grabber. Clicking
+                          // the remote canvas is the Parsec-style way to take
+                          // control back.
+                          widget.tgdeskCaptureSystemKeys!.value = true;
+                          if (isWindows) {
+                            bind.hostStopSystemKeyPropagate(stopped: true);
+                          }
+                        }
                         _ffi.inputModel.enterOrLeave(true);
                       } else {
                         _ffi.inputModel.enterOrLeave(false);
