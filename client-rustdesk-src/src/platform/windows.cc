@@ -825,6 +825,20 @@ extern "C"
         return 0;
     }
 
+    // Flutter/TGDesk does not start through the legacy `--connect` entrypoint,
+    // so the old UI bootstrap never calls win32_enable_lowlevel_keyboard().
+    // Keep the hook available for an embedded remote session as soon as it
+    // asks to capture system keys.  The Ctrl+Shift+I escape chord is handled
+    // by this hook even when the native remote canvas owns focus.
+    void win32_ensure_lowlevel_keyboard()
+    {
+        HWND hwnd = default_hook_wnd ? default_hook_wnd : GetForegroundWindow();
+        if (hwnd)
+        {
+            (void)win32_enable_lowlevel_keyboard(hwnd);
+        }
+    }
+
     void win32_disable_lowlevel_keyboard(HWND hwnd)
     {
         if (!hwnd)

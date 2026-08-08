@@ -575,6 +575,7 @@ extern "C" {
     fn get_di_bits(out: *mut u8, dc: HDC, hbmColor: HBITMAP, width: i32, height: i32) -> i32;
     fn blank_screen(v: BOOL);
     fn win32_enable_lowlevel_keyboard(hwnd: HWND) -> i32;
+    fn win32_ensure_lowlevel_keyboard();
     fn win32_disable_lowlevel_keyboard(hwnd: HWND);
     fn win_stop_system_key_propagate(v: BOOL);
     fn is_win_down() -> BOOL;
@@ -2358,6 +2359,13 @@ pub fn disable_lowlevel_keyboard(hwnd: HWND) {
 
 pub fn stop_system_key_propagate(v: bool) {
     unsafe { win_stop_system_key_propagate(if v { TRUE } else { FALSE }) };
+}
+
+/// Ensure the TGDesk system-key escape hook is running for the embedded
+/// Flutter remote view. The legacy RustDesk `--connect` bootstrap installs it
+/// before Flutter starts, but the TGDesk Hub opens sessions in-process.
+pub fn ensure_lowlevel_keyboard() {
+    unsafe { win32_ensure_lowlevel_keyboard() };
 }
 
 pub fn get_win_key_state() -> bool {

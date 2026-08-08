@@ -593,25 +593,29 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
       child: Stack(
         fit: StackFit.expand,
         children: [
-          RemotePage(
-            key: ValueKey(widget.remoteId),
-            id: widget.remoteId,
-            password: widget.credential,
-            forceRelay: false,
-            toolbarState: ToolbarState(),
-            tgdeskEmbedded: true,
-            // Deixe o RustDesk negociar direto e usar relay como fallback.
-            // Forçar relay aqui deixava a tela cinza quando o par estava na
-            // mesma rede ou quando o relay ainda estava em reconexão.
-            tgdeskToolbarMenuBuilder: _tgdeskToolbarMenu,
-            tgdeskSessionReady: (ffi) => _ffi = ffi,
-            tgdeskShortcutHandler: _handleTgdeskShortcut,
-            tgdeskCaptureSystemKeys: _captureSystemKeys,
-            tgdeskToggleSystemKeys: _toggleSystemKeys,
-            tgdeskCloseSession: () {
-              _notify('Sessão remota encerrada');
-              RemoteSessionsManager.instance.close(widget.deviceId);
-            },
+          Positioned.fill(
+            child: ClipRect(
+              child: RemotePage(
+                key: ValueKey(widget.remoteId),
+                id: widget.remoteId,
+                password: widget.credential,
+                forceRelay: false,
+                toolbarState: ToolbarState(),
+                tgdeskEmbedded: true,
+                // Deixe o RustDesk negociar direto e usar relay como fallback.
+                // Forçar relay aqui deixava a tela cinza quando o par estava na
+                // mesma rede ou quando o relay ainda estava em reconexão.
+                tgdeskToolbarMenuBuilder: _tgdeskToolbarMenu,
+                tgdeskSessionReady: (ffi) => _ffi = ffi,
+                tgdeskShortcutHandler: _handleTgdeskShortcut,
+                tgdeskCaptureSystemKeys: _captureSystemKeys,
+                tgdeskToggleSystemKeys: _toggleSystemKeys,
+                tgdeskCloseSession: () {
+                  _notify('Sessão remota encerrada');
+                  RemoteSessionsManager.instance.close(widget.deviceId);
+                },
+              ),
+            ),
           ),
           if (_drawing)
             Positioned.fill(

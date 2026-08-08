@@ -2284,7 +2284,25 @@ class CanvasModel with ChangeNotifier {
         size.height < 0) {
       return;
     }
+    if (_tgdeskEmbeddedViewportSize == size && _size == size) {
+      return;
+    }
     _tgdeskEmbeddedViewportSize = size;
+
+    // LayoutBuilder knows the real rectangle occupied by the Hub (after the
+    // title bar/navigation rail and after a fullscreen transition). Keep the
+    // canvas geometry synchronous with that rectangle. Waiting only for the
+    // asynchronous sessionGetViewStyle() round-trip left one frame using the
+    // old MediaQuery/window size, which made the remote image overflow or sit
+    // below the viewport after resize/fullscreen.
+    _size = size;
+    if (_lastViewStyle.style.isNotEmpty) {
+      _resetCanvasOffset(getDisplayWidth(), getDisplayHeight());
+      final overflow = _x < 0 || _y < 0;
+      if (_imageOverflow.value != overflow) {
+        _imageOverflow.value = overflow;
+      }
+    }
   }
 
   _resetScroll() => setScrollPercent(0.0, 0.0);

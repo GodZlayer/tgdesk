@@ -100,7 +100,13 @@ pub enum EventToUI {
 
 pub fn host_stop_system_key_propagate(_stopped: bool) {
     #[cfg(windows)]
-    crate::platform::windows::stop_system_key_propagate(_stopped);
+    {
+        // The TGDesk Hub embeds remote sessions and therefore does not pass
+        // through the old `--connect` bootstrap that installed the low-level
+        // keyboard hook. Install it lazily on the first capture request.
+        crate::platform::windows::ensure_lowlevel_keyboard();
+        crate::platform::windows::stop_system_key_propagate(_stopped);
+    }
 }
 
 // This function is only used to count the number of control sessions.
