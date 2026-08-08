@@ -174,6 +174,10 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
     // global de entrada precisa ser preparado aqui uma vez por sessÃ£o.
     bind.mainInitInputSource();
     stateGlobal.getInputSource(force: true);
+    // Este estado Ã© lido pelo shell antes de o filho RemotePage entrar na
+    // Ã¡rvore. Sem registrar os estados compartilhados neste ponto, o GetX
+    // lanÃ§a "Instance not found" no primeiro frame e o Hub fica cinza.
+    initSharedStates(widget.remoteId);
     _inputBlocked = BlockInputState.find(widget.remoteId);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await Future<void>.delayed(const Duration(milliseconds: 700));
