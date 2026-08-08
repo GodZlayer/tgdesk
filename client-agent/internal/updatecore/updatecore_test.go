@@ -88,6 +88,26 @@ func TestUpdaterChangeIsAppliedByExternalRuntimeCopy(t *testing.T) {
 	}
 }
 
+func TestReplaceStoppedUpdaterKeepsCanonicalName(t *testing.T) {
+	root := t.TempDir()
+	install := filepath.Join(root, "install")
+	staging := filepath.Join(root, "staging")
+	installed := filepath.Join(install, "tgdesk-updater.exe")
+	replacement := filepath.Join(staging, "tgdesk-updater.next.exe")
+	mustWrite(t, installed, "old-updater")
+	mustWrite(t, replacement, "new-updater")
+	if err := replaceStoppedUpdater(installed, replacement, staging); err != nil {
+		t.Fatal(err)
+	}
+	assertFile(t, installed, "new-updater")
+	if _, err := os.Stat(replacement); !os.IsNotExist(err) {
+		t.Fatalf("replacement must be consumed: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(staging, "tgdesk-updater.previous.exe")); !os.IsNotExist(err) {
+		t.Fatalf("previous updater must not remain after success: %v", err)
+	}
+}
+
 func TestOfflineManifestAndStagingVerification(t *testing.T) {
 	root := t.TempDir()
 	files := filepath.Join(root, "files")

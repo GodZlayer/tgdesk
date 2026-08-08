@@ -33,7 +33,8 @@ func (s *Server) StandaloneUpdaterInfo(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"sha256": hex.EncodeToString(hash.Sum(nil)), "size": info.Size(),
+		"version": os.Getenv("CLIENT_VERSION"),
+		"sha256":  hex.EncodeToString(hash.Sum(nil)), "size": info.Size(),
 		"url": "/api/v1/client/updater/download",
 	})
 }

@@ -399,6 +399,13 @@ func mainWindowIsOnScreen(installDir string) bool {
 // a partir de os.Executable(), que dentro da DLL resolve para o tgdesk.exe
 // hospedeiro); usamos esse diretório, não o executável em si, para montar o
 // caminho do tgdesk-updater.exe.
+// ensureStandaloneUpdater mantém um único atualizador canônico na instalação.
+//
+// A regra é deliberada: o TGDesk (que ainda está em execução) atualiza o
+// tgdesk-updater.exe antes de iniciá-lo. Depois disso, o updater aplica o
+// restante do TGDesk, mas nunca tenta substituir a si próprio. Isso evita uma
+// cadeia de executáveis temporários e mantém o mesmo nome/caminho em todas as
+// versões.
 func ensureStandaloneUpdater(client *http.Client, apiBase, installDir, stagingRoot string) (string, error) {
 	resp, err := client.Get(apiBase + "/api/v1/client/updater")
 	if err != nil {
@@ -424,7 +431,7 @@ func ensureStandaloneUpdater(client *http.Client, apiBase, installDir, stagingRo
 	if err := os.MkdirAll(stagingRoot, 0700); err != nil {
 		return "", fmt.Errorf("preparar staging do updater standalone: %w", err)
 	}
-	target := filepath.Join(stagingRoot, "tgdesk-updater.exe")
+	target := filepath.Join(stagingRoot, "tgdesk-updater.next.exe")
 	temporary := target + ".download"
 	if err := downloadVerified(client, apiBase+info.URL, temporary, info); err != nil {
 		_ = os.Remove(temporary)
@@ -434,17 +441,46 @@ func ensureStandaloneUpdater(client *http.Client, apiBase, installDir, stagingRo
 		_ = os.Remove(temporary)
 		return "", fmt.Errorf("preparar updater standalone atual: %w", err)
 	}
-	return target, nil
+	if err := replaceStoppedUpdater(installed, target, stagingRoot); err != nil {
+		return "", err
+	}
+	return installed, nil
+}
+
+// replaceStoppedUpdater troca o updater enquanto ele ainda não está em uso.
+// O backup fica no staging da transação e é restaurado se a segunda troca
+// falhar. O chamador só pode usar isto antes de lançar tgdesk-updater.exe.
+func replaceStoppedUpdater(installed, replacement, stagingRoot string) error {
+	if filepath.Clean(installed) == filepath.Clean(replacement) {
+		return fmt.Errorf("substituição do updater aponta para o próprio arquivo")
+	}
+	backup := filepath.Join(stagingRoot, "tgdesk-updater.previous.exe")
+	_ = os.Remove(backup)
+	hadInstalled := false
+	if _, err := os.Stat(installed); err == nil {
+		hadInstalled = true
+		if err := os.Rename(installed, backup); err != nil {
+			return fmt.Errorf("reservar updater anterior: %w", err)
+		}
+	} else if !os.IsNotExist(err) {
+		return fmt.Errorf("inspecionar updater instalado: %w", err)
+	}
+	if err := os.Rename(replacement, installed); err != nil {
+		if hadInstalled {
+			_ = os.Rename(backup, installed)
+		}
+		return fmt.Errorf("instalar updater atual: %w", err)
+	}
+	if hadInstalled {
+		_ = os.Remove(backup)
+	}
+	return nil
 }
 
 func launchStagedUpdaterElevated(staging, installDir, updaterExe string, parentPID uint32) error {
-	// tgdesk-updater.exe roda direto do diretório de instalação. A cópia pra
-	// uma pasta runtime com nome aleatório só fazia sentido se o próprio
-	// updater pudesse ser substituído por uma atualização modular — mas ele
-	// é deliberadamente excluído do pacote modular (por design, sempre foi
-	// assim) e nunca se auto-atualiza. Manter a cópia só adicionava um
-	// arquivo recém-criado sem reputação, alvo fácil do SmartScreen/Defender,
-	// sem nenhum ganho real.
+	// O TGDesk acabou de atualizar o arquivo canônico enquanto ele estava
+	// parado. Daqui em diante o updater só aplica o payload do TGDesk e nunca
+	// substitui a si próprio.
 	if info, err := os.Stat(updaterExe); err != nil || info.IsDir() {
 		return fmt.Errorf("atualizador standalone ausente: %w", err)
 	}
