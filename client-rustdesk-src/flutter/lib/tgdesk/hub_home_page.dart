@@ -238,25 +238,32 @@ class _HubHomePageState extends State<HubHomePage> {
               ],
             );
 
-            // Em tela cheia some só o que está em volta. A árvore da sessão é
-            // a mesma, e é por isso que entrar e sair não reconecta mais.
-            if (emTelaCheia && ativa >= 0) {
-              return conteudo;
-            }
+            // A posição de `conteudo` na árvore precisa permanecer idêntica
+            // nos dois modos. Retorná-lo diretamente em tela cheia e dentro
+            // do Row em janela troca seu ancestral de Expanded para o próprio
+            // Obx; o Flutter então desmonta RemotePage e o dispose fecha a
+            // sessão FFI. Tela cheia é apenas uma mudança de layout, nunca de
+            // ciclo de vida da conexão.
             return Row(
               children: [
-                NavigationRail(
-                  // Com uma sessão à frente, nenhum destino fica marcado: o que
-                  // a tela mostra é a máquina remota, não uma das telas do Hub.
-                  selectedIndex: ativa < 0 ? _index : null,
-                  onDestinationSelected: (i) {
-                    gerente.blur();
-                    setState(() => _index = i);
-                  },
-                  labelType: NavigationRailLabelType.all,
-                  destinations: destinations,
+                Offstage(
+                  offstage: emTelaCheia && ativa >= 0,
+                  child: NavigationRail(
+                    // Com uma sessão à frente, nenhum destino fica marcado: o que
+                    // a tela mostra é a máquina remota, não uma das telas do Hub.
+                    selectedIndex: ativa < 0 ? _index : null,
+                    onDestinationSelected: (i) {
+                      gerente.blur();
+                      setState(() => _index = i);
+                    },
+                    labelType: NavigationRailLabelType.all,
+                    destinations: destinations,
+                  ),
                 ),
-                const VerticalDivider(width: 1),
+                SizedBox(
+                  width: emTelaCheia && ativa >= 0 ? 0 : 1,
+                  child: const VerticalDivider(width: 1),
+                ),
                 Expanded(child: conteudo),
               ],
             );

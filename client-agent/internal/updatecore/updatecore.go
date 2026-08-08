@@ -659,12 +659,28 @@ func ApplyStagedOfflineWithProgress(staging, installDir string, parentPID uint32
 	go func() { exited <- app.Wait() }()
 	select {
 	case startErr := <-exited:
+		if isDeviceSuspended() {
+			reportProgress(report, 100, "Atualizacao concluida; dispositivo suspenso.")
+			return nil
+		}
 		return rollbackAndRecover(applied, installDir, rollback, stoppedServices, manifest,
 			fmt.Errorf("TGDesk exited during startup validation: %v", startErr))
 	case <-time.After(5 * time.Second):
 		reportProgress(report, 100, "Atualizacao concluida. TGDesk iniciado.")
 		return nil
 	}
+}
+
+func isDeviceSuspended() bool {
+	statusPath := filepath.Join(DataDir(), "state", "status.json")
+	raw, err := os.ReadFile(statusPath)
+	if err != nil {
+		return false
+	}
+	var status struct {
+		State string `json:"state"`
+	}
+	return json.Unmarshal(raw, &status) == nil && status.State == "suspenso"
 }
 
 func cleanupLegacyWireGuardAdapters() {
