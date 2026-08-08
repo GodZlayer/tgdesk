@@ -48,6 +48,19 @@ static EXIT_SHORTCUT_KEY_DOWN: AtomicBool = AtomicBool::new(false);
 #[cfg(all(feature = "flutter", target_os = "windows"))]
 static TGDESK_SYSTEM_KEYS_SHORTCUT_DOWN: AtomicBool = AtomicBool::new(false);
 
+/// Entry point for the Windows low-level hook fallback. The rdev grab loop is
+/// normally the first layer to see the chord, but the Windows hook also calls
+/// this when the remote canvas owns the native focus and rdev does not receive
+/// the event. Dart receives the same global event and suppresses duplicates.
+#[cfg(all(feature = "flutter", target_os = "windows"))]
+#[no_mangle]
+pub extern "C" fn rustdesk_tgdesk_system_key_shortcut() {
+    let _ = crate::flutter::push_global_event(
+        crate::flutter::APP_TYPE_MAIN,
+        r#"{"name":"tgdesk_system_keys_toggle"}"#.to_string(),
+    );
+}
+
 // Track whether relative mouse mode is currently active.
 // This is set by Flutter via set_relative_mouse_mode_state() and checked
 // by the rdev grab loop to determine if exit shortcuts should be processed.

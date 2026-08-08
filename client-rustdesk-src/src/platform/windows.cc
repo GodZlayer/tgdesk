@@ -688,6 +688,11 @@ extern "C"
 // below copied from https://github.com/TigerVNC/tigervnc/blob/master/vncviewer/win32.c
 extern "C"
 {
+    // Exported by the Rust keyboard module. This fallback runs before Flutter
+    // or the rdev grabber and therefore still sees Ctrl+Shift+I after the
+    // remote canvas has taken native focus.
+    void rustdesk_tgdesk_system_key_shortcut();
+
     static HANDLE thread;
     static DWORD thread_id;
 
@@ -696,6 +701,7 @@ extern "C"
     static HWND default_hook_wnd = 0;
     static bool win_down = false;
     static bool stop_system_key_propagate = false;
+    static bool tgdesk_system_key_shortcut_down = false;
 
     bool is_win_down()
     {
@@ -730,6 +736,28 @@ extern "C"
         if (nCode >= 0)
         {
             KBDLLHOOKSTRUCT *msgInfo = (KBDLLHOOKSTRUCT *)lParam;
+
+            const bool key_down = wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN;
+            const bool key_up = wParam == WM_KEYUP || wParam == WM_SYSKEYUP;
+            if (msgInfo->vkCode == 'I')
+            {
+                const bool ctrl_down = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+                const bool shift_down = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
+                if (key_down && ctrl_down && shift_down)
+                {
+                    if (!tgdesk_system_key_shortcut_down)
+                    {
+                        tgdesk_system_key_shortcut_down = true;
+                        rustdesk_tgdesk_system_key_shortcut();
+                    }
+                    return 1;
+                }
+                if (key_up && tgdesk_system_key_shortcut_down)
+                {
+                    tgdesk_system_key_shortcut_down = false;
+                    return 1;
+                }
+            }
 
             // Grabbing everything seems to mess up some keyboard state that
             // FLTK relies on, so just grab the keys that we normally cannot.
