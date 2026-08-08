@@ -26,7 +26,6 @@ class HubHomePage extends StatefulWidget {
 class _HubHomePageState extends State<HubHomePage> {
   final _control = TgdeskControlChannel.instance;
   int _index = 0;
-  Timer? _updateTimer;
   String _version = '';
   TgdeskUpdateStatus? _updateStatus;
   Map<String, dynamic> _branding = {};
@@ -89,10 +88,9 @@ class _HubHomePageState extends State<HubHomePage> {
   void initState() {
     super.initState();
     _control.addListener(_onControl);
+    TgdeskApi.addDeviceEventListener(_onDeviceEvent);
     _readUpdateState();
     _readBrandingAccess();
-    _updateTimer =
-        Timer.periodic(const Duration(seconds: 2), (_) => _readUpdateState());
   }
 
   // O ouvinte que trocava _index para o destino "Acesso remoto" saiu junto com
@@ -114,7 +112,7 @@ class _HubHomePageState extends State<HubHomePage> {
   @override
   void dispose() {
     _control.removeListener(_onControl);
-    _updateTimer?.cancel();
+    TgdeskApi.removeDeviceEventListener(_onDeviceEvent);
     super.dispose();
   }
 
@@ -122,6 +120,47 @@ class _HubHomePageState extends State<HubHomePage> {
     final enabled = _control.brandingEnabled;
     if (enabled != null && mounted && enabled != _brandingEnabled) {
       setState(() => _brandingEnabled = enabled);
+    }
+  }
+
+  void _onDeviceEvent(Map<String, dynamic> event) {
+    if (!mounted) return;
+    final type = event['type']?.toString();
+    if (type == 'update_status') {
+      final payload = event['payload'];
+      if (payload is Map) {
+        final status = Map<String, dynamic>.from(payload);
+        final next = _parseUpdateStatus(status);
+        if (!_sameUpdateStatus(next, _updateStatus)) {
+          setState(() => _updateStatus = next);
+        }
+      }
+      return;
+    }
+    if (type == 'branding') {
+      final payload = event['payload'];
+      if (payload is Map) {
+        final next = Map<String, dynamic>.from(payload);
+        if (jsonEncode(next) != jsonEncode(_branding)) {
+          setState(() => _branding = next);
+          unawaited(applyClientBrandingWindowIcon(next));
+        }
+      }
+    }
+  }
+
+  Future<void> _requestForcedUpdate() async {
+    try {
+      await TgdeskApi.requestLocalUpdate();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Pedido de atualização enviado pelo WebSocket.')));
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.toString())));
+      }
     }
   }
 
@@ -195,6 +234,7 @@ class _HubHomePageState extends State<HubHomePage> {
       title: _brandTitle(),
       productName: _productName,
       updateStatus: _updateStatus,
+      onForceUpdate: _requestForcedUpdate,
       actions: [
         if (_version.isNotEmpty)
           Center(

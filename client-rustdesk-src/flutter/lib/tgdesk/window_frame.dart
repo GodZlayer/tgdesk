@@ -68,6 +68,7 @@ class TgdeskWindowScaffold extends StatefulWidget {
     this.deviceName,
     this.onRenameDevice,
     this.updateStatus,
+    this.onForceUpdate,
     this.hideChrome,
   });
 
@@ -91,6 +92,10 @@ class TgdeskWindowScaffold extends StatefulWidget {
   /// Atualização em curso, empurrada pelo servidor. Só indicador: não há mais
   /// nada para clicar.
   final TgdeskUpdateStatus? updateStatus;
+
+  /// Solicita uma atualizaÃ§Ã£o pelo canal WebSocket, quando a janela principal
+  /// estiver ligada ao agente local.
+  final Future<void> Function()? onForceUpdate;
 
   /// Some com a barra de título inteira quando responder true.
   ///
@@ -248,6 +253,8 @@ class _TgdeskWindowScaffoldState extends State<TgdeskWindowScaffold>
           if (mounted) setState(() => _startWithWindows = novo);
         } else if (value == 'rename') {
           await _promptRename();
+        } else if (value == 'force_update') {
+          await widget.onForceUpdate?.call();
         }
       },
       itemBuilder: (context) => [
@@ -263,6 +270,15 @@ class _TgdeskWindowScaffoldState extends State<TgdeskWindowScaffold>
               contentPadding: EdgeInsets.zero,
               leading: Icon(Icons.badge_outlined),
               title: Text('Editar nome'),
+            ),
+          ),
+        if (widget.onForceUpdate != null)
+          const PopupMenuItem<String>(
+            value: 'force_update',
+            child: ListTile(
+              contentPadding: EdgeInsets.zero,
+              leading: Icon(Icons.system_update_alt),
+              title: Text('Forçar atualização'),
             ),
           ),
       ],

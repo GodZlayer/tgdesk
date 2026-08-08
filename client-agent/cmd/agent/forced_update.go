@@ -3,7 +3,6 @@ package main
 import (
 	"log"
 	"sync"
-	"time"
 
 	"tgdesk/agent/internal/updatecore"
 )
@@ -72,14 +71,8 @@ func startForcedUpdate(order updateOrder, onProgress func(updatecore.Progress),
 			forcedUpdate.running = false
 			forcedUpdate.Unlock()
 		}()
-		// Ordem vazia é a verificação periódica do próprio agente, não um
-		// update_now: sem versão nem teto, ela pergunta ao servidor o que há.
-		if order.Version == "" {
-			log.Println("verificação periódica de atualização")
-		} else {
-			log.Printf("atualização ordenada pelo servidor: versão %s, teto %d kbps",
-				order.Version, order.ThrottleKbps)
-		}
+		log.Printf("atualização ordenada pelo servidor: versão %s, teto %d kbps",
+			order.Version, order.ThrottleKbps)
 		// 0 = já atualizado, 10 = atualização iniciada, 1 = erro. Nos dois
 		// primeiros a vaga na fila pode ser liberada; no terceiro o servidor
 		// devolve o dispositivo para a fila e tenta de novo mais tarde.
@@ -91,33 +84,4 @@ func startForcedUpdate(order updateOrder, onProgress func(updatecore.Progress),
 				Error: "atualização falhou no dispositivo"})
 		}
 	}()
-}
-
-// ultimaVerificacaoDeAtualizacao guarda quando o Host checou pela última vez.
-var ultimaVerificacaoDeAtualizacao time.Time
-
-// intervaloDeVerificacao é o piso entre duas checagens do Host.
-//
-// O laço do Host gira a cada poucos segundos; sem este espaçamento ele pediria
-// o manifesto o tempo todo. Dez minutos é frequente o bastante para uma máquina
-// recém-instalada não ficar parada, e raro o bastante para não fazer barulho.
-const intervaloDeVerificacao = 10 * time.Minute
-
-// verificarAtualizacaoPeriodica é o piso da atualização automática.
-//
-// Chamada do laço do Host, que roda em qualquer estado do dispositivo — o
-// canal de controle privado só existe depois da vinculação, e quem está
-// esperando ser vinculado é exatamente quem não pode ficar para trás.
-//
-// Não decide nada: pergunta ao servidor e obedece. E respeita a mesma trava do
-// push, para as duas entradas não baixarem a mesma versão ao mesmo tempo.
-func verificarAtualizacaoPeriodica() {
-	if updateInProgress() {
-		return
-	}
-	if time.Since(ultimaVerificacaoDeAtualizacao) < intervaloDeVerificacao {
-		return
-	}
-	ultimaVerificacaoDeAtualizacao = time.Now()
-	startForcedUpdate(updateOrder{}, func(updatecore.Progress) {}, func(updateOutcome) {})
 }

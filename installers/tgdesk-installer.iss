@@ -3,7 +3,7 @@
 ; uso único validada pelo servidor dentro do próprio TGDesk.
 
 #define MyAppName "TGDesk"
-#define MyAppVersion "1.2.27"
+#define MyAppVersion "1.2.28"
 #define MyAppPublisher "TGDesk"
 #ifndef TGDeskServerHost
   #define TGDeskServerHost "127.0.0.1"
@@ -27,7 +27,7 @@ OutputDir=.\output
 ; esta linha por texto exato para garantir que o instalador esta identificado
 ; com a versao publicada. Derivar aqui apagaria essa verificacao. As duas
 ; versoes deste arquivo sobem juntas, no passo 1 do fluxo de release.
-OutputBaseFilename=tgdesk-installer-1.2.27
+OutputBaseFilename=tgdesk-installer-1.2.28
 Compression=lzma2
 SolidCompression=yes
 ArchitecturesInstallIn64BitMode=x64compatible

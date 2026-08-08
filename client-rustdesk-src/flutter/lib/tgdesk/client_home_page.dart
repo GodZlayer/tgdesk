@@ -23,7 +23,6 @@ class TgdeskClientHomePage extends StatefulWidget {
 }
 
 class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
-  Timer? _pollTimer;
   Map<String, dynamic>? _status;
   bool _agentMissing = false;
   bool _serverOnline = false;
@@ -66,8 +65,8 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
     if (!widget.embedded) {
       unawaited(_ensureTrayRunning());
     }
-    _poll();
-    _pollTimer = Timer.periodic(const Duration(seconds: 2), (_) => _poll());
+    _readStatus();
+    TgdeskApi.addDeviceEventListener(_onDeviceEvent);
     if (_canRequestSupport) {
       // A conversa chega por push no canal do dispositivo. A leitura inicial
       // existe só porque esta tela acabou de abrir e ainda não recebeu nada.
@@ -618,7 +617,41 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
     } catch (_) {}
   }
 
-  Future<void> _poll() async {
+  Future<void> _requestForcedUpdate() async {
+    try {
+      await TgdeskApi.requestLocalUpdate();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+            content: Text('Pedido de atualização enviado pelo WebSocket.')));
+      }
+    } catch (error) {
+      if (mounted) {
+        ScaffoldMessenger.of(context)
+            .showSnackBar(SnackBar(content: Text(error.toString())));
+      }
+    }
+  }
+
+  void _onDeviceEvent(Map<String, dynamic> event) {
+    if (!mounted) return;
+    final type = event['type']?.toString();
+    if (type == 'heartbeat_ack') {
+      setState(() => _serverOnline = true);
+      return;
+    }
+    if (type != 'update_status') return;
+    final payload = event['payload'];
+    if (payload is! Map) return;
+    final current = Map<String, dynamic>.from(_status ?? {});
+    current.addAll(Map<String, dynamic>.from(payload));
+    setState(() {
+      _status = current;
+      _agentMissing = false;
+      _version = current['current_version']?.toString() ?? _version;
+    });
+  }
+
+  Future<void> _readStatus() async {
     try {
       final file = File(tgdeskStatusFilePath());
       if (!await file.exists()) {
@@ -685,13 +718,13 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
       _logSelfBind('sucesso: $result');
     } catch (e) {
       _selfBindAttempted = false;
-      _logSelfBind('falhou: $e — tentará de novo no próximo poll');
+      _logSelfBind('falhou: $e — tentará de novo no próximo evento de status');
     }
   }
 
   @override
   void dispose() {
-    _pollTimer?.cancel();
+    TgdeskApi.removeDeviceEventListener(_onDeviceEvent);
     TgdeskApi.onTicketThread = null;
     _chatController.dispose();
     super.dispose();
@@ -710,6 +743,7 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
           '',
       onRenameDevice: _renameDevice,
       updateStatus: _updateStatus(),
+      onForceUpdate: _requestForcedUpdate,
       actions: [
         if (_version.isNotEmpty)
           Center(

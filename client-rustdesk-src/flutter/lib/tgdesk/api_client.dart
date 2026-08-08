@@ -156,6 +156,10 @@ class TgdeskApi {
         } else if (event['type'] == 'ticket_thread') {
           _onTicketThread?.call(_asMap(event['payload']));
         }
+        for (final listener in List<void Function(Map<String, dynamic>)>.from(
+            _deviceEventListeners)) {
+          listener(event);
+        }
       } catch (_) {}
     }, onDone: () {
       if (identical(_deviceSocket, ws)) _deviceSocket = null;
@@ -173,6 +177,33 @@ class TgdeskApi {
     _onTicketThread = handler;
     if (handler != null) unawaited(_deviceChannel());
   }
+
+  /// Eventos do agente local. O status de atualização chega por este push;
+  /// a tela não fica relendo um arquivo nem fazendo consultas periódicas.
+  static final Set<void Function(Map<String, dynamic>)> _deviceEventListeners = {};
+
+  static void addDeviceEventListener(
+      void Function(Map<String, dynamic>) listener) {
+    _deviceEventListeners.add(listener);
+    unawaited(_deviceChannel().then<void>((_) {}, onError: (_) {}));
+  }
+
+  static void removeDeviceEventListener(
+      void Function(Map<String, dynamic>) listener) {
+    _deviceEventListeners.remove(listener);
+  }
+
+  /// Solicita uma atualização pelo canal local. O agente encaminha a ação ao
+  /// servidor, que decide versão, fila e limite antes de emitir `update_now`.
+  static Future<void> requestLocalUpdate() async {
+    final socket = await _deviceChannel();
+    socket.add(jsonEncode({
+      'type': 'update_request',
+      'payload': {'client_version': _localClientVersionHint()},
+    }));
+  }
+
+  static String _localClientVersionHint() => '';
 
   static Map<String, dynamic> _asMap(dynamic v) =>
       v is Map ? Map<String, dynamic>.from(v) : <String, dynamic>{};

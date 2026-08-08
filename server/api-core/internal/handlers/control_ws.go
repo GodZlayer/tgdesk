@@ -262,6 +262,29 @@ func (s *Server) DeviceControlWS(w http.ResponseWriter, r *http.Request) {
 			}
 			_ = json.Unmarshal(msg.Payload, &payload)
 			s.finishUpdate(r.Context(), deviceID, payload.OK, payload.Error)
+		case "update_request":
+			// A tela pode solicitar uma atualização explicitamente pelo canal
+			// local. O agente só encaminha a ação; a versão, a fila e o limite
+			// continuam sendo decididos pelo servidor.
+			var payload struct {
+				ClientVersion string `json:"client_version"`
+			}
+			_ = json.Unmarshal(msg.Payload, &payload)
+			s.enqueueDeviceUpdate(r.Context(), deviceID, payload.ClientVersion)
+			if claimed, throttle, target := s.claimUpdateSlot(r.Context(), deviceID); claimed {
+				_ = pushWrite(map[string]any{
+					"type": "update_now", "version": target,
+					"payload": map[string]any{
+						"version":       target,
+						"throttle_kbps": throttle,
+					},
+				})
+			} else {
+				_ = pushWrite(map[string]any{
+					"type":    "update_request_ack",
+					"payload": map[string]any{"queued": true},
+				})
+			}
 		case "telemetry":
 			var payload struct {
 				Hardware any `json:"hardware"`
