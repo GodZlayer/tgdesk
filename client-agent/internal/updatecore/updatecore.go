@@ -297,9 +297,13 @@ func stageModularUpdate() (updating bool, requireInstaller bool, err error) {
 	if err := os.Rename(manifestTemp, manifestPath); err != nil {
 		return false, false, err
 	}
+	updaterExe, err := ensureStandaloneUpdater(client, apiBase, installDir, filepath.Dir(staging))
+	if err != nil {
+		return false, false, err
+	}
 
 	if err := launchStagedUpdaterElevated(
-		filepath.Dir(staging), installDir, uint32(os.Getpid())); err != nil {
+		filepath.Dir(staging), installDir, updaterExe, uint32(os.Getpid())); err != nil {
 		return false, false, err
 	}
 	return true, false, nil
@@ -395,7 +399,45 @@ func mainWindowIsOnScreen(installDir string) bool {
 // a partir de os.Executable(), que dentro da DLL resolve para o tgdesk.exe
 // hospedeiro); usamos esse diretório, não o executável em si, para montar o
 // caminho do tgdesk-updater.exe.
-func launchStagedUpdaterElevated(staging, installDir string, parentPID uint32) error {
+func ensureStandaloneUpdater(client *http.Client, apiBase, installDir, stagingRoot string) (string, error) {
+	resp, err := client.Get(apiBase + "/api/v1/client/updater")
+	if err != nil {
+		return "", fmt.Errorf("consultar updater standalone: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("consulta do updater standalone retornou status %d", resp.StatusCode)
+	}
+	var info updateInfo
+	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
+		return "", fmt.Errorf("metadados do updater standalone invalidos: %w", err)
+	}
+	if info.URL == "" || len(info.SHA256) != 64 || info.Size <= 0 {
+		return "", fmt.Errorf("metadados do updater standalone invalidos")
+	}
+	installed := filepath.Join(installDir, "tgdesk-updater.exe")
+	if stat, statErr := os.Stat(installed); statErr == nil && stat.Size() == info.Size {
+		if hash, hashErr := fileSHA256(installed); hashErr == nil && strings.EqualFold(hash, info.SHA256) {
+			return installed, nil
+		}
+	}
+	if err := os.MkdirAll(stagingRoot, 0700); err != nil {
+		return "", fmt.Errorf("preparar staging do updater standalone: %w", err)
+	}
+	target := filepath.Join(stagingRoot, "tgdesk-updater.exe")
+	temporary := target + ".download"
+	if err := downloadVerified(client, apiBase+info.URL, temporary, info); err != nil {
+		_ = os.Remove(temporary)
+		return "", fmt.Errorf("baixar updater standalone atual: %w", err)
+	}
+	if err := os.Rename(temporary, target); err != nil {
+		_ = os.Remove(temporary)
+		return "", fmt.Errorf("preparar updater standalone atual: %w", err)
+	}
+	return target, nil
+}
+
+func launchStagedUpdaterElevated(staging, installDir, updaterExe string, parentPID uint32) error {
 	// tgdesk-updater.exe roda direto do diretório de instalação. A cópia pra
 	// uma pasta runtime com nome aleatório só fazia sentido se o próprio
 	// updater pudesse ser substituído por uma atualização modular — mas ele
@@ -403,7 +445,6 @@ func launchStagedUpdaterElevated(staging, installDir string, parentPID uint32) e
 	// assim) e nunca se auto-atualiza. Manter a cópia só adicionava um
 	// arquivo recém-criado sem reputação, alvo fácil do SmartScreen/Defender,
 	// sem nenhum ganho real.
-	updaterExe := filepath.Join(installDir, "tgdesk-updater.exe")
 	if info, err := os.Stat(updaterExe); err != nil || info.IsDir() {
 		return fmt.Errorf("atualizador standalone ausente: %w", err)
 	}
