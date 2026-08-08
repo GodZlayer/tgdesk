@@ -4,6 +4,7 @@ import 'package:desktop_multi_window/desktop_multi_window.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter/scheduler.dart';
+import 'package:bot_toast/bot_toast.dart';
 import 'package:get/get.dart';
 import 'package:provider/provider.dart';
 import 'package:flutter_hbb/models/state_model.dart';
@@ -47,6 +48,9 @@ class RemotePage extends StatefulWidget {
     this.isSharedPassword,
     this.tgdeskEmbedded = false,
     this.tgdeskToolbarMenuBuilder,
+    this.tgdeskCloseSession,
+    this.tgdeskSessionReady,
+    this.tgdeskShortcutHandler,
   }) : super(key: key) {
     initSharedStates(id);
   }
@@ -63,6 +67,9 @@ class RemotePage extends StatefulWidget {
   final bool? isSharedPassword;
   final bool tgdeskEmbedded;
   final WidgetBuilder? tgdeskToolbarMenuBuilder;
+  final VoidCallback? tgdeskCloseSession;
+  final ValueChanged<FFI>? tgdeskSessionReady;
+  final KeyEventResult Function(KeyEvent event)? tgdeskShortcutHandler;
   final SimpleWrapper<State<RemotePage>?> _lastState = SimpleWrapper(null);
   final DesktopTabController? tabController;
 
@@ -137,6 +144,8 @@ class _RemotePageState extends State<RemotePage>
   void initState() {
     super.initState();
     _ffi = FFI(widget.sessionId);
+    _ffi.canvasModel.tgdeskEmbedded = widget.tgdeskEmbedded;
+    widget.tgdeskSessionReady?.call(_ffi);
     Get.put<FFI>(_ffi, tag: widget.id);
     _ffi.imageModel.addCallbackOnFirstImage((String peerId) {
       _ffi.canvasModel.activateLocalCursor();
@@ -254,11 +263,25 @@ class _RemotePageState extends State<RemotePage>
       // those shortcuts on the computer being used by the technician.
       bind.hostStopSystemKeyPropagate(stopped: _captureSystemKeys.value);
     }
+    if (widget.tgdeskEmbedded) {
+      BotToast.showText(
+        text: _captureSystemKeys.value
+            ? 'Atalhos do Windows enviados ao computador remoto'
+            : 'Atalhos do Windows liberados neste computador',
+        duration: const Duration(seconds: 3),
+        clickClose: true,
+        onlyOne: true,
+      );
+    }
   }
 
   KeyEventResult _interceptTgdeskShortcut(FocusNode node, KeyEvent event) {
     if (!widget.tgdeskEmbedded) {
       return KeyEventResult.ignored;
+    }
+    final tgdeskShortcut = widget.tgdeskShortcutHandler?.call(event);
+    if (tgdeskShortcut != null && tgdeskShortcut != KeyEventResult.ignored) {
+      return tgdeskShortcut;
     }
     if (_systemKeyShortcutActive &&
         event.logicalKey == LogicalKeyboardKey.keyI) {
@@ -266,7 +289,33 @@ class _RemotePageState extends State<RemotePage>
       return KeyEventResult.handled;
     }
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
+    if (event.logicalKey == LogicalKeyboardKey.f11) {
+      stateGlobal.setFullscreen(!stateGlobal.fullscreen.value);
+      return KeyEventResult.handled;
+    }
+    if (event.logicalKey == LogicalKeyboardKey.escape &&
+        stateGlobal.fullscreen.value) {
+      stateGlobal.setFullscreen(false);
+      return KeyEventResult.handled;
+    }
     final keyboard = HardwareKeyboard.instance;
+    if (event.logicalKey == LogicalKeyboardKey.keyZ &&
+        keyboard.isControlPressed &&
+        keyboard.isAltPressed) {
+      // Same escape hatch used by Parsec: immediately return keyboard and
+      // mouse capture to the technician until the remote canvas is clicked.
+      _rawKeyFocusNode.unfocus();
+      _ffi.inputModel.enterOrLeave(false);
+      if (isWindows) bind.hostStopSystemKeyPropagate(stopped: false);
+      BotToast.showText(
+        text:
+            'Entrada remota liberada. Clique na tela para retomar o controle.',
+        duration: const Duration(seconds: 3),
+        clickClose: true,
+        onlyOne: true,
+      );
+      return KeyEventResult.handled;
+    }
     if (event.logicalKey != LogicalKeyboardKey.keyI ||
         !keyboard.isControlPressed ||
         !keyboard.isShiftPressed) {
@@ -470,6 +519,7 @@ class _RemotePageState extends State<RemotePage>
           setRemoteState: setState,
           tgdeskMode: widget.tgdeskEmbedded,
           tgdeskMenuBuilder: widget.tgdeskToolbarMenuBuilder,
+          tgdeskCloseSession: widget.tgdeskCloseSession,
           captureSystemKeys: _captureSystemKeys,
           toggleSystemKeys: _toggleSystemKeyCapture,
         );

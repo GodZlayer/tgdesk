@@ -31,6 +31,7 @@ class _BrandingPageState extends State<BrandingPage> {
   Uint8List? _logo;
   Uint8List? _favicon;
   Uint8List? _faviconPreview;
+  MemoryImage? _faviconPreviewImage;
   String? _error;
 
   @override
@@ -63,7 +64,7 @@ class _BrandingPageState extends State<BrandingPage> {
         _nameSuffix.text = branding['name_suffix']?.toString() ?? '';
         _logo = encoded.isEmpty ? null : base64Decode(encoded);
         _favicon = favicon;
-        _faviconPreview = _previewBytes(favicon);
+        _setFaviconPreview(_previewBytes(favicon));
         _loading = false;
       });
     } catch (e) {
@@ -82,15 +83,9 @@ class _BrandingPageState extends State<BrandingPage> {
     return decoded == null ? null : img.encodePng(decoded);
   }
 
-  String _bytesKey(Uint8List? bytes) {
-    if (bytes == null || bytes.isEmpty) return 'empty';
-    var hash = 0;
-    for (final value in bytes) {
-      hash = 0x1fffffff & (hash + value);
-      hash = 0x1fffffff & (hash + ((0x0007ffff & hash) << 10));
-      hash ^= hash >> 6;
-    }
-    return '${bytes.length}-$hash';
+  void _setFaviconPreview(Uint8List? bytes) {
+    _faviconPreview = bytes;
+    _faviconPreviewImage = bytes == null ? null : MemoryImage(bytes);
   }
 
   Future<void> _pickLogo() async {
@@ -169,7 +164,7 @@ class _BrandingPageState extends State<BrandingPage> {
     if (resultBytes == null) return;
     setState(() {
       _favicon = resultBytes.primary;
-      _faviconPreview = resultBytes.preview;
+      _setFaviconPreview(resultBytes.preview);
       _removeFavicon = false;
     });
   }
@@ -213,7 +208,7 @@ class _BrandingPageState extends State<BrandingPage> {
         _logo = encoded.isEmpty ? null : base64Decode(encoded);
         _favicon =
             returnedFavicon.isEmpty ? null : base64Decode(returnedFavicon);
-        _faviconPreview = _previewBytes(_favicon);
+        _setFaviconPreview(_previewBytes(_favicon));
         _nameMode = branding['name_mode']?.toString() ?? _nameMode;
         _nameSuffix.text =
             branding['name_suffix']?.toString() ?? _nameSuffix.text;
@@ -403,7 +398,7 @@ class _BrandingPageState extends State<BrandingPage> {
                             TextButton.icon(
                               onPressed: () => setState(() {
                                 _favicon = null;
-                                _faviconPreview = null;
+                                _setFaviconPreview(null);
                                 _removeFavicon = true;
                               }),
                               icon: const Icon(Icons.delete_outline),
@@ -446,14 +441,18 @@ class _BrandingPageState extends State<BrandingPage> {
               border: Border.all(color: Theme.of(context).colorScheme.outline),
             ),
             clipBehavior: Clip.antiAlias,
-            child: _faviconPreview == null
+            child: _faviconPreviewImage == null
                 ? Icon(Icons.apps, size: size * .55)
-                : Image.memory(_faviconPreview!,
-                    key: ValueKey(
-                        'favicon-preview-${_bytesKey(_faviconPreview)}-$size'),
-                    fit: BoxFit.cover,
-                    gaplessPlayback: true,
-                    filterQuality: FilterQuality.medium),
+                : RepaintBoundary(
+                    child: Image(
+                      image: _faviconPreviewImage!,
+                      width: size,
+                      height: size,
+                      fit: BoxFit.cover,
+                      gaplessPlayback: true,
+                      filterQuality: FilterQuality.medium,
+                    ),
+                  ),
           ),
           const SizedBox(height: 5),
           Text(label, style: Theme.of(context).textTheme.labelSmall),

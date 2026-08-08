@@ -2200,6 +2200,9 @@ class EdgeScrollFallbackState {
 }
 
 class CanvasModel with ChangeNotifier {
+  // TGDesk measures the embedded remote area itself. The standalone RustDesk
+  // window chrome must not be subtracted from that area a second time.
+  bool tgdeskEmbedded = false;
   // image offset of canvas
   double _x = 0;
   // image offset of canvas
@@ -2305,14 +2308,14 @@ class CanvasModel with ChangeNotifier {
     //
     // Aqui o efeito é o certo: a área util da tela remota é a janela menos as
     // bordas E menos o que o Hub ocupa em volta dela.
+    final horizontalChrome = tgdeskEmbedded ? 0.0 : leftToEdge + rightToEdge;
+    final verticalChrome = tgdeskEmbedded ? 0.0 : topToEdge + bottomToEdge;
     double w = size.width -
-        leftToEdge -
-        rightToEdge -
+        horizontalChrome -
         stateGlobal.tgdeskEmbedLeft -
         stateGlobal.tgdeskEmbedRight;
     double h = size.height -
-        topToEdge -
-        bottomToEdge -
+        verticalChrome -
         stateGlobal.tgdeskEmbedTop -
         stateGlobal.tgdeskEmbedBottom;
     if (isMobile) {

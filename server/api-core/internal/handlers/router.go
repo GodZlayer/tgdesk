@@ -230,6 +230,8 @@ func NewRouter(s *Server) http.Handler {
 	mux.Handle("DELETE /api/v1/admin/pricing-rules/{id}", admin(func(w http.ResponseWriter, r *http.Request) {
 		s.DeletePricingRule(w, r, r.PathValue("id"))
 	}))
+	mux.Handle("GET /api/v1/admin/regions/{id}/service-price-bounds", admin(func(w http.ResponseWriter, r *http.Request) { s.ListRegionalServiceBounds(w, r, r.PathValue("id")) }))
+	mux.Handle("POST /api/v1/admin/regions/{id}/service-price-bounds", admin(func(w http.ResponseWriter, r *http.Request) { s.SaveRegionalServiceBounds(w, r, r.PathValue("id")) }))
 
 	// Localidade. A leitura é de qualquer autenticado — as telas mostram a
 	// região de técnico, dispositivo e chamado — e o cadastro é do admin,

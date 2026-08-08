@@ -448,6 +448,7 @@ class RemoteToolbar extends StatefulWidget {
   final Function(VoidCallback) setRemoteState;
   final bool tgdeskMode;
   final WidgetBuilder? tgdeskMenuBuilder;
+  final VoidCallback? tgdeskCloseSession;
   final RxBool? captureSystemKeys;
   final VoidCallback? toggleSystemKeys;
 
@@ -461,6 +462,7 @@ class RemoteToolbar extends StatefulWidget {
     required this.setRemoteState,
     this.tgdeskMode = false,
     this.tgdeskMenuBuilder,
+    this.tgdeskCloseSession,
     this.captureSystemKeys,
     this.toggleSystemKeys,
   }) : super(key: key);
@@ -874,7 +876,11 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
       toolbarItems.add(_VoiceCallMenu(id: widget.id, ffi: widget.ffi));
     }
     if (!widget.tgdeskMode && !isWeb) toolbarItems.add(_RecordMenu());
-    toolbarItems.add(_CloseMenu(id: widget.id, ffi: widget.ffi));
+    toolbarItems.add(_CloseMenu(
+      id: widget.id,
+      ffi: widget.ffi,
+      tgdeskCloseSession: widget.tgdeskCloseSession,
+    ));
     final toolbarBorderRadius = BorderRadius.all(Radius.circular(4.0));
     // innerAxis: how the toolbar icons themselves flow.
     // outerAxis: how the toolbar block and the handle stack against each other
@@ -2783,7 +2789,9 @@ class _RecordMenu extends StatelessWidget {
 class _CloseMenu extends StatelessWidget {
   final String id;
   final FFI ffi;
-  const _CloseMenu({Key? key, required this.id, required this.ffi})
+  final VoidCallback? tgdeskCloseSession;
+  const _CloseMenu(
+      {Key? key, required this.id, required this.ffi, this.tgdeskCloseSession})
       : super(key: key);
 
   @override
@@ -2795,7 +2803,11 @@ class _CloseMenu extends StatelessWidget {
         if (await showConnEndAuditDialogCloseCanceled(ffi: ffi)) {
           return;
         }
-        closeConnection(id: id);
+        if (tgdeskCloseSession != null) {
+          tgdeskCloseSession!();
+        } else {
+          closeConnection(id: id);
+        }
       },
       color: _ToolbarTheme.redColor,
       hoverColor: _ToolbarTheme.hoverRedColor,

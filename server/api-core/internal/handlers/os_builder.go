@@ -31,8 +31,6 @@ type catalogPart struct {
 	Unit                 string  `json:"unit"`
 	ItemKind             string  `json:"item_kind"`
 	RequiresInvoicePhoto bool    `json:"requires_invoice_photo"`
-	CostCents            int64   `json:"cost_cents"`
-	PriceCents           int64   `json:"price_cents"`
 	TicketTypeKey        *string `json:"ticket_type_key"`
 	Active               bool    `json:"active"`
 	Position             int     `json:"position"`
@@ -43,7 +41,6 @@ type catalogService struct {
 	Key             string   `json:"key"`
 	Label           string   `json:"label"`
 	Description     string   `json:"description"`
-	PriceCents      int64    `json:"price_cents"`
 	DurationMin     int      `json:"duration_min"`
 	TicketTypeKey   *string  `json:"ticket_type_key"`
 	ServiceTypeKeys []string `json:"service_type_keys"`
@@ -72,15 +69,14 @@ func (s *Server) osCatalog(ctx context.Context, includeInactive bool) map[string
 
 	if rows, err := s.Pool.Query(ctx, `
 		SELECT id,sku,label,description,unit,item_kind,requires_invoice_photo,
-		       cost_cents,price_cents,
 		       ticket_type_key,active,position
 		FROM part_catalog `+filter+`
 		ORDER BY position,label`); err == nil {
 		for rows.Next() {
 			var p catalogPart
 			if rows.Scan(&p.ID, &p.SKU, &p.Label, &p.Description, &p.Unit,
-				&p.ItemKind, &p.RequiresInvoicePhoto, &p.CostCents,
-				&p.PriceCents, &p.TicketTypeKey, &p.Active, &p.Position) == nil {
+				&p.ItemKind, &p.RequiresInvoicePhoto, &p.TicketTypeKey,
+				&p.Active, &p.Position) == nil {
 				parts = append(parts, p)
 			}
 		}
@@ -88,7 +84,7 @@ func (s *Server) osCatalog(ctx context.Context, includeInactive bool) map[string
 	}
 
 	if rows, err := s.Pool.Query(ctx, `
-		SELECT id,key,label,description,price_cents,duration_min,
+		SELECT id,key,label,description,duration_min,
 		       ticket_type_key,
 		       COALESCE(array_agg(DISTINCT option.type_key)
 		         FILTER (WHERE option.type_key IS NOT NULL), '{}'::text[]),
@@ -97,13 +93,13 @@ func (s *Server) osCatalog(ctx context.Context, includeInactive bool) map[string
 		LEFT JOIN ticket_type_service_options option
 		  ON option.service_key=service_catalog.key AND option.active
 		`+serviceFilter+`
-		GROUP BY id,key,label,description,price_cents,duration_min,
+		GROUP BY id,key,label,description,duration_min,
 		         ticket_type_key,os_type,manual_url,active,position
 		ORDER BY position,label`); err == nil {
 		for rows.Next() {
 			var c catalogService
-			if rows.Scan(&c.ID, &c.Key, &c.Label, &c.Description, &c.PriceCents,
-				&c.DurationMin, &c.TicketTypeKey, &c.ServiceTypeKeys, &c.OsType, &c.ManualURL,
+			if rows.Scan(&c.ID, &c.Key, &c.Label, &c.Description, &c.DurationMin,
+				&c.TicketTypeKey, &c.ServiceTypeKeys, &c.OsType, &c.ManualURL,
 				&c.Active, &c.Position) == nil {
 				if c.TicketTypeKey != nil && !containsString(c.ServiceTypeKeys, *c.TicketTypeKey) {
 					c.ServiceTypeKeys = append([]string{*c.TicketTypeKey}, c.ServiceTypeKeys...)
@@ -151,8 +147,6 @@ type partRequest struct {
 	Unit                 string  `json:"unit"`
 	ItemKind             string  `json:"item_kind"`
 	RequiresInvoicePhoto *bool   `json:"requires_invoice_photo"`
-	CostCents            int64   `json:"cost_cents"`
-	PriceCents           int64   `json:"price_cents"`
 	TicketTypeKey        *string `json:"ticket_type_key"`
 	Active               *bool   `json:"active"`
 	Position             *int    `json:"position"`
@@ -196,19 +190,17 @@ func (s *Server) SavePart(w http.ResponseWriter, r *http.Request) {
 	}
 	var id string
 	err := s.Pool.QueryRow(r.Context(), `
-		INSERT INTO part_catalog(sku,label,description,unit,cost_cents,
-		                         price_cents,ticket_type_key,active,position,
-		                         item_kind,requires_invoice_photo)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+		INSERT INTO part_catalog(sku,label,description,unit,ticket_type_key,
+		                         active,position,item_kind,requires_invoice_photo)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
 		ON CONFLICT(sku) DO UPDATE SET label=excluded.label,
 			description=excluded.description,unit=excluded.unit,
-			cost_cents=excluded.cost_cents,price_cents=excluded.price_cents,
 			ticket_type_key=excluded.ticket_type_key,active=excluded.active,
 			position=excluded.position,item_kind=excluded.item_kind,
 			requires_invoice_photo=excluded.requires_invoice_photo,updated_at=now()
 		RETURNING id`,
-		req.SKU, req.Label, req.Description, req.Unit, req.CostCents,
-		req.PriceCents, req.TicketTypeKey, active, position, req.ItemKind,
+		req.SKU, req.Label, req.Description, req.Unit, req.TicketTypeKey,
+		active, position, req.ItemKind,
 		requiresInvoice).Scan(&id)
 	if err != nil {
 		writeErrCode(w, 400, "falha_salvar_peca", "falha ao salvar a peça")
@@ -251,7 +243,6 @@ type serviceRequest struct {
 	Key           string  `json:"key"`
 	Label         string  `json:"label"`
 	Description   string  `json:"description"`
-	PriceCents    int64   `json:"price_cents"`
 	DurationMin   *int    `json:"duration_min"`
 	TicketTypeKey *string `json:"ticket_type_key"`
 	OsType        *string `json:"os_type"`
@@ -260,8 +251,8 @@ type serviceRequest struct {
 	Position      *int    `json:"position"`
 }
 
-// SaveService cria ou atualiza um serviço do catálogo — o "valor de serviço
-// pré-estabelecido pelo servidor" que o técnico escolhe em vez de arbitrar.
+// SaveService cria ou atualiza uma classificação de serviço. A existência da
+// chave é validada aqui; preço é resolvido exclusivamente pela região da OS.
 func (s *Server) SaveService(w http.ResponseWriter, r *http.Request) {
 	var req serviceRequest
 	if json.NewDecoder(r.Body).Decode(&req) != nil {
@@ -294,18 +285,18 @@ func (s *Server) SaveService(w http.ResponseWriter, r *http.Request) {
 	}
 	var id string
 	err := s.Pool.QueryRow(r.Context(), `
-		INSERT INTO service_catalog(key,label,description,price_cents,
-		            duration_min,ticket_type_key,os_type,manual_url,active,position)
-		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
+		INSERT INTO service_catalog(key,label,description,duration_min,
+		            ticket_type_key,os_type,manual_url,active,position)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9)
 		ON CONFLICT(key) DO UPDATE SET label=excluded.label,
-			description=excluded.description,price_cents=excluded.price_cents,
+			description=excluded.description,
 			duration_min=excluded.duration_min,
 			ticket_type_key=excluded.ticket_type_key,os_type=excluded.os_type,
 			manual_url=excluded.manual_url,active=excluded.active,
 			position=excluded.position,updated_at=now()
 		RETURNING id`,
-		req.Key, req.Label, req.Description, req.PriceCents, duration,
-		req.TicketTypeKey, req.OsType, req.ManualURL, active, position).Scan(&id)
+		req.Key, req.Label, req.Description, duration, req.TicketTypeKey,
+		req.OsType, req.ManualURL, active, position).Scan(&id)
 	if err != nil {
 		writeErrCode(w, 400, "falha_salvar_servico", "falha ao salvar o servi?o")
 		return
@@ -679,20 +670,33 @@ func (s *Server) AddOsItem(w http.ResponseWriter, r *http.Request, ticketID stri
 	}
 
 	label, note := strings.TrimSpace(req.Label), strings.TrimSpace(req.Note)
+	var regionID *string
+	_ = s.Pool.QueryRow(r.Context(),
+		`SELECT region_id FROM support_tickets WHERE id=$1`, ticketID).Scan(&regionID)
 	var unit, cost int64
 	switch {
 	case req.PartID != nil:
 		if s.Pool.QueryRow(r.Context(),
-			`SELECT label,price_cents,cost_cents FROM part_catalog WHERE id=$1 AND active`,
-			*req.PartID).Scan(&label, &unit, &cost) != nil {
+			`SELECT label FROM part_catalog WHERE id=$1 AND active`,
+			*req.PartID).Scan(&label) != nil {
 			writeErrCode(w, 404, "peca_nao_encontrada", "peça não encontrada no catálogo")
 			return
 		}
+		// Peças e consumíveis são itens de execução, não mercadoria TGDesk.
+		unit, cost = 0, 0
 	case req.ServiceID != nil:
+		var serviceKey string
 		if s.Pool.QueryRow(r.Context(),
-			`SELECT label,price_cents FROM service_catalog WHERE id=$1 AND active`,
-			*req.ServiceID).Scan(&label, &unit) != nil {
+			`SELECT label,key FROM service_catalog WHERE id=$1 AND active`,
+			*req.ServiceID).Scan(&label, &serviceKey) != nil {
 			writeErrCode(w, 404, "servico_nao_encontrado", "serviço não encontrado no catálogo")
+			return
+		}
+		var found bool
+		unit, found = s.resolveRegionalServiceBase(r.Context(), serviceKey, regionID)
+		if !found {
+			writeErrCode(w, 409, "servico_sem_faixa_regional",
+				"este serviço não possui faixa de preço para a região do chamado")
 			return
 		}
 	default:
@@ -727,6 +731,54 @@ func (s *Server) AddOsItem(w http.ResponseWriter, r *http.Request, ticketID stri
 		map[string]any{"id": osID, "item_id": itemID})
 	writeJSON(w, 201, map[string]any{"id": itemID, "label": label,
 		"unit_cents": unit, "quantity": quantity})
+}
+
+// resolveRegionalServiceBase entrega a base da faixa da região. O multiplicador
+// de demanda e o travamento final continuam em buildQuote; o catálogo nunca é
+// uma fonte de valor. A faixa específica da região sempre prevalece e, quando
+// ela ainda não foi cadastrada, a referência nacional é convertida pelo índice
+// regional para que um novo serviço não herde preço de outro lugar.
+func (s *Server) resolveRegionalServiceBase(ctx context.Context, serviceKey string, regionID *string) (int64, bool) {
+	var regionalScope any
+	if regionID != nil {
+		regionalScope = *regionID
+	}
+	if regionID != nil {
+		var minC, maxC int64
+		if s.Pool.QueryRow(ctx, `
+			SELECT min_cents,max_cents FROM regional_service_price_bounds
+			WHERE region_id=$1 AND service_key=$2 AND active`, *regionID, serviceKey).
+			Scan(&minC, &maxC) == nil {
+			return (minC + maxC) / 2, true
+		}
+	}
+
+	var base int64
+	var index float64 = 1
+	err := s.Pool.QueryRow(ctx, `
+		SELECT reference.national_base_cents, COALESCE(regional.cost_index, 1)
+		FROM service_market_price_references reference
+		LEFT JOIN region_cost_living_index regional ON regional.region_id=$2
+		WHERE reference.service_key=$1`, serviceKey, regionalScope).Scan(&base, &index)
+	if err != nil {
+		return 0, false
+	}
+	return int64(math.Round(float64(base) * index)), true
+}
+
+func (s *Server) ListRegionalServiceBounds(w http.ResponseWriter, r *http.Request, regionID string) {
+	rows, err := s.Pool.Query(r.Context(), `SELECT s.key,s.label,b.min_cents,b.max_cents FROM service_catalog s LEFT JOIN regional_service_price_bounds b ON b.service_key=s.key AND b.region_id=$1 WHERE s.active ORDER BY s.position,s.label`, regionID)
+	if err != nil { writeErrCode(w, 500, "falha_listar_faixas", "falha ao listar faixas regionais"); return }
+	defer rows.Close(); out := []map[string]any{}
+	for rows.Next() { var key,label string; var min,max *int64; if rows.Scan(&key,&label,&min,&max)==nil { out=append(out,map[string]any{"service_key":key,"label":label,"min_cents":min,"max_cents":max}) } }
+	writeJSON(w, 200, out)
+}
+
+func (s *Server) SaveRegionalServiceBounds(w http.ResponseWriter, r *http.Request, regionID string) {
+	var req struct { ServiceKey string `json:"service_key"`; MinCents int64 `json:"min_cents"`; MaxCents int64 `json:"max_cents"` }
+	if json.NewDecoder(r.Body).Decode(&req) != nil || strings.TrimSpace(req.ServiceKey)=="" || req.MinCents < 0 || req.MaxCents < req.MinCents { writeErrCode(w,400,"faixa_invalida","serviço, mínimo e máximo válidos são obrigatórios"); return }
+	_, err := s.Pool.Exec(r.Context(), `INSERT INTO regional_service_price_bounds(region_id,service_key,min_cents,max_cents,active) VALUES($1,$2,$3,$4,true) ON CONFLICT(region_id,service_key) DO UPDATE SET min_cents=excluded.min_cents,max_cents=excluded.max_cents,active=true,updated_at=now()`, regionID, req.ServiceKey, req.MinCents, req.MaxCents)
+	if err != nil { writeErrCode(w,400,"falha_salvar_faixa","falha ao salvar faixa regional"); return }; writeJSON(w,200,map[string]any{"saved":true})
 }
 
 // RemoveOsItem tira uma linha do orçamento. Fica restrito à OS do chamado

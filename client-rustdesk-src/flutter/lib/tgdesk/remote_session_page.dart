@@ -3,10 +3,14 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_hbb/common.dart';
+import 'package:flutter_hbb/common/shared_state.dart';
 import 'package:flutter_hbb/consts.dart';
 import 'package:flutter_hbb/desktop/screen/desktop_remote_screen.dart';
 import 'package:flutter_hbb/models/platform_model.dart';
+import 'package:flutter_hbb/models/model.dart';
 import 'package:flutter_hbb/models/state_model.dart';
+import 'package:bot_toast/bot_toast.dart';
+import 'package:get/get.dart';
 
 import 'diagnostics_dialog.dart';
 import 'window_frame.dart';
@@ -149,7 +153,7 @@ class TgdeskRemoteSessionPage extends StatefulWidget {
 class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
   final _focusNode = FocusNode();
   final List<_DrawingSegment> _segments = [];
-  bool _inputBlocked = false;
+  late final RxBool _inputBlocked;
   bool _drawing = false;
   bool _eraser = false;
   bool _clipboardEnabled = false;
@@ -157,14 +161,18 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
   Color _color = const Color(0xffff3b30);
   double _strokeWidth = 5;
   Offset? _lastPoint;
+  FFI? _ffi;
+
+  get _sessionId => _ffi?.sessionId ?? gFFI.sessionId;
 
   @override
   void initState() {
     super.initState();
+    _inputBlocked = BlockInputState.find(widget.remoteId);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await Future<void>.delayed(const Duration(milliseconds: 700));
       if (!mounted) return;
-      final sessionId = gFFI.sessionId;
+      final sessionId = _sessionId;
       final clipboardDisabled = bind.sessionGetToggleOptionSync(
         sessionId: sessionId,
         arg: 'disable-clipboard',
@@ -190,19 +198,19 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
 
   @override
   void dispose() {
-    if (_inputBlocked) {
+    if (_inputBlocked.isTrue) {
       bind.sessionToggleOption(
-          sessionId: gFFI.sessionId, value: 'unblock-input');
+          sessionId: _sessionId, value: 'unblock-input');
     }
     if (_clipboardEnabled) {
       bind.sessionToggleOption(
-        sessionId: gFFI.sessionId,
+        sessionId: _sessionId,
         value: 'disable-clipboard',
       );
     }
     if (_fileTransferEnabled) {
       bind.sessionToggleOption(
-        sessionId: gFFI.sessionId,
+        sessionId: _sessionId,
         value: kOptionEnableFileCopyPaste,
       );
     }
@@ -225,12 +233,23 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
   }
 
   void _toggleInputBlock() {
+    final willBlock = !_inputBlocked.value;
     bind.sessionToggleOption(
-      sessionId: gFFI.sessionId,
-      value: _inputBlocked ? 'unblock-input' : 'block-input',
+      sessionId: _sessionId,
+      value: willBlock ? 'block-input' : 'unblock-input',
     );
-    setState(() => _inputBlocked = !_inputBlocked);
+    _inputBlocked.value = willBlock;
+    _notify(willBlock
+        ? 'Entrada local do cliente bloqueada'
+        : 'Entrada local do cliente liberada');
   }
+
+  void _notify(String text) => BotToast.showText(
+        text: text,
+        duration: const Duration(seconds: 3),
+        clickClose: true,
+        onlyOne: true,
+      );
 
   void _toggleDrawing() {
     setState(() {
@@ -238,22 +257,29 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
       _lastPoint = null;
     });
     _focusNode.requestFocus();
+    _notify(_drawing ? 'Anotação ativada' : 'Anotação encerrada');
   }
 
   void _toggleClipboard() {
     bind.sessionToggleOption(
-      sessionId: gFFI.sessionId,
+      sessionId: _sessionId,
       value: 'disable-clipboard',
     );
     setState(() => _clipboardEnabled = !_clipboardEnabled);
+    _notify(_clipboardEnabled
+        ? 'Copiar e colar ativado'
+        : 'Copiar e colar desativado');
   }
 
   void _toggleFileTransfer() {
     bind.sessionToggleOption(
-      sessionId: gFFI.sessionId,
+      sessionId: _sessionId,
       value: kOptionEnableFileCopyPaste,
     );
     setState(() => _fileTransferEnabled = !_fileTransferEnabled);
+    _notify(_fileTransferEnabled
+        ? 'Transferência de arquivos ativada'
+        : 'Transferência de arquivos desativada');
   }
 
   void _clearDrawing() {
@@ -263,7 +289,7 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
 
   void _sendAnnotation(Map<String, dynamic> event) {
     bind.sessionSendChat(
-      sessionId: gFFI.sessionId,
+      sessionId: _sessionId,
       text: '$_annotationPrefix${jsonEncode(event)}',
     );
   }
@@ -299,7 +325,10 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
     });
   }
 
-  KeyEventResult _handleKey(FocusNode node, KeyEvent event) {
+  KeyEventResult _handleKey(FocusNode node, KeyEvent event) =>
+      _handleTgdeskShortcut(event);
+
+  KeyEventResult _handleTgdeskShortcut(KeyEvent event) {
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
     final keys = HardwareKeyboard.instance;
     if (event.logicalKey == LogicalKeyboardKey.f11) {
@@ -378,10 +407,10 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
           PopupMenuItem<String>(
             value: 'block_input',
             child: _MenuEntry(
-              icon: _inputBlocked
+              icon: _inputBlocked.isTrue
                   ? Icons.keyboard_alt_outlined
                   : Icons.keyboard_hide_outlined,
-              text: _inputBlocked
+              text: _inputBlocked.isTrue
                   ? 'Liberar mouse e teclado do cliente'
                   : 'Bloquear mouse e teclado do cliente',
               shortcut: 'Ctrl+Shift+B',
@@ -491,6 +520,12 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
             'forceRelay': true,
             'password': widget.credential,
             'tgdeskToolbarMenuBuilder': _tgdeskToolbarMenu,
+            'tgdeskSessionReady': (ffi) => _ffi = ffi,
+            'tgdeskShortcutHandler': _handleTgdeskShortcut,
+            'tgdeskCloseSession': () {
+              _notify('Sessão remota encerrada');
+              RemoteSessionsManager.instance.close(widget.deviceId);
+            },
           }),
           if (_drawing)
             Positioned.fill(
@@ -508,7 +543,7 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
                 ),
               ),
             ),
-          if (_inputBlocked)
+          if (_inputBlocked.isTrue)
             Positioned(
               right: 14,
               bottom: 14,

@@ -4,6 +4,7 @@ import 'dart:ui' as ui;
 
 import 'package:desktop_multi_window/desktop_multi_window.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_hbb/common.dart';
 import 'package:flutter_hbb/common/shared_state.dart';
 import 'package:flutter_hbb/consts.dart';
@@ -22,6 +23,7 @@ import 'package:bot_toast/bot_toast.dart';
 
 import '../../common/widgets/dialog.dart';
 import '../../models/platform_model.dart';
+import '../../models/model.dart';
 
 class _MenuTheme {
   static const Color blueColor = MyTheme.button;
@@ -107,6 +109,10 @@ class _ConnectionTabPageState extends State<ConnectionTabPage> {
           tgdeskEmbedded: params['embedded'] == true,
           tgdeskToolbarMenuBuilder:
               params['tgdeskToolbarMenuBuilder'] as WidgetBuilder?,
+          tgdeskCloseSession: params['tgdeskCloseSession'] as VoidCallback?,
+          tgdeskSessionReady: params['tgdeskSessionReady'] as ValueChanged<FFI>?,
+          tgdeskShortcutHandler: params['tgdeskShortcutHandler']
+              as KeyEventResult Function(KeyEvent event)?,
         ),
       ));
       _update_remote_count();
@@ -171,10 +177,8 @@ class _ConnectionTabPageState extends State<ConnectionTabPage> {
               ],
             );
           } else {
-            bool secure =
-                connectionType.secure.value == ConnectionType.strSecure;
-            bool direct =
-                connectionType.direct.value == ConnectionType.strDirect;
+            bool secure = connectionType.secure.value == ConnectionType.strSecure;
+            bool direct = connectionType.direct.value == ConnectionType.strDirect;
             String msgConn = getConnectionText(
                 secure, direct, connectionType.stream_type.value);
             var msgFingerprint = '${translate('Fingerprint')}:\n';

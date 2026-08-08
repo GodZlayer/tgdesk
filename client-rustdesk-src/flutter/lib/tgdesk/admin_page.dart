@@ -6,7 +6,6 @@ import 'admin_catalog_page.dart';
 import 'admin_os_catalog_tab.dart';
 import 'admin_regions_tab.dart';
 import 'api_client.dart';
-import 'technicians_page.dart';
 import 'theme.dart';
 
 class AdminPage extends StatefulWidget {
@@ -19,35 +18,99 @@ class AdminPage extends StatefulWidget {
 class _AdminDashboardState extends State<AdminPage> {
   int _selected = 0;
 
-  static const _legacyItems = <({String title, String subtitle, IconData icon})>[
-    (title: 'Auditoria', subtitle: 'Eventos, relações e visão executiva', icon: Icons.timeline_outlined),
-    (title: 'Regiões', subtitle: 'Mapa, cidades e preço dinâmico', icon: Icons.map_outlined),
-    (title: 'Catálogo', subtitle: 'Serviços, peças e consumíveis', icon: Icons.inventory_2_outlined),
-    (title: 'Precificação', subtitle: 'Percentuais e distribuição da OS', icon: Icons.percent_outlined),
-    (title: 'Chamados', subtitle: 'Taxonomia operacional', icon: Icons.category_outlined),
-    (title: 'Vinculados', subtitle: 'Organizações, redes e pessoas', icon: Icons.account_tree_outlined),
-    (title: 'Cotas', subtitle: 'Direitos de uso e limites', icon: Icons.rule_folder_outlined),
+  static const _legacyItems =
+      <({String title, String subtitle, IconData icon})>[
+    (
+      title: 'Auditoria',
+      subtitle: 'Eventos, relações e visão executiva',
+      icon: Icons.timeline_outlined
+    ),
+    (
+      title: 'Regiões',
+      subtitle: 'Mapa, cidades e preço dinâmico',
+      icon: Icons.map_outlined
+    ),
+    (
+      title: 'Catálogo',
+      subtitle: 'Serviços, peças e consumíveis',
+      icon: Icons.inventory_2_outlined
+    ),
+    (
+      title: 'Precificação',
+      subtitle: 'Percentuais e distribuição da OS',
+      icon: Icons.percent_outlined
+    ),
+    (
+      title: 'Chamados',
+      subtitle: 'Taxonomia operacional',
+      icon: Icons.category_outlined
+    ),
+    (
+      title: 'Vinculados',
+      subtitle: 'Organizações, redes e pessoas',
+      icon: Icons.account_tree_outlined
+    ),
+    (
+      title: 'Cotas',
+      subtitle: 'Direitos de uso e limites',
+      icon: Icons.rule_folder_outlined
+    ),
   ];
 
   static const _items = <({String title, String subtitle, IconData icon})>[
-    (title: 'Auditoria', subtitle: 'Eventos, rela\u{00e7}\u{00f5}es e vis\u{00e3}o executiva', icon: Icons.timeline_outlined),
-    (title: 'Regi\u{00f5}es', subtitle: 'Mapa, cidades e pre\u{00e7}o din\u{00e2}mico', icon: Icons.map_outlined),
-    (title: 'Cat\u{00e1}logo', subtitle: 'Servi\u{00e7}os, pe\u{00e7}as e consum\u{00ed}veis', icon: Icons.inventory_2_outlined),
-    (title: 'Precifica\u{00e7}\u{00e3}o', subtitle: 'Percentuais e distribui\u{00e7}\u{00e3}o da OS', icon: Icons.percent_outlined),
-    (title: 'Chamados', subtitle: 'Taxonomia operacional', icon: Icons.category_outlined),
-    (title: 'Vinculados', subtitle: 'Organiza\u{00e7}\u{00f5}es, redes e pessoas', icon: Icons.account_tree_outlined),
-    (title: 'Cotas', subtitle: 'Direitos de uso e limites', icon: Icons.rule_folder_outlined),
+    (
+      title: 'Auditoria',
+      subtitle: 'Eventos, rela\u{00e7}\u{00f5}es e vis\u{00e3}o executiva',
+      icon: Icons.timeline_outlined
+    ),
+    (
+      title: 'Regi\u{00f5}es',
+      subtitle: 'Mapa, cidades e pre\u{00e7}o din\u{00e2}mico',
+      icon: Icons.map_outlined
+    ),
+    (
+      title: 'Cat\u{00e1}logo operacional',
+      subtitle: 'Chamados, servi\u{00e7}os, pe\u{00e7}as e consum\u{00ed}veis',
+      icon: Icons.inventory_2_outlined
+    ),
+    (
+      title: 'Precifica\u{00e7}\u{00e3}o',
+      subtitle: 'Percentuais e distribui\u{00e7}\u{00e3}o da OS',
+      icon: Icons.percent_outlined
+    ),
+    (
+      title: 'Taxas',
+      subtitle: 'Distribui\u{00e7}\u{00e3}o do valor do servi\u{00e7}o',
+      icon: Icons.account_balance_wallet_outlined
+    ),
+    (
+      title: 'Vinculados',
+      subtitle: 'Organiza\u{00e7}\u{00f5}es, redes e pessoas',
+      icon: Icons.account_tree_outlined
+    ),
+    (
+      title: 'Cotas',
+      subtitle: 'Direitos de uso e limites',
+      icon: Icons.rule_folder_outlined
+    ),
   ];
 
   Widget _content() {
     switch (_selected) {
-      case 0: return const _AuditEditor();
-      case 1: return const AdminRegionsTab();
-      case 2: return const AdminOsCatalogTab();
-      case 3: return const AdminPricingTab();
-      case 4: return const AdminTicketTypesTab();
-      case 5: return const _LinkedEditor();
-      default: return const _QuotaEditor();
+      case 0:
+        return const _AuditEditor();
+      case 1:
+        return const AdminRegionsTab();
+      case 2:
+        return const AdminOperationalTypesTab();
+      case 3:
+        return const AdminPricingTab();
+      case 4:
+        return const _FeesEditor();
+      case 5:
+        return const _LinkedEditor();
+      default:
+        return const _LinkedEditor();
     }
   }
 
@@ -65,63 +128,96 @@ class _AdminDashboardState extends State<AdminPage> {
               color: scheme.surfaceContainerHighest,
               border: Border(right: BorderSide(color: scheme.outlineVariant)),
             ),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(20, 24, 20, 18),
-                child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                  Icon(Icons.dashboard_customize_outlined, color: scheme.primary, size: 34),
-                  const SizedBox(height: 12),
-                  Text('Painel administrativo', style: Theme.of(context).textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w800)),
-                  const SizedBox(height: 6),
-                  const Text('Uma mesa visual para governar toda a operação TGDesk.'),
+            child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 24, 20, 18),
+                    child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Icon(Icons.dashboard_customize_outlined,
+                              color: scheme.primary, size: 34),
+                          const SizedBox(height: 12),
+                          Text('Painel administrativo',
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .titleLarge
+                                  ?.copyWith(fontWeight: FontWeight.w800)),
+                          const SizedBox(height: 6),
+                          const Text(
+                              'Uma mesa visual para governar toda a operação TGDesk.'),
+                        ]),
+                  ),
+                  Expanded(
+                      child: ListView.builder(
+                    padding: const EdgeInsets.symmetric(horizontal: 12),
+                    itemCount: _items.length,
+                    itemBuilder: (context, index) {
+                      final nav = _items[index];
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 6),
+                        child: ListTile(
+                          selected: index == _selected,
+                          shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(14)),
+                          leading: Icon(nav.icon),
+                          title: Text(nav.title,
+                              style:
+                                  const TextStyle(fontWeight: FontWeight.w700)),
+                          subtitle: Text(nav.subtitle),
+                          onTap: () => setState(() => _selected = index),
+                        ),
+                      );
+                    },
+                  )),
                 ]),
-              ),
-              Expanded(child: ListView.builder(
-                padding: const EdgeInsets.symmetric(horizontal: 12),
-                itemCount: _items.length,
-                itemBuilder: (context, index) {
-                  final nav = _items[index];
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 6),
-                    child: ListTile(
-                      selected: index == _selected,
-                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-                      leading: Icon(nav.icon),
-                      title: Text(nav.title, style: const TextStyle(fontWeight: FontWeight.w700)),
-                      subtitle: Text(nav.subtitle),
-                      onTap: () => setState(() => _selected = index),
-                    ),
-                  );
-                },
-              )),
-            ]),
           ),
         ),
-        Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.stretch, children: [
-          Padding(
-            padding: const EdgeInsets.fromLTRB(28, 24, 28, 16),
-            child: Row(children: [
-              Icon(item.icon, color: scheme.primary, size: 32),
-              const SizedBox(width: 14),
-              Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-                Text(item.title, style: Theme.of(context).textTheme.headlineSmall?.copyWith(fontWeight: FontWeight.w800)),
-                Text(item.subtitle),
-              ])),
-              _KpiChip(label: 'Servidor', value: 'tempo real', color: scheme.primary),
-              const SizedBox(width: 10),
-              _KpiChip(label: 'Fonte', value: 'regras server-side', color: scheme.tertiary),
-            ]),
-          ),
-          const Divider(height: 1),
-          Expanded(child: Padding(padding: const EdgeInsets.all(20), child: _content())),
-        ])),
+        Expanded(
+            child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(28, 24, 28, 16),
+                child: Row(children: [
+                  Icon(item.icon, color: scheme.primary, size: 32),
+                  const SizedBox(width: 14),
+                  Expanded(
+                      child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                        Text(item.title,
+                            style: Theme.of(context)
+                                .textTheme
+                                .headlineSmall
+                                ?.copyWith(fontWeight: FontWeight.w800)),
+                        Text(item.subtitle),
+                      ])),
+                  _KpiChip(
+                      label: 'Servidor',
+                      value: 'tempo real',
+                      color: scheme.primary),
+                  const SizedBox(width: 10),
+                  _KpiChip(
+                      label: 'Fonte',
+                      value: 'regras server-side',
+                      color: scheme.tertiary),
+                ]),
+              ),
+              const Divider(height: 1),
+              Expanded(
+                  child: Padding(
+                      padding: const EdgeInsets.all(20), child: _content())),
+            ])),
       ]),
     );
   }
 }
 
 class _KpiChip extends StatelessWidget {
-  const _KpiChip({required this.label, required this.value, required this.color});
+  const _KpiChip(
+      {required this.label, required this.value, required this.color});
   final String label;
   final String value;
   final Color color;
@@ -129,13 +225,15 @@ class _KpiChip extends StatelessWidget {
   @override
   Widget build(BuildContext context) => Container(
         padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        decoration: BoxDecoration(color: color.withOpacity(.12), borderRadius: BorderRadius.circular(12)),
+        decoration: BoxDecoration(
+            color: color.withOpacity(.12),
+            borderRadius: BorderRadius.circular(12)),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
           Text(label, style: Theme.of(context).textTheme.labelSmall),
-          Text(value, style: TextStyle(color: color, fontWeight: FontWeight.w800)),
+          Text(value,
+              style: TextStyle(color: color, fontWeight: FontWeight.w800)),
         ]),
       );
-
 }
 
 class _LegacyAdminPage extends StatefulWidget {
@@ -194,7 +292,8 @@ class _AdminPageState extends State<_LegacyAdminPage> {
       description:
           'CatÃ¡logo sem marca e sem preÃ§o final; usado pela OS para montar escopo e exigir evidÃªncias.',
       icon: Icons.inventory_2_outlined,
-      builder: (_) => const AdminOsCatalogTab(),
+      builder: (_) =>
+          const AdminOsCatalogTab(section: OperationalCatalogSection.services),
     ),
     _AdminSection(
       key: 'pricing',
@@ -497,6 +596,131 @@ class _SectionHeader extends StatelessWidget {
   }
 }
 
+class _FeesEditor extends StatefulWidget {
+  const _FeesEditor();
+  @override
+  State<_FeesEditor> createState() => _FeesEditorState();
+}
+
+class _FeesEditorState extends State<_FeesEditor> {
+  bool _loading = true;
+  String? _error;
+  List<Map<String, dynamic>> _rules = const [];
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    try {
+      final rows = await TgdeskApi.pricingRules();
+      if (mounted)
+        setState(() {
+          _rules = rows
+              .whereType<Map>()
+              .map((r) => Map<String, dynamic>.from(r))
+              .where((r) => r['kind'] == 'share' || r['kind'] == 'fee')
+              .toList();
+          _loading = false;
+        });
+    } catch (e) {
+      if (mounted)
+        setState(() {
+          _error = '$e';
+          _loading = false;
+        });
+    }
+  }
+
+  String _roleLabel(String role) =>
+      const {
+        'tgdesk': 'Taxa TGDesk',
+        'supervisor': 'Supervisor da OS',
+        'referrer_supervisor': 'Supervisor vinculador',
+        'technician': 'Técnico executor'
+      }[role] ??
+      role;
+  Future<void> _edit(String role, Map<String, dynamic>? previous) async {
+    final percent = TextEditingController(text: '${previous?['percent'] ?? 0}');
+    final ok = await showDialog<bool>(
+        context: context,
+        builder: (ctx) => AlertDialog(
+                title: Text(role == 'payment'
+                    ? 'Taxa do sistema de pagamento'
+                    : _roleLabel(role)),
+                content: TextField(
+                    controller: percent,
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                        labelText: 'Percentual sobre o serviço')),
+                actions: [
+                  TextButton(
+                      onPressed: () => Navigator.pop(ctx, false),
+                      child: const Text('Cancelar')),
+                  FilledButton(
+                      onPressed: () => Navigator.pop(ctx, true),
+                      child: const Text('Salvar'))
+                ]));
+    if (ok == true) {
+      await TgdeskApi.savePricingRule({
+        'id': previous?['id'],
+        'kind': role == 'payment' ? 'fee' : 'share',
+        'role': role == 'payment' ? null : role,
+        'percent': double.tryParse(percent.text.replaceAll(',', '.')) ?? 0,
+        'active': true,
+        'note': 'Taxa de fluxo de pagamento'
+      });
+      await _load();
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) return const Center(child: CircularProgressIndicator());
+    if (_error != null) return Center(child: TgdeskErrorText(_error!));
+    final roles = ['tgdesk', 'supervisor', 'referrer_supervisor', 'technician'];
+    final payment = _rules.where((r) => r['kind'] == 'fee').firstOrNull;
+    return ListView(padding: const EdgeInsets.all(TgdeskSpacing.lg), children: [
+      Text('Taxas e distribuição',
+          style: Theme.of(context)
+              .textTheme
+              .headlineSmall
+              ?.copyWith(fontWeight: FontWeight.w800)),
+      const SizedBox(height: 8),
+      const Text(
+          'Somente o valor de serviço é distribuído. Produtos e consumíveis ficam fora das taxas de comissão.'),
+      const SizedBox(height: 20),
+      for (final role in roles)
+        () {
+          final rule = _rules
+              .where((r) => r['kind'] == 'share' && r['role'] == role)
+              .firstOrNull;
+          return Card(
+              child: ListTile(
+                  leading: Icon(role == 'technician'
+                      ? Icons.engineering_outlined
+                      : Icons.account_balance_wallet_outlined),
+                  title: Text(_roleLabel(role)),
+                  subtitle:
+                      Text('${rule?['percent'] ?? 0}% do valor do serviço'),
+                  trailing: IconButton(
+                      icon: const Icon(Icons.edit_outlined),
+                      onPressed: () => _edit(role, rule))));
+        }(),
+      Card(
+          child: ListTile(
+              leading: const Icon(Icons.credit_card_outlined),
+              title: const Text('Taxa do sistema de pagamento'),
+              subtitle: Text(
+                  '${payment?['percent'] ?? payment?['amount_cents'] ?? 0}${payment?['percent'] != null ? '%' : ' centavos'}'),
+              trailing: IconButton(
+                  icon: const Icon(Icons.edit_outlined),
+                  onPressed: () => _edit('payment', payment))))
+    ]);
+  }
+}
+
 class _AuditEditor extends StatefulWidget {
   const _AuditEditor();
 
@@ -526,7 +750,43 @@ class _AuditEditorState extends State<_AuditEditor> {
         _error = null;
       });
     } catch (e) {
-      if (mounted) setState(() => _error = '$e');
+      // A auditoria não pode virar uma tela cinza quando o agregado ainda não
+      // está disponível: o log bruto continua sendo uma fonte válida de visão
+      // operacional e mantém o painel útil durante recuperação do servidor.
+      try {
+        final events = await TgdeskApi.auditLog();
+        final rows = events
+            .whereType<Map>()
+            .map((row) => Map<String, dynamic>.from(row))
+            .toList();
+        final bySeverity = <String, int>{};
+        final byDomain = <String, int>{};
+        for (final row in rows) {
+          final severity = row['severity']?.toString() ?? 'info';
+          final domain = row['domain']?.toString() ??
+              row['event_type']?.toString() ??
+              'sistema';
+          bySeverity[severity] = (bySeverity[severity] ?? 0) + 1;
+          byDomain[domain] = (byDomain[domain] ?? 0) + 1;
+        }
+        if (mounted)
+          setState(() {
+            _report = {
+              'title': 'Auditoria operacional TGDesk',
+              'subtitle':
+                  'Visão ao vivo baseada nos logs disponíveis do sistema.',
+              'metrics': {'events': rows.length, ...bySeverity},
+              'sections': [
+                for (final entry in byDomain.entries)
+                  {'key': entry.key, 'title': entry.key, 'count': entry.value}
+              ],
+              'recent_events': rows,
+            };
+            _error = null;
+          });
+      } catch (_) {
+        if (mounted) setState(() => _error = '$e');
+      }
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -663,7 +923,7 @@ class _ExecutiveHero extends StatelessWidget {
               const SizedBox(height: 12),
               const Wrap(spacing: 8, children: [
                 Chip(label: Text('apresenta??o executiva')),
-                Chip(label: Text('gr?ficos pizza')),
+                Chip(label: Text('gráficos de pizza')),
                 Chip(label: Text('drill-down por popup')),
                 Chip(label: Text('dados do servidor')),
               ]),
@@ -712,11 +972,11 @@ class _MetricGrid extends StatelessWidget {
         Icons.devices_outlined
       ),
       (
-        'T?cnicos dispon?veis',
+        'Técnicos disponíveis',
         metrics['available_technicians'],
         Icons.engineering_outlined
       ),
-      ('Regi?es ativas', metrics['active_regions'], Icons.map_outlined),
+      ('Regiões ativas', metrics['active_regions'], Icons.map_outlined),
       ('Organiza??es', metrics['organizations'], Icons.business_outlined),
       ('Riscos', metrics['risk_events'], Icons.warning_amber_outlined),
     ];
@@ -763,7 +1023,7 @@ class _DomainPieCard extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.all(18),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('Distribui??o por dom?nio',
+          Text('Distribuição por domínio',
               style: Theme.of(context)
                   .textTheme
                   .titleMedium
@@ -875,7 +1135,7 @@ class _TimelineCard extends StatelessWidget {
           if (events.isEmpty)
             const Padding(
                 padding: EdgeInsets.all(24),
-                child: Text('Sem eventos no per?odo.')),
+                child: Text('Sem eventos no período.')),
         ]),
       ),
     );
@@ -892,7 +1152,7 @@ class _DomainDetailDialog extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return AlertDialog(
-      title: Text(section['label']?.toString() ?? 'Dom?nio'),
+      title: Text(section['label']?.toString() ?? 'Domínio'),
       content: SizedBox(
         width: 760,
         height: 560,
@@ -934,17 +1194,17 @@ class _EventDetailDialog extends StatelessWidget {
           child:
               Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             _DetailLine(
-                'Dom?nio', '${detail['domain_label'] ?? detail['domain_key']}'),
+                'Domínio', '${detail['domain_label'] ?? detail['domain_key']}'),
             _DetailLine('Rela??o', '${detail['relation_degree'] ?? '-'}'),
             _DetailLine('Severidade', '${detail['severity'] ?? '-'}'),
             _DetailLine('Entidade',
                 '${detail['entity_type'] ?? '-'} ? ${detail['entity_id'] ?? '-'}'),
             _DetailLine(
-                'Ator t?cnico', '${detail['actor_technician_id'] ?? '-'}'),
+                'Ator técnico', '${detail['actor_technician_id'] ?? '-'}'),
             _DetailLine(
                 'Dispositivo ator', '${detail['actor_device_id'] ?? '-'}'),
             _DetailLine('Organiza??o', '${detail['organization_id'] ?? '-'}'),
-            _DetailLine('Regi?o', '${detail['region_id'] ?? '-'}'),
+            _DetailLine('Região', '${detail['region_id'] ?? '-'}'),
             const Divider(),
             Text('Payload profundo',
                 style: Theme.of(context).textTheme.titleSmall),
@@ -1061,6 +1321,7 @@ class _LinkedEditor extends StatefulWidget {
 
 class _LinkedEditorState extends State<_LinkedEditor> {
   Map<String, dynamic>? _map;
+  Map<String, dynamic>? _quotas;
   bool _loading = true;
   String? _error;
   String _query = '';
@@ -1075,10 +1336,16 @@ class _LinkedEditorState extends State<_LinkedEditor> {
   Future<void> _load() async {
     setState(() => _loading = true);
     try {
-      final linked = await TgdeskApi.linkedMap();
+      final loaded = await Future.wait<dynamic>([
+        TgdeskApi.linkedMap(),
+        TgdeskApi.quotas(),
+      ]);
+      final linked = loaded[0] as Map<String, dynamic>;
+      final quotas = loaded[1] as Map<String, dynamic>;
       if (!mounted) return;
       setState(() {
         _map = linked;
+        _quotas = quotas;
         _error = null;
       });
     } catch (e) {
@@ -1105,6 +1372,10 @@ class _LinkedEditorState extends State<_LinkedEditor> {
     final devices = _list('devices');
     final technicians = _list('technicians');
     final links = _list('links');
+    final quotas = (_quotas?['organizations'] as List? ?? const [])
+        .whereType<Map>()
+        .map((item) => Map<String, dynamic>.from(item))
+        .toList(growable: false);
     final all = <Map<String, dynamic>>[
       ...organizations,
       ...networks,
@@ -1117,7 +1388,7 @@ class _LinkedEditorState extends State<_LinkedEditor> {
       child: ListView(
         padding: const EdgeInsets.all(TgdeskSpacing.lg),
         children: [
-          _LinkedHero(summary: summary),
+          _LinkedHero(summary: summary, nodes: all, onNode: _openNode),
           const SizedBox(height: TgdeskSpacing.md),
           Row(children: [
             Expanded(
@@ -1126,7 +1397,7 @@ class _LinkedEditorState extends State<_LinkedEditor> {
                   prefixIcon: Icon(Icons.search),
                   labelText: 'Buscar vinculado',
                   helperText:
-                      'Organiza??o, rede, subrede, dispositivo, t?cnico ou supervisor.',
+                      'Organização, rede, subrede, dispositivo, técnico ou supervisor.',
                 ),
                 onChanged: (value) => setState(() => _query = value),
               ),
@@ -1141,28 +1412,12 @@ class _LinkedEditorState extends State<_LinkedEditor> {
                 DropdownMenuItem(value: 'network', child: Text('Redes')),
                 DropdownMenuItem(value: 'subnetwork', child: Text('Subredes')),
                 DropdownMenuItem(value: 'device', child: Text('Dispositivos')),
-                DropdownMenuItem(value: 'technician', child: Text('T?cnicos')),
+                DropdownMenuItem(
+                    value: 'technician', child: Text('Supervisores')),
               ],
               onChanged: (value) => setState(() => _kind = value ?? 'all'),
             ),
           ]),
-          const SizedBox(height: TgdeskSpacing.lg),
-          LayoutBuilder(builder: (context, constraints) {
-            final wide = constraints.maxWidth > 1050;
-            final graph =
-                _LinkedGraphCard(nodes: all, links: links, onTap: _openNode);
-            final list =
-                _LinkedListCard(nodes: all, links: links, onTap: _openNode);
-            if (!wide) {
-              return Column(
-                  children: [graph, const SizedBox(height: 12), list]);
-            }
-            return Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
-              SizedBox(width: 430, child: graph),
-              const SizedBox(width: 12),
-              Expanded(child: list),
-            ]);
-          }),
           const SizedBox(height: TgdeskSpacing.lg),
           _OrganizationTree(
             organizations: organizations,
@@ -1170,7 +1425,9 @@ class _LinkedEditorState extends State<_LinkedEditor> {
             subnetworks: subnetworks,
             devices: devices,
             technicians: technicians,
+            quotas: quotas,
             onNode: _openNode,
+            onQuota: _editQuota,
           ),
           const SizedBox(height: TgdeskSpacing.lg),
           Card(
@@ -1188,8 +1445,6 @@ class _LinkedEditorState extends State<_LinkedEditor> {
                     const SizedBox(height: 8),
                     const Text(
                         'Esta gestão saiu do menu lateral e agora pertence a Vinculados: técnicos, supervisores, branding, estilos de nome, chaves e vínculos ficam no mesmo contexto operacional.'),
-                    const SizedBox(height: 12),
-                    const SizedBox(height: 720, child: TechniciansPage()),
                   ]),
             ),
           ),
@@ -1234,11 +1489,59 @@ class _LinkedEditorState extends State<_LinkedEditor> {
     if (mounted) Navigator.pop(context);
     await _load();
   }
+
+  Future<void> _editQuota(
+      Map<String, dynamic> organization, Map<String, dynamic>? quota) async {
+    final controllers = <String, TextEditingController>{
+      'supervisors': TextEditingController(
+          text: '${quota?['max_affiliated_supervisors'] ?? 0}'),
+      'devices': TextEditingController(text: '${quota?['max_devices'] ?? ''}'),
+    };
+    final save = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+              title: Text('Gerenciar ${_nodeTitle(organization)}'),
+              content: Column(mainAxisSize: MainAxisSize.min, children: [
+                TextField(
+                    controller: controllers['supervisors'],
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                        labelText: 'Cota de supervisores')),
+                TextField(
+                    controller: controllers['devices'],
+                    keyboardType: TextInputType.number,
+                    decoration: const InputDecoration(
+                        labelText: 'Cota de dispositivos')),
+              ]),
+              actions: [
+                TextButton(
+                    onPressed: () => Navigator.pop(context, false),
+                    child: const Text('Cancelar')),
+                FilledButton(
+                    onPressed: () => Navigator.pop(context, true),
+                    child: const Text('Salvar'))
+              ],
+            ));
+    if (save == true) {
+      await TgdeskApi.saveQuota({
+        'organization_id': organization['id'],
+        'max_affiliated_supervisors':
+            int.tryParse(controllers['supervisors']!.text) ?? 0,
+        'max_devices': int.tryParse(controllers['devices']!.text),
+        'max_technicians': quota?['max_technicians'],
+        'note': quota?['note']?.toString() ?? '',
+      });
+      await _load();
+    }
+  }
 }
 
 class _LinkedHero extends StatelessWidget {
-  const _LinkedHero({required this.summary});
+  const _LinkedHero(
+      {required this.summary, required this.nodes, required this.onNode});
   final Map<String, dynamic> summary;
+  final List<Map<String, dynamic>> nodes;
+  final ValueChanged<Map<String, dynamic>> onNode;
 
   @override
   Widget build(BuildContext context) {
@@ -1246,37 +1549,107 @@ class _LinkedHero extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.all(20),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('Vinculados',
+          Text('Estrutura operacional',
               style: Theme.of(context)
                   .textTheme
                   .headlineSmall
                   ?.copyWith(fontWeight: FontWeight.w800)),
           const SizedBox(height: 8),
           const Text(
-              'Mapa ?nico de organiza??es, redes, subredes, dispositivos, t?cnicos e supervisores. Admin v? este mapa aqui; fora daqui, a experi?ncia segue escopo de supervisor.'),
+              'Gerencie a organização e seu supervisor no mesmo ponto. Redes, subredes e dispositivos ficam sob esse mesmo guarda-chuva.'),
           const SizedBox(height: 14),
-          Wrap(spacing: 12, runSpacing: 12, children: [
-            _MetricCard(
-                label: 'Organiza??es',
-                value: (summary['organizations'] as num?)?.toInt() ?? 0),
-            _MetricCard(
-                label: 'Redes',
-                value: (summary['networks'] as num?)?.toInt() ?? 0),
-            _MetricCard(
-                label: 'Subredes',
-                value: (summary['subnetworks'] as num?)?.toInt() ?? 0),
-            _MetricCard(
-                label: 'Dispositivos',
-                value: (summary['devices'] as num?)?.toInt() ?? 0),
-            _MetricCard(
-                label: 'T?cnicos',
-                value: (summary['technicians'] as num?)?.toInt() ?? 0),
-            _MetricCard(
-                label: 'V?nculos',
-                value: (summary['links'] as num?)?.toInt() ?? 0),
-          ]),
+          _OperationalMap(nodes: nodes, onNode: onNode),
         ]),
       ),
+    );
+  }
+}
+
+class _OperationalMap extends StatelessWidget {
+  const _OperationalMap({required this.nodes, required this.onNode});
+  final List<Map<String, dynamic>> nodes;
+  final ValueChanged<Map<String, dynamic>> onNode;
+
+  @override
+  Widget build(BuildContext context) {
+    const kinds = [
+      'organization',
+      'technician',
+      'network',
+      'subnetwork',
+      'device'
+    ];
+    final total = nodes.length == 0 ? 1 : nodes.length;
+    return SizedBox(
+      height: 300,
+      child: LayoutBuilder(
+          builder: (context, constraints) => Stack(
+                children: [
+                  for (var i = 0; i < kinds.length; i++)
+                    () {
+                      final kind = kinds[i];
+                      final entries =
+                          nodes.where((node) => node['kind'] == kind).toList();
+                      final count = entries.length;
+                      final diameter = (76 + 110 * count / total)
+                          .clamp(76.0, 150.0)
+                          .toDouble();
+                      final alignment = const [
+                        Alignment(-.52, -.42),
+                        Alignment(.52, -.52),
+                        Alignment(.58, .38),
+                        Alignment(-.42, .48),
+                        Alignment(0, 0),
+                      ][i];
+                      return Align(
+                        alignment: alignment,
+                        child: Tooltip(
+                          message:
+                              'Abrir ${_linkedKindLabel(kind).toLowerCase()}s',
+                          child: InkWell(
+                            customBorder: const CircleBorder(),
+                            onTap: entries.isEmpty
+                                ? null
+                                : () => onNode(entries.first),
+                            child: Container(
+                              width: diameter,
+                              height: diameter,
+                              decoration: BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: _linkedColor(kind).withOpacity(.28),
+                                border: Border.all(
+                                    color: _linkedColor(kind), width: 2),
+                              ),
+                              child: Column(
+                                  mainAxisAlignment: MainAxisAlignment.center,
+                                  children: [
+                                    Icon(_linkedIcon(kind),
+                                        color: _linkedColor(kind)),
+                                    Text('$count',
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .headlineSmall
+                                            ?.copyWith(
+                                                fontWeight: FontWeight.w800)),
+                                    Text(_linkedKindLabel(kind),
+                                        textAlign: TextAlign.center,
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .labelSmall),
+                                  ]),
+                            ),
+                          ),
+                        ),
+                      );
+                    }(),
+                  Align(
+                    alignment: Alignment.bottomCenter,
+                    child: Text(
+                        'Clique em uma bolha para abrir a gestão do grupo.',
+                        style: Theme.of(context).textTheme.labelMedium),
+                  ),
+                ],
+              )),
     );
   }
 }
@@ -1340,7 +1713,7 @@ class _LinkedGraphCard extends StatelessWidget {
                   painter: _LinkedMapPainter(byKind),
                   child: Center(
                       child: Text(
-                          '${nodes.length}\nn?s\n${links.length} v?nculos',
+                          '${nodes.length}\nnós\n${links.length} vínculos',
                           textAlign: TextAlign.center)))),
           const SizedBox(height: 12),
           for (final entry in byKind.entries)
@@ -1402,13 +1775,18 @@ class _OrganizationTree extends StatelessWidget {
       required this.subnetworks,
       required this.devices,
       required this.technicians,
-      required this.onNode});
+      required this.quotas,
+      required this.onNode,
+      required this.onQuota});
   final List<Map<String, dynamic>> organizations;
   final List<Map<String, dynamic>> networks;
   final List<Map<String, dynamic>> subnetworks;
   final List<Map<String, dynamic>> devices;
   final List<Map<String, dynamic>> technicians;
+  final List<Map<String, dynamic>> quotas;
   final ValueChanged<Map<String, dynamic>> onNode;
+  final Future<void> Function(Map<String, dynamic>, Map<String, dynamic>?)
+      onQuota;
 
   @override
   Widget build(BuildContext context) {
@@ -1416,62 +1794,91 @@ class _OrganizationTree extends StatelessWidget {
       child: Padding(
         padding: const EdgeInsets.all(16),
         child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('?rvore de v?nculo',
+          Text('Árvore de vínculo',
               style: Theme.of(context)
                   .textTheme
                   .titleMedium
                   ?.copyWith(fontWeight: FontWeight.w800)),
           const SizedBox(height: 8),
           for (final org in organizations)
-            ExpansionTile(
-              leading: const Icon(Icons.business_outlined),
-              title: Text(_nodeTitle(org)),
-              subtitle: Text(
-                  'redes: ${org['networks_count'] ?? 0} ? dispositivos: ${org['devices_count'] ?? 0} ? t?cnicos: ${org['technicians_count'] ?? 0}'),
-              trailing: IconButton(
-                  icon: const Icon(Icons.open_in_new),
-                  onPressed: () => onNode(org)),
-              children: [
-                for (final tech in technicians.where((t) =>
-                    t['organization_id']?.toString() == org['id']?.toString()))
-                  ListTile(
-                      contentPadding:
-                          const EdgeInsets.only(left: 48, right: 16),
-                      leading: const Icon(Icons.engineering_outlined),
-                      title: Text(_nodeTitle(tech)),
-                      subtitle:
-                          Text('supervisor: ${tech['supervisor_id'] ?? '-'}'),
-                      onTap: () => onNode(tech)),
-                for (final net in networks.where((n) =>
-                    n['organization_id']?.toString() == org['id']?.toString()))
-                  ExpansionTile(
-                    leading: const Icon(Icons.lan_outlined),
-                    title: Text(_nodeTitle(net)),
-                    subtitle: Text('status: ${net['status'] ?? '-'}'),
-                    children: [
-                      for (final sub in subnetworks.where((s) =>
-                          s['network_id']?.toString() == net['id']?.toString()))
-                        ListTile(
-                            contentPadding:
-                                const EdgeInsets.only(left: 72, right: 16),
+            () {
+              final quota = quotas.where((item) =>
+                  item['organization_id']?.toString() == org['id']?.toString());
+              final organizationQuota = quota.isEmpty ? null : quota.first;
+              return ExpansionTile(
+                leading: const Icon(Icons.business_outlined),
+                title: Text(_nodeTitle(org)),
+                subtitle: Text(
+                    'redes: ${org['networks_count'] ?? 0} ? dispositivos: ${org['devices_count'] ?? 0} ? supervisores: ${org['technicians_count'] ?? 0}'),
+                trailing: Row(mainAxisSize: MainAxisSize.min, children: [
+                  IconButton(
+                      tooltip: 'Cotas e supervisor',
+                      icon: const Icon(Icons.tune_outlined),
+                      onPressed: () => onQuota(org, organizationQuota)),
+                  IconButton(
+                      icon: const Icon(Icons.open_in_new),
+                      onPressed: () => onNode(org)),
+                ]),
+                children: [
+                  for (final tech in technicians.where((t) =>
+                      t['organization_id']?.toString() ==
+                      org['id']?.toString()))
+                    ListTile(
+                        contentPadding:
+                            const EdgeInsets.only(left: 48, right: 16),
+                        leading: const Icon(Icons.engineering_outlined),
+                        title: Text(_nodeTitle(tech)),
+                        subtitle:
+                            Text('supervisor: ${tech['supervisor_id'] ?? '-'}'),
+                        onTap: () => onNode(tech)),
+                  for (final net in networks.where((n) =>
+                      n['organization_id']?.toString() ==
+                      org['id']?.toString()))
+                    ExpansionTile(
+                      leading: const Icon(Icons.lan_outlined),
+                      title: Text(_nodeTitle(net)),
+                      subtitle: Text('status: ${net['status'] ?? '-'}'),
+                      children: [
+                        for (final sub in subnetworks.where((s) =>
+                            s['network_id']?.toString() ==
+                            net['id']?.toString()))
+                          ExpansionTile(
                             leading: const Icon(Icons.account_tree_outlined),
                             title: Text(_nodeTitle(sub)),
                             subtitle: Text('status: ${sub['status'] ?? '-'}'),
-                            onTap: () => onNode(sub)),
-                      for (final dev in devices.where((d) =>
-                          d['network_id']?.toString() == net['id']?.toString()))
-                        ListTile(
-                            contentPadding:
-                                const EdgeInsets.only(left: 72, right: 16),
-                            leading: const Icon(Icons.computer_outlined),
-                            title: Text(_nodeTitle(dev)),
-                            subtitle: Text(
-                                'estado: ${dev['state'] ?? '-'} ? rustdesk: ${dev['rustdesk_id'] ?? '-'}'),
-                            onTap: () => onNode(dev)),
-                    ],
-                  ),
-              ],
-            ),
+                            children: [
+                              for (final dev in devices.where((d) =>
+                                  d['subnetwork_id']?.toString() ==
+                                  sub['id']?.toString()))
+                                ListTile(
+                                  contentPadding: const EdgeInsets.only(
+                                      left: 108, right: 16),
+                                  leading: const Icon(Icons.computer_outlined),
+                                  title: Text(_nodeTitle(dev)),
+                                  subtitle:
+                                      Text('estado: ${dev['state'] ?? '-'}'),
+                                  onTap: () => onNode(dev),
+                                ),
+                            ],
+                          ),
+                        for (final dev in devices.where((d) =>
+                            d['network_id']?.toString() ==
+                                net['id']?.toString() &&
+                            (d['subnetwork_id'] == null ||
+                                d['subnetwork_id'].toString().isEmpty)))
+                          ListTile(
+                              contentPadding:
+                                  const EdgeInsets.only(left: 72, right: 16),
+                              leading: const Icon(Icons.computer_outlined),
+                              title: Text(_nodeTitle(dev)),
+                              subtitle: Text(
+                                  'estado: ${dev['state'] ?? '-'} ? rustdesk: ${dev['rustdesk_id'] ?? '-'}'),
+                              onTap: () => onNode(dev)),
+                      ],
+                    ),
+                ],
+              );
+            }(),
         ]),
       ),
     );
@@ -1510,7 +1917,7 @@ class _LinkedNodeDialog extends StatelessWidget {
         if (kind == 'technician')
           TextButton(
               onPressed: () => onAction('suspend_technician', node),
-              child: const Text('Suspender t?cnico')),
+              child: const Text('Suspender técnico')),
         if (kind == 'organization')
           TextButton(
               onPressed: () => onAction('suspend_organization', node),
@@ -1582,7 +1989,7 @@ String _nodeSubtitle(
       .where((link) =>
           link['from_id']?.toString() == id || link['to_id']?.toString() == id)
       .length;
-  return '${_linkedKindLabel(node['kind']?.toString() ?? '')} ? v?nculos: $related ? status: ${node['status'] ?? node['state'] ?? '-'}';
+  return '${_linkedKindLabel(node['kind']?.toString() ?? '')} · vínculos: $related · status: ${node['status'] ?? node['state'] ?? '-'}';
 }
 
 String _linkedKindLabel(String kind) {
@@ -1596,7 +2003,7 @@ String _linkedKindLabel(String kind) {
     case 'device':
       return 'Dispositivo';
     case 'technician':
-      return 'T?cnico/Supervisor';
+      return 'Supervisor';
     default:
       return 'Vinculado';
   }

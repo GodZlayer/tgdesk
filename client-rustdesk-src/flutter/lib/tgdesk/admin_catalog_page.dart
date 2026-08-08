@@ -403,7 +403,7 @@ class _AdminPricingTabState extends State<AdminPricingTab> {
   };
 
   static const _roles = {
-    'technician': 'T?cnico',
+    'technician': 'Técnico',
     'supervisor': 'Supervisor',
     'tgdesk': 'TGDesk',
     'referrer_supervisor': 'Supervisor indicador',
@@ -462,7 +462,7 @@ class _AdminPricingTabState extends State<AdminPricingTab> {
             Padding(
               padding: const EdgeInsets.all(TgdeskSpacing.md),
               child: Text(_channel.connected
-                  ? 'Nenhuma regra cadastrada ? vale o padr?o do sistema.'
+                  ? 'Nenhuma regra cadastrada — vale o padrão do sistema.'
                   : 'Reconectando ao servidor...'),
             )
           else
@@ -695,7 +695,7 @@ class _AdminPricingTabState extends State<AdminPricingTab> {
                 DropdownButtonFormField<String?>(
                   value: organizationId,
                   decoration: const InputDecoration(
-                      labelText: 'Organiza??o (opcional)'),
+                      labelText: 'Organização (opcional)'),
                   items: [
                     const DropdownMenuItem(value: null, child: Text('Todas')),
                     ..._channel.organizations.map((org) => DropdownMenuItem(
@@ -733,7 +733,7 @@ class _AdminPricingTabState extends State<AdminPricingTab> {
                 DropdownButtonFormField<String?>(
                   value: technicianId,
                   decoration:
-                      const InputDecoration(labelText: 'T?cnico (opcional)'),
+                      const InputDecoration(labelText: 'Técnico (opcional)'),
                   items: [
                     const DropdownMenuItem(value: null, child: Text('Todos')),
                     ..._technicians.map((tech) => DropdownMenuItem(
