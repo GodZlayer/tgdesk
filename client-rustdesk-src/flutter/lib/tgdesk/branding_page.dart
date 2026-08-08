@@ -100,7 +100,7 @@ class _BrandingPageState extends State<BrandingPage> {
     if (bytes.length > 1024 * 1024) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('A logo deve possuir no mÃ¡ximo 1 MB.')),
+          const SnackBar(content: Text('A logo deve possuir no máximo 1 MB.')),
         );
       }
       return;
@@ -110,7 +110,7 @@ class _BrandingPageState extends State<BrandingPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-              content: Text('NÃ£o foi possÃ­vel abrir essa imagem.')),
+              content: Text('Não foi possível abrir essa imagem.')),
         );
       }
       return;
@@ -134,7 +134,7 @@ class _BrandingPageState extends State<BrandingPage> {
 
   Future<void> _pickFavicon() async {
     final result = await FilePicker.platform.pickFiles(
-      dialogTitle: 'Selecionar imagem do Ã­cone',
+      dialogTitle: 'Selecionar imagem do ícone',
       type: FileType.custom,
       allowedExtensions: const ['png', 'jpg', 'jpeg', 'webp', 'ico'],
     );
@@ -146,7 +146,7 @@ class _BrandingPageState extends State<BrandingPage> {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
-              content: Text('NÃ£o foi possÃ­vel abrir essa imagem.')),
+              content: Text('Não foi possível abrir essa imagem.')),
         );
       }
       return;
@@ -217,7 +217,7 @@ class _BrandingPageState extends State<BrandingPage> {
       });
       ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
         content: Text(
-            'Marca salva. Os clientes vinculados receberÃ£o a alteraÃ§Ã£o em tempo real.'),
+            'Marca salva. Os clientes vinculados receberão a alteração em tempo real.'),
       ));
     } catch (e) {
       if (mounted) {
@@ -235,7 +235,7 @@ class _BrandingPageState extends State<BrandingPage> {
     if (_error != null) return Center(child: TgdeskErrorText('Erro: $_error'));
     if (!_enabled && widget.technicianId == null) {
       return const Center(
-        child: Text('PersonalizaÃ§Ã£o nÃ£o habilitada pelo administrador.'),
+        child: Text('Personalização não habilitada pelo administrador.'),
       );
     }
     return ListView(
@@ -244,15 +244,15 @@ class _BrandingPageState extends State<BrandingPage> {
         Text(
             widget.technicianId == null
                 ? 'Identidade visual dos seus clientes'
-                : 'Identidade visual de ${widget.technicianName ?? 'tÃ©cnico'}',
+                : 'Identidade visual de ${widget.technicianName ?? 'técnico'}',
             style: Theme.of(context).textTheme.headlineSmall),
         const SizedBox(height: 8),
         Text(widget.technicianId == null
-            ? 'Esta marca aparece somente nos computadores client vinculados Ã  sua organizaÃ§Ã£o. '
-                'O seu painel tÃ©cnico continua usando a identidade TGDesk.'
+            ? 'Esta marca aparece somente nos computadores client vinculados à sua organização. '
+                'O seu painel técnico continua usando a identidade TGDesk.'
             : _enabled
-                ? 'Como administrador, vocÃª pode configurar a mesma funÃ§Ã£o disponÃ­vel ao tÃ©cnico.'
-                : 'A marca estÃ¡ desabilitada para este tÃ©cnico. VocÃª pode preparÃ¡-la agora e habilitÃ¡-la na lista.'),
+                ? 'Como administrador, você pode configurar a mesma função disponível ao técnico.'
+                : 'A marca está desabilitada para este técnico. Você pode prepará-la agora e habilitá-la na lista.'),
         const SizedBox(height: 24),
         Card(
           child: Padding(
@@ -372,7 +372,7 @@ class _BrandingPageState extends State<BrandingPage> {
                       const SizedBox(height: 24),
                       const Divider(),
                       const SizedBox(height: 16),
-                      Text('Ãcone dos computadores Client',
+                      Text('Ícone dos computadores Client',
                           style: Theme.of(context).textTheme.titleMedium),
                       const SizedBox(height: 6),
                       const Text(
@@ -444,13 +444,22 @@ class _BrandingPageState extends State<BrandingPage> {
             child: _faviconPreviewImage == null
                 ? Icon(Icons.apps, size: size * .55)
                 : RepaintBoundary(
-                    child: Image(
-                      image: _faviconPreviewImage!,
+                    child: SizedBox(
                       width: size,
                       height: size,
-                      fit: BoxFit.cover,
-                      gaplessPlayback: true,
-                      filterQuality: FilterQuality.medium,
+                      child: Image(
+                        key: ValueKey('branding-preview-$label'),
+                        image: _faviconPreviewImage!,
+                        width: size,
+                        height: size,
+                        fit: BoxFit.cover,
+                        gaplessPlayback: true,
+                        filterQuality: FilterQuality.low,
+                        frameBuilder: (context, child, frame, sync) =>
+                            frame == null && !sync
+                                ? const SizedBox.expand()
+                                : child,
+                      ),
                     ),
                   ),
           ),
@@ -616,7 +625,7 @@ class _ImageCropDialogState extends State<_ImageCropDialog> {
   @override
   Widget build(BuildContext context) => AlertDialog(
         title: Text(_isFavicon
-            ? 'Ajustar Ã­cone dos Clients'
+            ? 'Ajustar ícone dos Clients'
             : 'Ajustar logo dos Clients'),
         content: SizedBox(
           width: 620,
@@ -642,8 +651,8 @@ class _ImageCropDialogState extends State<_ImageCropDialog> {
                   const SizedBox(height: 12),
                   Text(
                     _isFavicon
-                        ? 'A Ã¡rea quadrada acima serÃ¡ exatamente o Ã­cone final.'
-                        : 'A Ã¡rea acima segue a proporÃ§Ã£o real usada no Client (72Ã—25).',
+                        ? 'A área quadrada acima será exatamente o ícone final.'
+                        : 'A área acima segue a proporção real usada no Client (72×25).',
                     textAlign: TextAlign.center,
                   ),
                 ]),
@@ -654,7 +663,7 @@ class _ImageCropDialogState extends State<_ImageCropDialog> {
                   mainAxisSize: MainAxisSize.min,
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
-                    Text('Zoom ${_zoom.toStringAsFixed(1)}Ã—'),
+                    Text('Zoom ${_zoom.toStringAsFixed(1)}×'),
                     Slider(
                       value: _zoom,
                       min: .25,
@@ -662,7 +671,7 @@ class _ImageCropDialogState extends State<_ImageCropDialog> {
                       divisions: 75,
                       onChanged: (value) => _change(() => _zoom = value),
                     ),
-                    const Text('PosiÃ§Ã£o horizontal'),
+                    const Text('Posição horizontal'),
                     Slider(
                       value: _horizontal,
                       min: -1,
@@ -670,7 +679,7 @@ class _ImageCropDialogState extends State<_ImageCropDialog> {
                       divisions: 40,
                       onChanged: (value) => _change(() => _horizontal = value),
                     ),
-                    const Text('PosiÃ§Ã£o vertical'),
+                    const Text('Posição vertical'),
                     Slider(
                       value: _vertical,
                       min: -1,
@@ -681,7 +690,7 @@ class _ImageCropDialogState extends State<_ImageCropDialog> {
                     const Divider(height: 28),
                     Text(_isFavicon
                         ? 'Preview no Client'
-                        : 'Preview real no Client (72Ã—25)'),
+                        : 'Preview real no Client (72×25)'),
                     const SizedBox(height: 10),
                     Container(
                       padding: const EdgeInsets.all(12),
@@ -724,8 +733,8 @@ class _ImageCropDialogState extends State<_ImageCropDialog> {
                     const SizedBox(height: 10),
                     Text(
                       _isFavicon
-                          ? 'O arquivo final contÃ©m 256, 64, 48, 32 e 16 pixels.'
-                          : 'O arquivo final Ã© salvo em alta resoluÃ§Ã£o; no Client aparece em 72Ã—25 pixels.',
+                          ? 'O arquivo final contém 256, 64, 48, 32 e 16 pixels.'
+                          : 'O arquivo final é salvo em alta resolução; no Client aparece em 72×25 pixels.',
                     ),
                   ],
                 ),
@@ -742,7 +751,7 @@ class _ImageCropDialogState extends State<_ImageCropDialog> {
             onPressed: () =>
                 Navigator.pop(context, _ImageCropResult(_ico, _preview)),
             icon: const Icon(Icons.check),
-            label: Text(_isFavicon ? 'Usar este Ã­cone' : 'Usar esta logo'),
+            label: Text(_isFavicon ? 'Usar este ícone' : 'Usar esta logo'),
           ),
         ],
       );

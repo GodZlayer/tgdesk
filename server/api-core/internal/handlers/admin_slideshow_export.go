@@ -18,10 +18,10 @@ type slideTemplate struct {
 }
 
 var adminSlideTemplates = []slideTemplate{
-	{Key: "investor", Label: "Investidor", Description: "Capa forte, m?tricas, risco, tra??o e leitura de oportunidade.", Tone: "executive"},
-	{Key: "board", Label: "Conselho", Description: "Governan?a, auditoria, financeiro, opera??o e riscos.", Tone: "governance"},
-	{Key: "operations", Label: "Opera??o", Description: "V?nculos, regi?es, t?cnicos, dispositivos e chamados.", Tone: "operational"},
-	{Key: "commercial", Label: "Comercial", Description: "Valor do produto, cobertura, cat?logo, regi?es e argumentos de venda.", Tone: "commercial"},
+	{Key: "investor", Label: "Investidor", Description: "Capa forte, métricas, risco, tração e leitura de oportunidade.", Tone: "executive"},
+	{Key: "board", Label: "Conselho", Description: "Governança, auditoria, financeiro, operação e riscos.", Tone: "governance"},
+	{Key: "operations", Label: "Operação", Description: "Vínculos, regiões, técnicos, dispositivos e chamados.", Tone: "operational"},
+	{Key: "commercial", Label: "Comercial", Description: "Valor do produto, cobertura, catálogo, regiões e argumentos de venda.", Tone: "commercial"},
 }
 
 func (s *Server) AdminSlideTemplates(w http.ResponseWriter, r *http.Request) {
@@ -40,13 +40,13 @@ func (s *Server) ExportAdminSlideshowPDF(w http.ResponseWriter, r *http.Request)
 	since := time.Now().AddDate(0, 0, -days)
 	metrics := s.auditInvestorMetrics(r.Context(), since)
 	sections := s.slideshowSections(r.Context(), since)
-	domainSlide := append([]string{"Dom?nios auditados"}, sections...)
+	domainSlide := append([]string{"Domínios auditados"}, sections...)
 	slides := [][]string{
 		{"TGDesk", "Painel administrativo absoluto", "Template: " + template, "Período: últimos " + strconv.Itoa(days) + " dias"},
 		{"Resumo executivo", "Chamados: " + fmt.Sprint(metrics["tickets_opened"]), "OS criadas: " + fmt.Sprint(metrics["service_orders_created"]), "Volume OS: " + centsText(metrics["service_orders_total_cents"]), "Dispositivos ativos: " + fmt.Sprint(metrics["active_devices"])},
 		domainSlide,
-		{"Vinculados", "Organiza??es: " + fmt.Sprint(metrics["organizations"]), "T?cnicos dispon?veis: " + fmt.Sprint(metrics["available_technicians"]), "Regi?es ativas: " + fmt.Sprint(metrics["active_regions"]), "Eventos de risco: " + fmt.Sprint(metrics["risk_events"])},
-		{"Leitura de investidor", "Sistema com regras no servidor, cliente como apresenta??o.", "Regi?es e precifica??o din?mica j? estruturadas.", "Auditoria e v?nculos explicam opera??o e escala.", "Dados detalhados ficam no painel interativo."},
+		{"Vinculados", "Organizações: " + fmt.Sprint(metrics["organizations"]), "Técnicos disponíveis: " + fmt.Sprint(metrics["available_technicians"]), "Regiões ativas: " + fmt.Sprint(metrics["active_regions"]), "Eventos de risco: " + fmt.Sprint(metrics["risk_events"])},
+		{"Leitura de investidor", "Sistema com regras no servidor, cliente como apresentação.", "Regiões e precificação dinâmica já estruturadas.", "Auditoria e vínculos explicam operação e escala.", "Dados detalhados ficam no painel interativo."},
 	}
 	pdf := buildSimplePDF(slides)
 	w.Header().Set("Content-Type", "application/pdf")
@@ -57,7 +57,7 @@ func (s *Server) ExportAdminSlideshowPDF(w http.ResponseWriter, r *http.Request)
 func (s *Server) slideshowSections(ctx context.Context, since time.Time) []string {
 	rows, err := s.Pool.Query(ctx, `SELECT d.label,count(e.id) FROM audit_domains d LEFT JOIN audit_events e ON e.domain_key=d.key AND e.created_at >= $1 GROUP BY d.label,d.position ORDER BY d.position LIMIT 8`, since)
 	if err != nil {
-		return []string{"Auditoria", "V?nculos", "Financeiro", "Regi?es"}
+		return []string{"Auditoria", "Vínculos", "Financeiro", "Regiões"}
 	}
 	defer rows.Close()
 	out := []string{}

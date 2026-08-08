@@ -29,6 +29,7 @@ class _AdminRegionsTabState extends State<AdminRegionsTab> {
   final _channel = TgdeskControlChannel.instance;
   Map<String, Map<String, dynamic>> _costByRegion = const {};
   Map<String, dynamic>? _selectedRegion;
+  String? _selectedState;
 
   @override
   void initState() {
@@ -98,6 +99,11 @@ class _AdminRegionsTabState extends State<AdminRegionsTab> {
                     mapped: mapped,
                     costByRegion: _costByRegion,
                     selectedRegion: _selectedRegion,
+                    selectedState: _selectedState,
+                    onSelectState: (state) => setState(() {
+                      _selectedState = state;
+                      _selectedRegion = null;
+                    }),
                     onSelectRegion: (region) =>
                         setState(() => _selectedRegion = region)),
                 const SizedBox(height: TgdeskSpacing.md),
@@ -140,12 +146,17 @@ class _AdminRegionsTabState extends State<AdminRegionsTab> {
               IconButton(
                 tooltip: 'Faixas por serviço',
                 icon: const Icon(Icons.price_change_outlined, size: 18),
-                onPressed: () => _municipalities(region),
+                onPressed: () => _serviceBounds(region),
               ),
               IconButton(
                 tooltip: 'Municípios IBGE',
                 icon: const Icon(Icons.location_city_outlined, size: 18),
                 onPressed: () => _municipalities(region),
+              ),
+              IconButton(
+                tooltip: 'Bairros, ruas e CEPs',
+                icon: const Icon(Icons.signpost_outlined, size: 18),
+                onPressed: () => _coverageAddresses(region),
               ),
               IconButton(
                 tooltip: 'Remover',
@@ -419,6 +430,192 @@ class _AdminRegionsTabState extends State<AdminRegionsTab> {
       ),
     );
   }
+
+  Future<void> _serviceBounds(Map<String, dynamic> region) async {
+    final regionId = region['id']?.toString() ?? '';
+    var loading = true;
+    var rows = <dynamic>[];
+    final controllers = <String, ({TextEditingController min, TextEditingController max})>{};
+    int cents(String value) =>
+        ((double.tryParse(value.replaceAll(',', '.')) ?? 0) * 100).round();
+
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setLocal) {
+          if (loading) {
+            loading = false;
+            Future.microtask(() async {
+              try {
+                rows = await TgdeskApi.regionalServiceBounds(regionId);
+              } finally {
+                if (ctx.mounted) setLocal(() {});
+              }
+            });
+          }
+          return AlertDialog(
+            title: Text('Faixas de ${region['label']}'),
+            content: SizedBox(
+              width: 700,
+              height: 560,
+              child: rows.isEmpty
+                  ? const Center(child: CircularProgressIndicator())
+                  : ListView(
+                      children: [
+                        const Text(
+                            'Cada serviço possui mínimo e máximo próprios nesta região. As cidades vinculadas herdam a mesma faixa.'),
+                        const SizedBox(height: 12),
+                        for (final raw in rows)
+                          () {
+                            final row = Map<String, dynamic>.from(raw as Map);
+                            final key = row['service_key']?.toString() ?? row['key']?.toString() ?? '';
+                            final pair = controllers.putIfAbsent(
+                                key,
+                                () => (
+                                      min: TextEditingController(
+                                          text: (((row['min_cents'] as num?)?.toDouble() ?? 0) / 100).toStringAsFixed(2)),
+                                      max: TextEditingController(
+                                          text: (((row['max_cents'] as num?)?.toDouble() ?? 0) / 100).toStringAsFixed(2)),
+                                    ));
+                            return Card(
+                              child: ListTile(
+                                title: Text(row['label']?.toString() ?? key),
+                                subtitle: Row(children: [
+                                  Expanded(child: TextField(controller: pair.min, decoration: const InputDecoration(labelText: 'Minimo (R\$)'))),
+                                  const SizedBox(width: 12),
+                                  Expanded(child: TextField(controller: pair.max, decoration: const InputDecoration(labelText: 'Maximo (R\$)'))),
+                                ]),
+                                trailing: IconButton(
+                                  icon: const Icon(Icons.save_outlined),
+                                  tooltip: 'Salvar faixa',
+                                  onPressed: () async {
+                                    final min = cents(pair.min.text);
+                                    final max = cents(pair.max.text);
+                                    if (min < 0 || max < min) {
+                                      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('O mínimo deve ser menor ou igual ao máximo.')));
+                                      return;
+                                    }
+                                    await TgdeskApi.saveRegionalServiceBounds(regionId, {
+                                      'service_key': key,
+                                      'min_cents': min,
+                                      'max_cents': max,
+                                    });
+                                    if (ctx.mounted) ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Faixa salva.')));
+                                  },
+                                ),
+                              ),
+                            );
+                          }(),
+                      ],
+                    ),
+            ),
+            actions: [
+              TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Fechar')),
+            ],
+          );
+        },
+      ),
+    );
+    for (final pair in controllers.values) {
+      pair.min.dispose();
+      pair.max.dispose();
+    }
+  }
+
+  Future<void> _coverageAddresses(Map<String, dynamic> region) async {
+    final regionId = region['id']?.toString() ?? '';
+    final municipalities = await TgdeskApi.regionMunicipalities(regionId);
+    var addresses = await TgdeskApi.regionCoverageAddresses(regionId);
+    final neighborhood = TextEditingController();
+    final street = TextEditingController();
+    final cep = TextEditingController();
+    int? municipalityId = municipalities.isEmpty
+        ? null
+        : (municipalities.first as Map)['ibge_id'] as int?;
+    await showDialog<void>(
+      context: context,
+      builder: (ctx) => StatefulBuilder(
+        builder: (ctx, setLocal) => AlertDialog(
+          title: Text('Cobertura de ${region['label']}'),
+          content: SizedBox(
+            width: 760,
+            height: 620,
+            child: Column(children: [
+              const Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text('País > estado > região > cidade > bairro > rua > CEP')),
+              const SizedBox(height: 8),
+              DropdownButtonFormField<int>(
+                value: municipalityId,
+                decoration: const InputDecoration(labelText: 'Cidade'),
+                items: [
+                  for (final raw in municipalities)
+                    DropdownMenuItem<int>(
+                      value: (raw as Map)['ibge_id'] as int,
+                      child: Text('${raw['name']} / ${raw['uf_sigla']}'),
+                    ),
+                ],
+                onChanged: (value) => setLocal(() => municipalityId = value),
+              ),
+              Row(children: [
+                Expanded(child: TextField(controller: neighborhood, decoration: const InputDecoration(labelText: 'Bairro'))),
+                const SizedBox(width: 8),
+                Expanded(child: TextField(controller: street, decoration: const InputDecoration(labelText: 'Rua'))),
+                const SizedBox(width: 8),
+                SizedBox(width: 130, child: TextField(controller: cep, decoration: const InputDecoration(labelText: 'CEP'))),
+                IconButton(
+                  icon: const Icon(Icons.add_circle_outline),
+                  tooltip: 'Adicionar rua',
+                  onPressed: municipalityId == null ? null : () async {
+                    await TgdeskApi.saveRegionCoverageAddress(regionId, {
+                      'country_code': 'BR',
+                      'state_code': ((municipalities.firstWhere((item) => (item as Map)['ibge_id'] == municipalityId) as Map)['uf_sigla'] ?? '').toString(),
+                      'municipality_id': municipalityId,
+                      'neighborhood': neighborhood.text.trim(),
+                      'street': street.text.trim(),
+                      'cep': cep.text.trim(),
+                    });
+                    addresses = await TgdeskApi.regionCoverageAddresses(regionId);
+                    neighborhood.clear();
+                    street.clear();
+                    cep.clear();
+                    setLocal(() {});
+                  },
+                ),
+              ]),
+              const SizedBox(height: 12),
+              Expanded(
+                child: ListView.builder(
+                  itemCount: addresses.length,
+                  itemBuilder: (context, index) {
+                    final item = Map<String, dynamic>.from(addresses[index] as Map);
+                    return ListTile(
+                      dense: true,
+                      leading: const Icon(Icons.route_outlined),
+                      title: Text('${item['street']} — ${item['neighborhood']}'),
+                      subtitle: Text('${item['municipality_name']} / ${item['state_code']} · CEP ${item['cep']}'),
+                      trailing: IconButton(
+                        icon: const Icon(Icons.delete_outline),
+                        onPressed: () async {
+                          await TgdeskApi.deleteRegionCoverageAddress(regionId, item['id'].toString());
+                          addresses = await TgdeskApi.regionCoverageAddresses(regionId);
+                          setLocal(() {});
+                        },
+                      ),
+                    );
+                  },
+                ),
+              ),
+            ]),
+          ),
+          actions: [TextButton(onPressed: () => Navigator.pop(ctx), child: const Text('Fechar'))],
+        ),
+      ),
+    );
+    neighborhood.dispose();
+    street.dispose();
+    cep.dispose();
+  }
 }
 
 class _RegionMapDashboard extends StatelessWidget {
@@ -428,6 +625,8 @@ class _RegionMapDashboard extends StatelessWidget {
       required this.mapped,
       required this.costByRegion,
       required this.selectedRegion,
+      required this.selectedState,
+      required this.onSelectState,
       required this.onSelectRegion});
 
   final List<Map<String, dynamic>> regions;
@@ -435,6 +634,8 @@ class _RegionMapDashboard extends StatelessWidget {
   final int mapped;
   final Map<String, Map<String, dynamic>> costByRegion;
   final Map<String, dynamic>? selectedRegion;
+  final String? selectedState;
+  final ValueChanged<String> onSelectState;
   final ValueChanged<Map<String, dynamic>> onSelectRegion;
 
   @override
@@ -456,6 +657,8 @@ class _RegionMapDashboard extends StatelessWidget {
                   regions: regions,
                   costByRegion: costByRegion,
                   selectedRegion: selectedRegion,
+                  selectedState: selectedState,
+                  onSelectState: onSelectState,
                   onSelect: onSelectRegion)),
           const SizedBox(width: TgdeskSpacing.lg),
           Expanded(
@@ -465,18 +668,36 @@ class _RegionMapDashboard extends StatelessWidget {
               Icon(Icons.public, color: scheme.primary, size: 30),
               const SizedBox(height: 8),
               Text(
-                  selectedRegion == null
-                      ? 'Brasil'
-                      : selectedRegion!['label'].toString(),
+                  selectedRegion != null
+                      ? selectedRegion!['label'].toString()
+                      : selectedState == null ? 'Brasil' : 'Estado selecionado',
                   style: Theme.of(context)
                       .textTheme
                       .headlineSmall
                       ?.copyWith(fontWeight: FontWeight.w800)),
               const SizedBox(height: 8),
-              Text(selectedRegion == null
+              Text(selectedRegion == null && selectedState == null
                   ? 'Selecione um estado no mapa para abrir suas regiões comerciais.'
                   : 'Região selecionada. Abra para administrar cidades, bairros, ruas e CEPs de cobertura.'),
-              const Spacer(),
+              if (selectedState != null && selectedRegion == null) ...[
+                Text('Regiões comerciais', style: Theme.of(context).textTheme.titleSmall),
+                const SizedBox(height: 4),
+                Expanded(
+                  child: ListView(
+                    children: [
+                      for (final region in regions)
+                        ListTile(
+                          dense: true,
+                          contentPadding: EdgeInsets.zero,
+                          leading: const Icon(Icons.location_on_outlined, size: 18),
+                          title: Text(region['label']?.toString() ?? 'Região'),
+                          onTap: () => onSelectRegion(region),
+                        ),
+                    ],
+                  ),
+                ),
+              ] else
+                const Spacer(),
               _MapMetric(
                   label: selectedRegion == null
                       ? 'Regiões ativas'
@@ -521,10 +742,14 @@ class _BrazilMap extends StatefulWidget {
       {required this.regions,
       required this.costByRegion,
       required this.selectedRegion,
+      required this.selectedState,
+      required this.onSelectState,
       required this.onSelect});
   final List<Map<String, dynamic>> regions;
   final Map<String, Map<String, dynamic>> costByRegion;
   final Map<String, dynamic>? selectedRegion;
+  final String? selectedState;
+  final ValueChanged<String> onSelectState;
   final ValueChanged<Map<String, dynamic>> onSelect;
 
   @override
@@ -571,7 +796,7 @@ class _BrazilMapState extends State<_BrazilMap> {
             'https://servicodados.ibge.gov.br/api/v2/malhas/$id?formato=application/vnd.geo+json&qualidade=minima'));
         final response = await request.close();
         final text = await utf8.decoder.bind(response).join();
-        return _IbgeShape.fromGeoJson(jsonDecode(text) as Map);
+        return _IbgeShape.fromGeoJson(id, jsonDecode(text) as Map);
       }));
       return responses;
     } finally {
@@ -602,12 +827,24 @@ class _BrazilMapState extends State<_BrazilMap> {
           if (!snapshot.hasData)
             return const Center(child: CircularProgressIndicator());
           return LayoutBuilder(
-              builder: (context, constraints) => Stack(children: [
+              builder: (context, constraints) => GestureDetector(
+                    onTapUp: (details) {
+                      final lon = details.localPosition.dx / constraints.maxWidth * 40 - 74;
+                      final lat = 5 - details.localPosition.dy / constraints.maxHeight * 40;
+                      for (final shape in snapshot.data!) {
+                        if (shape.contains(lon, lat)) {
+                          widget.onSelectState(shape.id);
+                          break;
+                        }
+                      }
+                    },
+                    child: Stack(children: [
                     Positioned.fill(
                         child: CustomPaint(
                             painter: _BrazilMapPainter(
                                 Theme.of(context).colorScheme,
-                                snapshot.data!))),
+                                snapshot.data!,
+                                widget.selectedState))),
                     ...widget.regions
                         .where((item) =>
                             item['center_lat'] is num &&
@@ -649,30 +886,51 @@ class _BrazilMapState extends State<_BrazilMap> {
                                                 spreadRadius: 4)
                                           ])))));
                     }),
-                  ]));
+                  ])));
         },
       );
 }
 
 class _BrazilMapPainter extends CustomPainter {
-  const _BrazilMapPainter(this.scheme, this.shapes);
+  const _BrazilMapPainter(this.scheme, this.shapes, this.selectedId);
   final ColorScheme scheme;
   final List<_IbgeShape> shapes;
+  final String? selectedId;
 
   @override
   void paint(Canvas canvas, Size size) {
-    final fill = Paint()..color = scheme.primaryContainer;
+    final selected = selectedId == null
+        ? null
+        : shapes.where((shape) => shape.id == selectedId).firstOrNull;
+    final sourcePoints = (selected?.rings ?? shapes.expand((shape) => shape.rings))
+        .expand((ring) => ring)
+        .toList();
+    final minLon = sourcePoints.map((p) => p.$1).reduce((a, b) => a < b ? a : b);
+    final maxLon = sourcePoints.map((p) => p.$1).reduce((a, b) => a > b ? a : b);
+    final minLat = sourcePoints.map((p) => p.$2).reduce((a, b) => a < b ? a : b);
+    final maxLat = sourcePoints.map((p) => p.$2).reduce((a, b) => a > b ? a : b);
+    final lonSpan = (maxLon - minLon).abs().clamp(.1, double.infinity);
+    final latSpan = (maxLat - minLat).abs().clamp(.1, double.infinity);
     final border = Paint()
       ..color = scheme.outline.withOpacity(.7)
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1;
     for (final shape in shapes) {
+      if (selected != null && shape.id != selected.id) continue;
+      final fill = Paint()
+        ..color = shape.id == selectedId
+            ? scheme.primary.withOpacity(.42)
+            : scheme.primaryContainer;
       final path = Path();
       for (final ring in shape.rings) {
         for (var i = 0; i < ring.length; i++) {
           final p = ring[i];
-          final x = (p.$1 + 74.0) / 40.0 * size.width;
-          final y = (5.0 - p.$2) / 40.0 * size.height;
+          final x = selected == null
+              ? (p.$1 + 74.0) / 40.0 * size.width
+              : 8 + (p.$1 - minLon) / lonSpan * (size.width - 16);
+          final y = selected == null
+              ? (5.0 - p.$2) / 40.0 * size.height
+              : 8 + (maxLat - p.$2) / latSpan * (size.height - 16);
           if (i == 0)
             path.moveTo(x, y);
           else
@@ -687,26 +945,39 @@ class _BrazilMapPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant _BrazilMapPainter oldDelegate) =>
-      oldDelegate.scheme != scheme || oldDelegate.shapes != shapes;
+      oldDelegate.scheme != scheme || oldDelegate.shapes != shapes ||
+      oldDelegate.selectedId != selectedId;
 }
 
 class _IbgeShape {
-  const _IbgeShape(this.rings);
+  const _IbgeShape(this.id, this.rings);
+  final String id;
   final List<List<(double, double)>> rings;
-  factory _IbgeShape.fromGeoJson(Map json) {
+  factory _IbgeShape.fromGeoJson(String id, Map json) {
     final geometry =
         ((json['features'] as List).first as Map)['geometry'] as Map;
     final raw = geometry['coordinates'] as List;
     final polygons = geometry['type'] == 'MultiPolygon'
         ? raw.expand((p) => p as List).toList()
         : raw;
-    return _IbgeShape(polygons
+    return _IbgeShape(id, polygons
         .map<List<(double, double)>>(
             (ring) => (ring as List).map<(double, double)>((point) {
                   final p = point as List;
                   return ((p[0] as num).toDouble(), (p[1] as num).toDouble());
                 }).toList())
         .toList());
+  }
+
+  bool contains(double lon, double lat) {
+    if (rings.isEmpty) return false;
+    final points = rings.expand((ring) => ring);
+    final xs = points.map((p) => p.$1).toList();
+    final ys = points.map((p) => p.$2).toList();
+    return lon >= xs.reduce((a, b) => a < b ? a : b) &&
+        lon <= xs.reduce((a, b) => a > b ? a : b) &&
+        lat >= ys.reduce((a, b) => a < b ? a : b) &&
+        lat <= ys.reduce((a, b) => a > b ? a : b);
   }
 }
 

@@ -273,33 +273,33 @@ class _AdminPageState extends State<_LegacyAdminPage> {
       key: 'audit',
       title: 'Auditoria',
       description:
-          'Log separado por grau de relaÃ§Ã£o para relatÃ³rio comercial, compliance e captaÃ§Ã£o.',
+          'Log separado por grau de relação para relatório comercial, compliance e captação.',
       icon: Icons.manage_search_outlined,
       builder: (_) => const _AuditEditor(),
       badge: 'somente leitura',
     ),
     _AdminSection(
       key: 'territory',
-      title: 'RegiÃµes',
+      title: 'Regiões',
       description:
-          'Brasil, estados, municÃ­pios, capitais, regiÃµes imediatas, intermediÃ¡rias e metropolitanas.',
+          'Brasil, estados, municípios, capitais, regiões imediatas, intermediárias e metropolitanas.',
       icon: Icons.map_outlined,
       builder: (_) => const AdminRegionsTab(),
     ),
     _AdminSection(
       key: 'catalog',
-      title: 'ServiÃ§os, peÃ§as e consumÃ­veis',
+      title: 'Serviços, peças e consumíveis',
       description:
-          'CatÃ¡logo sem marca e sem preÃ§o final; usado pela OS para montar escopo e exigir evidÃªncias.',
+          'Catálogo sem marca e sem preço final; usado pela OS para montar escopo e exigir evidências.',
       icon: Icons.inventory_2_outlined,
       builder: (_) =>
           const AdminOsCatalogTab(section: OperationalCatalogSection.services),
     ),
     _AdminSection(
       key: 'pricing',
-      title: 'Percentuais e precificaÃ§Ã£o',
+      title: 'Percentuais e precificação',
       description:
-          'Percentuais, escopos, vigÃªncia, mÃ­nimo/mÃ¡ximo regional e distribuiÃ§Ã£o da grade de pagamento.',
+          'Percentuais, escopos, vigência, mínimo/máximo regional e distribuição da grade de pagamento.',
       icon: Icons.percent_outlined,
       builder: (_) => const AdminPricingTab(),
     ),
@@ -307,7 +307,7 @@ class _AdminPageState extends State<_LegacyAdminPage> {
       key: 'ticket_types',
       title: 'Tipos de chamado',
       description:
-          'TipificaÃ§Ã£o prÃ©-planejada para software, hardware, troca de componentes e variaÃ§Ãµes futuras.',
+          'Tipificação pré-planejada para software, hardware, troca de componentes e variações futuras.',
       icon: Icons.category_outlined,
       builder: (_) => const AdminTicketTypesTab(),
     ),
@@ -315,7 +315,7 @@ class _AdminPageState extends State<_LegacyAdminPage> {
       key: 'linked',
       title: 'Vinculados',
       description:
-          'OrganizaÃ§Ãµes, redes, tÃ©cnicos, supervisores e dispositivos no mesmo mapa operacional.',
+          'Organizações, redes, técnicos, supervisores e dispositivos no mesmo mapa operacional.',
       icon: Icons.account_tree_outlined,
       builder: (_) => const _LinkedEditor(),
     ),
@@ -323,7 +323,7 @@ class _AdminPageState extends State<_LegacyAdminPage> {
       key: 'quotas',
       title: 'Cotas e direito de uso',
       description:
-          'Limites por organizaÃ§Ã£o e padrÃ£o do produto, separados da lÃ³gica de dinheiro.',
+          'Limites por organização e padrão do produto, separados da lógica de dinheiro.',
       icon: Icons.rule_folder_outlined,
       builder: (_) => const _QuotaEditor(),
     ),
@@ -378,9 +378,9 @@ class _AdminPageState extends State<_LegacyAdminPage> {
                   child: TextField(
                     decoration: const InputDecoration(
                       prefixIcon: Icon(Icons.search),
-                      labelText: 'Buscar configuraÃ§Ã£o',
+                      labelText: 'Buscar configuração',
                       helperText:
-                          'Um editor; sete domÃ­nios de configuraÃ§Ã£o.',
+                          'Um editor; sete domínios de configuração.',
                     ),
                     onChanged: (value) => setState(() {
                       _filter = value;
@@ -411,7 +411,7 @@ class _AdminPageState extends State<_LegacyAdminPage> {
         const VerticalDivider(width: 1),
         Expanded(
           child: selectedSection == null
-              ? const Center(child: Text('Nenhuma configuraÃ§Ã£o encontrada.'))
+              ? const Center(child: Text('Nenhuma configuração encontrada.'))
               : Column(
                   crossAxisAlignment: CrossAxisAlignment.stretch,
                   children: [
@@ -561,7 +561,7 @@ class _SectionHeader extends StatelessWidget {
                 DropdownMenuItem(value: 'investor', child: Text('Investidor')),
                 DropdownMenuItem(value: 'board', child: Text('Conselho')),
                 DropdownMenuItem(
-                    value: 'operations', child: Text('OperaÃ§Ã£o')),
+                    value: 'operations', child: Text('Operação')),
                 DropdownMenuItem(value: 'commercial', child: Text('Comercial')),
               ],
               onChanged: (value) {
@@ -663,11 +663,19 @@ class _FeesEditorState extends State<_FeesEditor> {
                       child: const Text('Salvar'))
                 ]));
     if (ok == true) {
+      final value = double.tryParse(percent.text.replaceAll(',', '.'));
+      if (value == null || value < 0 || value > 100) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Informe um percentual entre 0 e 100.')));
+        }
+        return;
+      }
       await TgdeskApi.savePricingRule({
         'id': previous?['id'],
         'kind': role == 'payment' ? 'fee' : 'share',
         'role': role == 'payment' ? null : role,
-        'percent': double.tryParse(percent.text.replaceAll(',', '.')) ?? 0,
+        'percent': value,
         'active': true,
         'note': 'Taxa de fluxo de pagamento'
       });
@@ -681,6 +689,12 @@ class _FeesEditorState extends State<_FeesEditor> {
     if (_error != null) return Center(child: TgdeskErrorText(_error!));
     final roles = ['tgdesk', 'supervisor', 'referrer_supervisor', 'technician'];
     final payment = _rules.where((r) => r['kind'] == 'fee').firstOrNull;
+    double share(String role) =>
+        ((_rules.where((r) => r['kind'] == 'share' && r['role'] == role).firstOrNull?['percent'] as num?)?.toDouble() ?? 0);
+    final paymentPercent = (payment?['percent'] as num?)?.toDouble() ?? 0;
+    final reserved = share('tgdesk') + share('supervisor') +
+        share('referrer_supervisor') + paymentPercent;
+    final technicianRemainder = (100 - reserved).clamp(0, 100).toDouble();
     return ListView(padding: const EdgeInsets.all(TgdeskSpacing.lg), children: [
       Text('Taxas e distribuição',
           style: Theme.of(context)
@@ -693,20 +707,25 @@ class _FeesEditorState extends State<_FeesEditor> {
       const SizedBox(height: 20),
       for (final role in roles)
         () {
-          final rule = _rules
+          var rule = _rules
               .where((r) => r['kind'] == 'share' && r['role'] == role)
               .firstOrNull;
+          final isTechnician = role == 'technician';
+          final shownPercent = isTechnician ? technicianRemainder : share(role);
+          if (isTechnician) rule = {'percent': shownPercent};
           return Card(
               child: ListTile(
-                  leading: Icon(role == 'technician'
+                  leading: Icon(isTechnician
                       ? Icons.engineering_outlined
                       : Icons.account_balance_wallet_outlined),
                   title: Text(_roleLabel(role)),
                   subtitle:
                       Text('${rule?['percent'] ?? 0}% do valor do serviço'),
-                  trailing: IconButton(
-                      icon: const Icon(Icons.edit_outlined),
-                      onPressed: () => _edit(role, rule))));
+                  trailing: isTechnician
+                      ? const Icon(Icons.lock_outline)
+                      : IconButton(
+                          icon: const Icon(Icons.edit_outlined),
+                          onPressed: () => _edit(role, rule))));
         }(),
       Card(
           child: ListTile(
@@ -922,7 +941,7 @@ class _ExecutiveHero extends StatelessWidget {
               Text(subtitle, style: Theme.of(context).textTheme.bodyLarge),
               const SizedBox(height: 12),
               const Wrap(spacing: 8, children: [
-                Chip(label: Text('apresenta??o executiva')),
+                Chip(label: Text('apresentação executiva')),
                 Chip(label: Text('gráficos de pizza')),
                 Chip(label: Text('drill-down por popup')),
                 Chip(label: Text('dados do servidor')),
@@ -977,7 +996,7 @@ class _MetricGrid extends StatelessWidget {
         Icons.engineering_outlined
       ),
       ('Regiões ativas', metrics['active_regions'], Icons.map_outlined),
-      ('Organiza??es', metrics['organizations'], Icons.business_outlined),
+      ('Organizações', metrics['organizations'], Icons.business_outlined),
       ('Riscos', metrics['risk_events'], Icons.warning_amber_outlined),
     ];
     return LayoutBuilder(builder: (context, constraints) {
@@ -1095,7 +1114,7 @@ class _DomainCards extends StatelessWidget {
                           maxLines: 2, overflow: TextOverflow.ellipsis),
                       const Spacer(),
                       Text(
-                          'riscos: ${section['risk_events'] ?? 0} ? total: ${section['total_events'] ?? 0}'),
+                          'riscos: ${section['risk_events'] ?? 0} · total: ${section['total_events'] ?? 0}'),
                     ]),
               ),
             ),
@@ -1129,7 +1148,7 @@ class _TimelineCard extends StatelessWidget {
                   Icon(_severityIcon(event['severity']?.toString() ?? 'info')),
               title: Text(event['event_type']?.toString() ?? 'evento'),
               subtitle: Text(
-                  '${event['domain_label'] ?? event['domain_key']} ? ${event['relation_degree'] ?? '-'}'),
+                  '${event['domain_label'] ?? event['domain_key']} · ${event['relation_degree'] ?? '-'}'),
               trailing: Text(_shortDate(event['created_at'])),
             ),
           if (events.isEmpty)
@@ -1166,7 +1185,7 @@ class _DomainDetailDialog extends StatelessWidget {
                   Icon(_severityIcon(event['severity']?.toString() ?? 'info')),
               title: Text(event['event_type']?.toString() ?? 'evento'),
               subtitle: Text(
-                  'entidade: ${event['entity_type'] ?? '-'} ? ${event['entity_id'] ?? '-'}'),
+                  'entidade: ${event['entity_type'] ?? '-'} · ${event['entity_id'] ?? '-'}'),
               trailing: Text(_shortDate(event['created_at'])),
             ),
         ]),
@@ -1195,15 +1214,15 @@ class _EventDetailDialog extends StatelessWidget {
               Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
             _DetailLine(
                 'Domínio', '${detail['domain_label'] ?? detail['domain_key']}'),
-            _DetailLine('Rela??o', '${detail['relation_degree'] ?? '-'}'),
+            _DetailLine('Relação', '${detail['relation_degree'] ?? '-'}'),
             _DetailLine('Severidade', '${detail['severity'] ?? '-'}'),
             _DetailLine('Entidade',
-                '${detail['entity_type'] ?? '-'} ? ${detail['entity_id'] ?? '-'}'),
+                '${detail['entity_type'] ?? '-'} · ${detail['entity_id'] ?? '-'}'),
             _DetailLine(
                 'Ator técnico', '${detail['actor_technician_id'] ?? '-'}'),
             _DetailLine(
                 'Dispositivo ator', '${detail['actor_device_id'] ?? '-'}'),
-            _DetailLine('Organiza??o', '${detail['organization_id'] ?? '-'}'),
+            _DetailLine('Organização', '${detail['organization_id'] ?? '-'}'),
             _DetailLine('Região', '${detail['region_id'] ?? '-'}'),
             const Divider(),
             Text('Payload profundo',
@@ -1408,7 +1427,7 @@ class _LinkedEditorState extends State<_LinkedEditor> {
               items: const [
                 DropdownMenuItem(value: 'all', child: Text('Todos')),
                 DropdownMenuItem(
-                    value: 'organization', child: Text('Organiza??es')),
+                    value: 'organization', child: Text('Organizações')),
                 DropdownMenuItem(value: 'network', child: Text('Redes')),
                 DropdownMenuItem(value: 'subnetwork', child: Text('Subredes')),
                 DropdownMenuItem(value: 'device', child: Text('Dispositivos')),
@@ -1809,7 +1828,7 @@ class _OrganizationTree extends StatelessWidget {
                 leading: const Icon(Icons.business_outlined),
                 title: Text(_nodeTitle(org)),
                 subtitle: Text(
-                    'redes: ${org['networks_count'] ?? 0} ? dispositivos: ${org['devices_count'] ?? 0} ? supervisores: ${org['technicians_count'] ?? 0}'),
+                    'redes: ${org['networks_count'] ?? 0} · dispositivos: ${org['devices_count'] ?? 0} · supervisores: ${org['technicians_count'] ?? 0}'),
                 trailing: Row(mainAxisSize: MainAxisSize.min, children: [
                   IconButton(
                       tooltip: 'Cotas e supervisor',
@@ -1872,7 +1891,7 @@ class _OrganizationTree extends StatelessWidget {
                               leading: const Icon(Icons.computer_outlined),
                               title: Text(_nodeTitle(dev)),
                               subtitle: Text(
-                                  'estado: ${dev['state'] ?? '-'} ? rustdesk: ${dev['rustdesk_id'] ?? '-'}'),
+                                  'estado: ${dev['state'] ?? '-'} · RustDesk: ${dev['rustdesk_id'] ?? '-'}'),
                               onTap: () => onNode(dev)),
                       ],
                     ),
@@ -1921,7 +1940,7 @@ class _LinkedNodeDialog extends StatelessWidget {
         if (kind == 'organization')
           TextButton(
               onPressed: () => onAction('suspend_organization', node),
-              child: const Text('Suspender organiza??o')),
+              child: const Text('Suspender organização')),
         if (kind == 'network')
           TextButton(
               onPressed: () => onAction('suspend_network', node),
@@ -1995,7 +2014,7 @@ String _nodeSubtitle(
 String _linkedKindLabel(String kind) {
   switch (kind) {
     case 'organization':
-      return 'Organiza??o';
+      return 'Organização';
     case 'network':
       return 'Rede';
     case 'subnetwork':
@@ -2083,12 +2102,12 @@ class _QuotaEditorState extends State<_QuotaEditor> {
     final ok = await showDialog<bool>(
       context: context,
       builder: (ctx) => AlertDialog(
-        title: const Text('PadrÃ£o do produto'),
+        title: const Text('Padrão do produto'),
         content: TextField(
           controller: controller,
           keyboardType: TextInputType.number,
           decoration: const InputDecoration(
-            labelText: 'Supervisores vinculados por organizaÃ§Ã£o',
+            labelText: 'Supervisores vinculados por organização',
           ),
         ),
         actions: [
@@ -2133,19 +2152,19 @@ class _QuotaEditorState extends State<_QuotaEditor> {
                 controller: maxTechnicians,
                 keyboardType: TextInputType.number,
                 decoration:
-                    const InputDecoration(labelText: 'TÃ©cnicos mÃ¡ximos'),
+                    const InputDecoration(labelText: 'Técnicos máximos'),
               ),
               TextField(
                 controller: maxDevices,
                 keyboardType: TextInputType.number,
                 decoration:
-                    const InputDecoration(labelText: 'Dispositivos mÃ¡ximos'),
+                    const InputDecoration(labelText: 'Dispositivos máximos'),
               ),
               TextField(
                 controller: note,
                 maxLines: 2,
                 decoration:
-                    const InputDecoration(labelText: 'ObservaÃ§Ã£o comercial'),
+                    const InputDecoration(labelText: 'Observação comercial'),
               ),
             ],
           ),
@@ -2184,9 +2203,9 @@ class _QuotaEditorState extends State<_QuotaEditor> {
           Card(
             child: ListTile(
               leading: const Icon(Icons.public_outlined),
-              title: const Text('PadrÃ£o do produto'),
+              title: const Text('Padrão do produto'),
               subtitle: Text(
-                  '${_quotas?['default_max_affiliated_supervisors'] ?? 0} supervisor(es) vinculado(s) quando a organizaÃ§Ã£o herda o padrÃ£o.'),
+                  '${_quotas?['default_max_affiliated_supervisors'] ?? 0} supervisor(es) vinculado(s) quando a organização herda o padrão.'),
               trailing: FilledButton.icon(
                 onPressed: _editDefault,
                 icon: const Icon(Icons.edit_outlined),
@@ -2202,15 +2221,15 @@ class _QuotaEditorState extends State<_QuotaEditor> {
                     ? Icons.link_outlined
                     : Icons.tune_outlined),
                 title: Text(
-                    quota['organization_name']?.toString() ?? 'OrganizaÃ§Ã£o'),
+                    quota['organization_name']?.toString() ?? 'Organização'),
                 subtitle: Text([
                   'uso: ${quota['used_affiliated_supervisors'] ?? 0}/${quota['max_affiliated_supervisors'] ?? 0} supervisores',
                   quota['using_default'] == true
-                      ? 'herdando padrÃ£o'
-                      : 'cota prÃ³pria',
+                      ? 'herdando padrão'
+                      : 'cota própria',
                   if ((quota['note']?.toString() ?? '').isNotEmpty)
                     quota['note'].toString(),
-                ].join(' Â· ')),
+                ].join(' · ')),
                 trailing: IconButton(
                   tooltip: 'Editar cota',
                   icon: const Icon(Icons.edit_outlined),

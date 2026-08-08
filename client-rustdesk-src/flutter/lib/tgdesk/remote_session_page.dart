@@ -199,8 +199,7 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
   @override
   void dispose() {
     if (_inputBlocked.isTrue) {
-      bind.sessionToggleOption(
-          sessionId: _sessionId, value: 'unblock-input');
+      bind.sessionToggleOption(sessionId: _sessionId, value: 'unblock-input');
     }
     if (_clipboardEnabled) {
       bind.sessionToggleOption(
@@ -517,7 +516,10 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
             'id': widget.remoteId,
             'windowId': 0,
             'embedded': true,
-            'forceRelay': true,
+            // Deixe o RustDesk negociar direto e usar relay como fallback.
+            // Forçar relay aqui deixava a tela cinza quando o par estava na
+            // mesma rede ou quando o relay ainda estava em reconexão.
+            'forceRelay': false,
             'password': widget.credential,
             'tgdeskToolbarMenuBuilder': _tgdeskToolbarMenu,
             'tgdeskSessionReady': (ffi) => _ffi = ffi,

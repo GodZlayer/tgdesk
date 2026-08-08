@@ -503,6 +503,11 @@ func (s *Server) SavePricingRule(w http.ResponseWriter, r *http.Request) {
 			"a regra deve ser share, fee, promo ou bounds")
 		return
 	}
+	if req.Kind == "share" && req.Role != nil && *req.Role == "technician" {
+		writeErrCode(w, 400, "tecnico_automatico",
+			"a participação do técnico é calculada automaticamente pelo saldo restante")
+		return
+	}
 	active := true
 	if req.Active != nil {
 		active = *req.Active

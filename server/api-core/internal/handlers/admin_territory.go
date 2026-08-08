@@ -145,3 +145,84 @@ func (s *Server) DeleteRegionMunicipality(w http.ResponseWriter, r *http.Request
 	s.publishRegions(r.Context())
 	writeJSON(w, http.StatusOK, map[string]any{"deleted": true})
 }
+
+func (s *Server) ListRegionCoverageAddresses(w http.ResponseWriter, r *http.Request, regionID string) {
+	rows, err := s.Pool.Query(r.Context(), `
+		SELECT a.id,a.country_code,a.state_code,a.municipality_id,m.name,
+		       a.neighborhood,a.street,a.cep,a.active
+		FROM region_coverage_addresses a
+		JOIN brazil_municipalities m ON m.ibge_id=a.municipality_id
+		WHERE a.region_id=$1
+		ORDER BY a.state_code,m.name,a.neighborhood,a.street`, regionID)
+	if err != nil {
+		writeErrCode(w, 500, "falha_listar_enderecos", "falha ao listar endereços de cobertura")
+		return
+	}
+	defer rows.Close()
+	out := []map[string]any{}
+	for rows.Next() {
+		var id, country, state, name, neighborhood, street, cep string
+		var municipalityID int
+		var active bool
+		if rows.Scan(&id, &country, &state, &municipalityID, &name, &neighborhood, &street, &cep, &active) == nil {
+			out = append(out, map[string]any{"id": id, "country_code": country, "state_code": state,
+				"municipality_id": municipalityID, "municipality_name": name, "neighborhood": neighborhood,
+				"street": street, "cep": cep, "active": active})
+		}
+	}
+	writeJSON(w, 200, out)
+}
+
+type regionCoverageAddressRequest struct {
+	CountryCode    string `json:"country_code"`
+	StateCode      string `json:"state_code"`
+	MunicipalityID int    `json:"municipality_id"`
+	Neighborhood   string `json:"neighborhood"`
+	Street         string `json:"street"`
+	CEP            string `json:"cep"`
+	Active         *bool  `json:"active"`
+}
+
+func (s *Server) SaveRegionCoverageAddress(w http.ResponseWriter, r *http.Request, regionID string) {
+	var req regionCoverageAddressRequest
+	if json.NewDecoder(r.Body).Decode(&req) != nil {
+		writeErrCode(w, 400, "dados_invalidos", "dados inválidos")
+		return
+	}
+	req.CountryCode = strings.ToUpper(strings.TrimSpace(req.CountryCode))
+	if req.CountryCode == "" {
+		req.CountryCode = "BR"
+	}
+	req.StateCode = strings.ToUpper(strings.TrimSpace(req.StateCode))
+	req.Neighborhood, req.Street = strings.TrimSpace(req.Neighborhood), strings.TrimSpace(req.Street)
+	req.CEP = strings.ReplaceAll(strings.TrimSpace(req.CEP), " ", "")
+	if req.StateCode == "" || req.MunicipalityID == 0 || req.Neighborhood == "" || req.Street == "" || len(strings.ReplaceAll(req.CEP, "-", "")) != 8 {
+		writeErrCode(w, 400, "endereco_incompleto", "estado, cidade, bairro, rua e CEP são obrigatórios")
+		return
+	}
+	active := true
+	if req.Active != nil {
+		active = *req.Active
+	}
+	var id string
+	err := s.Pool.QueryRow(r.Context(), `
+		INSERT INTO region_coverage_addresses(region_id,country_code,state_code,municipality_id,neighborhood,street,cep,active)
+		VALUES($1,$2,$3,$4,$5,$6,$7,$8)
+		ON CONFLICT(region_id,municipality_id,neighborhood,street,cep)
+		DO UPDATE SET state_code=excluded.state_code,country_code=excluded.country_code,active=excluded.active,updated_at=now()
+		RETURNING id`, regionID, req.CountryCode, req.StateCode, req.MunicipalityID,
+		req.Neighborhood, req.Street, req.CEP, active).Scan(&id)
+	if err != nil {
+		writeErrCode(w, 400, "falha_salvar_endereco", "falha ao salvar endereço de cobertura")
+		return
+	}
+	writeJSON(w, 200, map[string]any{"id": id})
+}
+
+func (s *Server) DeleteRegionCoverageAddress(w http.ResponseWriter, r *http.Request, id string) {
+	if _, err := s.Pool.Exec(r.Context(), `DELETE FROM region_coverage_addresses WHERE id=$1`, id); err != nil {
+		writeErrCode(w, 400, "falha_apagar_endereco", "falha ao apagar endereço de cobertura")
+		return
+	}
+	writeJSON(w, 200, map[string]any{"deleted": id})
+}

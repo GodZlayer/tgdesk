@@ -2310,14 +2310,17 @@ class CanvasModel with ChangeNotifier {
     // bordas E menos o que o Hub ocupa em volta dela.
     final horizontalChrome = tgdeskEmbedded ? 0.0 : leftToEdge + rightToEdge;
     final verticalChrome = tgdeskEmbedded ? 0.0 : topToEdge + bottomToEdge;
-    double w = size.width -
-        horizontalChrome -
-        stateGlobal.tgdeskEmbedLeft -
-        stateGlobal.tgdeskEmbedRight;
-    double h = size.height -
-        verticalChrome -
-        stateGlobal.tgdeskEmbedTop -
-        stateGlobal.tgdeskEmbedBottom;
+    // A RemotePage já recebe, no modo TGDesk, exatamente o retângulo do
+    // conteúdo. Descontar novamente a barra lateral/título reduz a área duas
+    // vezes e pode levar a um canvas sem dimensão útil (a tela cinza).
+    final embeddedInsetX = tgdeskEmbedded
+        ? 0.0
+        : stateGlobal.tgdeskEmbedLeft + stateGlobal.tgdeskEmbedRight;
+    final embeddedInsetY = tgdeskEmbedded
+        ? 0.0
+        : stateGlobal.tgdeskEmbedTop + stateGlobal.tgdeskEmbedBottom;
+    double w = size.width - horizontalChrome - embeddedInsetX;
+    double h = size.height - verticalChrome - embeddedInsetY;
     if (isMobile) {
       // Account for horizontal safe area insets on both orientations.
       w = w - mediaData.padding.left - mediaData.padding.right;

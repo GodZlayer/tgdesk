@@ -104,7 +104,7 @@ func (s *Server) AuditEventDetail(w http.ResponseWriter, r *http.Request, id str
 		&payload, field(&out, "source_table"), field(&out, "source_id"),
 		field(&out, "investor_visible"), field(&out, "created_at"))
 	if err != nil {
-		writeErrCode(w, 404, "evento_nao_encontrado", "evento n?o encontrado")
+		writeErrCode(w, 404, "evento_nao_encontrado", "evento não encontrado")
 		return
 	}
 	var data any

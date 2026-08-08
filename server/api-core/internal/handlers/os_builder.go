@@ -298,7 +298,7 @@ func (s *Server) SaveService(w http.ResponseWriter, r *http.Request) {
 		req.Key, req.Label, req.Description, duration, req.TicketTypeKey,
 		req.OsType, req.ManualURL, active, position).Scan(&id)
 	if err != nil {
-		writeErrCode(w, 400, "falha_salvar_servico", "falha ao salvar o servi?o")
+		writeErrCode(w, 400, "falha_salvar_servico", "falha ao salvar o serviço")
 		return
 	}
 	if req.TicketTypeKey != nil && strings.TrimSpace(*req.TicketTypeKey) != "" {
@@ -544,14 +544,28 @@ func (s *Server) buildQuote(ctx context.Context, osID string,
 	// O total é o que o cliente paga: a taxa do admin sai de dentro dele, não
 	// por cima.
 	q.TotalCents = liquido + q.PassThroughCents
+	// A taxa do gateway sai primeiro. As participações configuradas são
+	// calculadas sobre o líquido do serviço; o técnico nunca é editável e
+	// recebe exatamente o saldo depois das demais participações.
 	restante := liquido - q.FeeCents
-	q.DistributedCent["tgdesk"] = q.FeeCents
+	q.DistributedCent["payment_system"] = q.FeeCents
+	var distribuido int64
 	for role, percent := range price.Shares {
-		if role == "super_admin" || role == "tgdesk_fee" {
+		if role == "technician" || role == "super_admin" || role == "tgdesk_fee" {
 			continue
 		}
-		q.DistributedCent[role] += int64(math.Round(
-			float64(restante) * percent / 100))
+		amount := int64(math.Round(float64(restante) * percent / 100))
+		if amount < 0 {
+			amount = 0
+		}
+		if distribuido+amount > restante {
+			amount = restante - distribuido
+		}
+		q.DistributedCent[role] += amount
+		distribuido += amount
+	}
+	if restante > distribuido {
+		q.DistributedCent["technician"] = restante - distribuido
 	}
 	q.UpfrontCents = s.upfrontCents(ctx, q.ServiceCents, q.PassThroughCents)
 	return q, nil
@@ -768,17 +782,38 @@ func (s *Server) resolveRegionalServiceBase(ctx context.Context, serviceKey stri
 
 func (s *Server) ListRegionalServiceBounds(w http.ResponseWriter, r *http.Request, regionID string) {
 	rows, err := s.Pool.Query(r.Context(), `SELECT s.key,s.label,b.min_cents,b.max_cents FROM service_catalog s LEFT JOIN regional_service_price_bounds b ON b.service_key=s.key AND b.region_id=$1 WHERE s.active ORDER BY s.position,s.label`, regionID)
-	if err != nil { writeErrCode(w, 500, "falha_listar_faixas", "falha ao listar faixas regionais"); return }
-	defer rows.Close(); out := []map[string]any{}
-	for rows.Next() { var key,label string; var min,max *int64; if rows.Scan(&key,&label,&min,&max)==nil { out=append(out,map[string]any{"service_key":key,"label":label,"min_cents":min,"max_cents":max}) } }
+	if err != nil {
+		writeErrCode(w, 500, "falha_listar_faixas", "falha ao listar faixas regionais")
+		return
+	}
+	defer rows.Close()
+	out := []map[string]any{}
+	for rows.Next() {
+		var key, label string
+		var min, max *int64
+		if rows.Scan(&key, &label, &min, &max) == nil {
+			out = append(out, map[string]any{"service_key": key, "label": label, "min_cents": min, "max_cents": max})
+		}
+	}
 	writeJSON(w, 200, out)
 }
 
 func (s *Server) SaveRegionalServiceBounds(w http.ResponseWriter, r *http.Request, regionID string) {
-	var req struct { ServiceKey string `json:"service_key"`; MinCents int64 `json:"min_cents"`; MaxCents int64 `json:"max_cents"` }
-	if json.NewDecoder(r.Body).Decode(&req) != nil || strings.TrimSpace(req.ServiceKey)=="" || req.MinCents < 0 || req.MaxCents < req.MinCents { writeErrCode(w,400,"faixa_invalida","serviço, mínimo e máximo válidos são obrigatórios"); return }
+	var req struct {
+		ServiceKey string `json:"service_key"`
+		MinCents   int64  `json:"min_cents"`
+		MaxCents   int64  `json:"max_cents"`
+	}
+	if json.NewDecoder(r.Body).Decode(&req) != nil || strings.TrimSpace(req.ServiceKey) == "" || req.MinCents < 0 || req.MaxCents < req.MinCents {
+		writeErrCode(w, 400, "faixa_invalida", "serviço, mínimo e máximo válidos são obrigatórios")
+		return
+	}
 	_, err := s.Pool.Exec(r.Context(), `INSERT INTO regional_service_price_bounds(region_id,service_key,min_cents,max_cents,active) VALUES($1,$2,$3,$4,true) ON CONFLICT(region_id,service_key) DO UPDATE SET min_cents=excluded.min_cents,max_cents=excluded.max_cents,active=true,updated_at=now()`, regionID, req.ServiceKey, req.MinCents, req.MaxCents)
-	if err != nil { writeErrCode(w,400,"falha_salvar_faixa","falha ao salvar faixa regional"); return }; writeJSON(w,200,map[string]any{"saved":true})
+	if err != nil {
+		writeErrCode(w, 400, "falha_salvar_faixa", "falha ao salvar faixa regional")
+		return
+	}
+	writeJSON(w, 200, map[string]any{"saved": true})
 }
 
 // RemoveOsItem tira uma linha do orçamento. Fica restrito à OS do chamado

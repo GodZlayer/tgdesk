@@ -369,6 +369,15 @@ func NewRouter(s *Server) http.Handler {
 	mux.Handle("DELETE /api/v1/admin/regions/{id}/municipalities", admin(func(w http.ResponseWriter, r *http.Request) {
 		s.DeleteRegionMunicipality(w, r, r.PathValue("id"))
 	}))
+	mux.Handle("GET /api/v1/admin/regions/{id}/coverage-addresses", admin(func(w http.ResponseWriter, r *http.Request) {
+		s.ListRegionCoverageAddresses(w, r, r.PathValue("id"))
+	}))
+	mux.Handle("POST /api/v1/admin/regions/{id}/coverage-addresses", admin(func(w http.ResponseWriter, r *http.Request) {
+		s.SaveRegionCoverageAddress(w, r, r.PathValue("id"))
+	}))
+	mux.Handle("DELETE /api/v1/admin/regions/{id}/coverage-addresses/{addressId}", admin(func(w http.ResponseWriter, r *http.Request) {
+		s.DeleteRegionCoverageAddress(w, r, r.PathValue("addressId"))
+	}))
 
 	mux.Handle("GET /api/v1/admin/audit", admin(s.ListAuditLog))
 	mux.Handle("GET /api/v1/admin/audit/live-report", admin(s.AuditLiveReport))

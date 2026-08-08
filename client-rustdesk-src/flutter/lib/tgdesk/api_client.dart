@@ -697,6 +697,15 @@ class TgdeskApi {
   static Future<void> saveRegionalServiceBounds(String regionId, Map<String, dynamic> row) async =>
       await _send('POST', '/api/v1/admin/regions/$regionId/service-price-bounds', body: row);
 
+  static Future<List<dynamic>> regionCoverageAddresses(String regionId) async =>
+      await _send('GET', '/api/v1/admin/regions/$regionId/coverage-addresses') as List<dynamic>;
+
+  static Future<void> saveRegionCoverageAddress(String regionId, Map<String, dynamic> row) async =>
+      await _send('POST', '/api/v1/admin/regions/$regionId/coverage-addresses', body: row);
+
+  static Future<void> deleteRegionCoverageAddress(String regionId, String addressId) async =>
+      await _send('DELETE', '/api/v1/admin/regions/$regionId/coverage-addresses/$addressId');
+
   static Future<void> deleteRegion(String id) async =>
       await _send('DELETE', '/api/v1/admin/regions/$id');
 
