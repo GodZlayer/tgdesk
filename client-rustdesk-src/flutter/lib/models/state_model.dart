@@ -1,4 +1,5 @@
 import 'package:desktop_multi_window/desktop_multi_window.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_hbb/common.dart';
 import 'package:get/get.dart';
 import 'package:window_manager/window_manager.dart';
@@ -102,14 +103,26 @@ class StateGlobal {
   setMinimized(bool v) => _isMinimized = v;
 
   setFullscreen(bool v, {bool procWnd = true}) {
-    if (_fullscreen.value != v) {
-      _fullscreen.value = v;
-      _showTabBar.value = !_fullscreen.value;
-      if (isWebDesktop) {
-        procFullscreenWeb();
-      } else {
-        procFullscreenNative(procWnd);
-      }
+    if (_fullscreen.value == v) return;
+
+    // The Hub embeds the RustDesk canvas in the main Flutter window.  Apply
+    // the native maximize/unmaximize first and only then change the Flutter
+    // fullscreen state.  Changing the layout before Win32 finishes resizing
+    // can invalidate the texture surface while the peer is already connected,
+    // leaving the local side stuck on "connecting" with no first frame.
+    final hubWindow = windowId < 0 && desktopType == DesktopType.main;
+    if (hubWindow && procWnd && !isWebDesktop) {
+      final transition = ++_tgdeskFullscreenTransition;
+      _applyHubFullscreen(v, transition);
+      return;
+    }
+
+    _fullscreen.value = v;
+    _showTabBar.value = !_fullscreen.value;
+    if (isWebDesktop) {
+      procFullscreenWeb();
+    } else {
+      procFullscreenNative(procWnd);
     }
   }
 
@@ -131,12 +144,6 @@ class StateGlobal {
     print("fullscreen: $fullscreen, resizeEdgeSize: ${_resizeEdgeSize.value}");
     _windowBorderWidth.value = fullscreen.isTrue ? 0 : kWindowBorderWidth;
     if (procWnd) {
-      if (windowId < 0 && desktopType == DesktopType.main) {
-        final requested = fullscreen.isTrue;
-        final transition = ++_tgdeskFullscreenTransition;
-        _applyHubFullscreen(requested, transition);
-        return;
-      }
       // TGDesk embedded sessions run inside the main window and never go
       // through the 'multi_window' launch branch in main.dart, so
       // stateGlobal._windowId stays at its default (-1) and
@@ -159,16 +166,34 @@ class StateGlobal {
 
   Future<void> _applyHubFullscreen(
       bool fullscreenRequested, int transition) async {
-    if (transition != _tgdeskFullscreenTransition) return;
-    if (fullscreenRequested) {
-      _tgdeskHubWasMaximized = await windowManager.isMaximized();
+    try {
       if (transition != _tgdeskFullscreenTransition) return;
-      if (!_tgdeskHubWasMaximized) {
-        await windowManager.maximize();
+      if (fullscreenRequested) {
+        _tgdeskHubWasMaximized = await windowManager.isMaximized();
+        if (transition != _tgdeskFullscreenTransition) return;
+        if (!_tgdeskHubWasMaximized) {
+          await windowManager.maximize();
+        }
+      } else if (!_tgdeskHubWasMaximized) {
+        if (await windowManager.isMaximized()) {
+          await windowManager.unmaximize();
+        }
       }
-    } else if (!_tgdeskHubWasMaximized) {
-      if (await windowManager.isMaximized()) {
-        await windowManager.unmaximize();
+
+      if (transition != _tgdeskFullscreenTransition) return;
+      _fullscreen.value = fullscreenRequested;
+      _showTabBar.value = !fullscreenRequested;
+      _windowBorderWidth.value = fullscreenRequested ? 0 : kWindowBorderWidth;
+      refreshResizeEdgeSize();
+    } catch (e) {
+      // Keep the Flutter state coherent even if a window-manager backend is
+      // unavailable.  A failed native transition must not leave the session
+      // permanently waiting for a frame.
+      debugPrint('TGDesk fullscreen transition failed: $e');
+      if (transition == _tgdeskFullscreenTransition) {
+        _fullscreen.value = fullscreenRequested;
+        _showTabBar.value = !fullscreenRequested;
+        refreshResizeEdgeSize();
       }
     }
   }

@@ -702,6 +702,10 @@ extern "C"
     static bool win_down = false;
     static bool stop_system_key_propagate = false;
     static bool tgdesk_system_key_shortcut_down = false;
+    static bool tgdesk_ctrl_left_down = false;
+    static bool tgdesk_ctrl_right_down = false;
+    static bool tgdesk_shift_left_down = false;
+    static bool tgdesk_shift_right_down = false;
 
     bool is_win_down()
     {
@@ -739,10 +743,33 @@ extern "C"
 
             const bool key_down = wParam == WM_KEYDOWN || wParam == WM_SYSKEYDOWN;
             const bool key_up = wParam == WM_KEYUP || wParam == WM_SYSKEYUP;
+
+            // GetAsyncKeyState is sampled before Windows updates its async
+            // state for low-level hooks on some systems.  Track the modifier
+            // transitions from this hook so Ctrl+Shift+I is deterministic.
+            switch (msgInfo->vkCode)
+            {
+            case VK_LCONTROL:
+                if (key_down) tgdesk_ctrl_left_down = true;
+                if (key_up) tgdesk_ctrl_left_down = false;
+                break;
+            case VK_RCONTROL:
+                if (key_down) tgdesk_ctrl_right_down = true;
+                if (key_up) tgdesk_ctrl_right_down = false;
+                break;
+            case VK_LSHIFT:
+                if (key_down) tgdesk_shift_left_down = true;
+                if (key_up) tgdesk_shift_left_down = false;
+                break;
+            case VK_RSHIFT:
+                if (key_down) tgdesk_shift_right_down = true;
+                if (key_up) tgdesk_shift_right_down = false;
+                break;
+            }
             if (msgInfo->vkCode == 'I')
             {
-                const bool ctrl_down = (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
-                const bool shift_down = (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
+                const bool ctrl_down = tgdesk_ctrl_left_down || tgdesk_ctrl_right_down;
+                const bool shift_down = tgdesk_shift_left_down || tgdesk_shift_right_down;
                 if (key_down && ctrl_down && shift_down)
                 {
                     if (!tgdesk_system_key_shortcut_down)

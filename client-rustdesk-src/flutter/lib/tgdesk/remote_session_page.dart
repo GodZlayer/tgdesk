@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:async';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -164,6 +165,7 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
   // computador local; um novo clique no canvas retoma o controle remoto.
   final RxBool _captureSystemKeys = true.obs;
   int _lastSystemKeysShortcutMicros = 0;
+  Worker? _tgdeskFullscreenWatcher;
   Color _color = const Color(0xffff3b30);
   double _strokeWidth = 5;
   Offset? _lastPoint;
@@ -197,6 +199,18 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
       _handleNativeSystemKeysShortcut,
       replace: true,
     );
+    _tgdeskFullscreenWatcher = ever<bool>(stateGlobal.fullscreen, (_) {
+      if (!_isActiveKeyboardSession()) return;
+      final ffi = _ffi;
+      if (ffi == null) return;
+      // The native window has just changed size. Ask the peer for a fresh
+      // frame after the Flutter texture has received its final bounds; this
+      // recovers the first image when Win32 resized the surface mid-connect.
+      Future<void>.delayed(const Duration(milliseconds: 120), () {
+        if (!mounted || !_isActiveKeyboardSession()) return;
+        unawaited(sessionRefreshVideo(ffi.sessionId, ffi.ffiModel.pi));
+      });
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await Future<void>.delayed(const Duration(milliseconds: 700));
       if (!mounted) return;
@@ -226,6 +240,7 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
 
   @override
   void dispose() {
+    _tgdeskFullscreenWatcher?.dispose();
     platformFFI.unregisterEventHandler(
       _nativeSystemKeysShortcutEvent,
       'tgdesk-remote-${widget.deviceId}',
