@@ -130,6 +130,7 @@ class _RemotePageState extends State<RemotePage>
   Worker? _waylandKeyboardModeWorker;
   bool _waylandKeyboardModeNormalized = false;
   bool _waylandKeyboardModeNormalizing = false;
+  Worker? _tgdeskFullscreenWatcher;
 
   SessionID get sessionId => _ffi.sessionId;
   RxBool get _systemKeysCapture =>
@@ -161,6 +162,12 @@ class _RemotePageState extends State<RemotePage>
           unawaited(bind.hostStopSystemKeyPropagate(
               stopped: _systemKeysCapture.value));
         }
+      });
+      _tgdeskFullscreenWatcher = ever<bool>(stateGlobal.fullscreen, (_) {
+        // Fullscreen changes can move native focus to the window frame. Keep
+        // the low-level escape hook armed across that transition.
+        unawaited(
+            bind.hostStopSystemKeyPropagate(stopped: _systemKeysCapture.value));
       });
     }
     Get.put<FFI>(_ffi, tag: widget.id);
@@ -484,6 +491,7 @@ class _RemotePageState extends State<RemotePage>
     _pointerLockCenterDebounceTimer?.cancel();
     _pointerLockCenterDebounceTimer = null;
     _waylandKeyboardModeWorker?.dispose();
+    _tgdeskFullscreenWatcher?.dispose();
     // Clear callback reference to prevent memory leaks and stale references
     _ffi.inputModel.onRelativeMouseModeDisabled = null;
     // Relative mouse mode cleanup is centralized in FFI.close(closeSession: ...).

@@ -20,6 +20,12 @@ class StateGlobal {
   final svcStatus = SvcStatus.notReady.obs;
   final RxInt videoConnCount = 0.obs;
   final RxBool isFocused = false.obs;
+  // The TGDesk Hub embeds the remote canvas in the main Flutter window. Native
+  // Win32 fullscreen tears down/recreates the Flutter texture surface on some
+  // machines, which looks like a frozen remote connection. For the Hub we use
+  // a borderless maximized client area instead and keep the FFI/texture alive.
+  bool _tgdeskHubWasMaximized = false;
+  int _tgdeskFullscreenTransition = 0;
   // for mobile and web
   bool isInMainPage = true;
   bool isWebVisible = true;
@@ -125,6 +131,12 @@ class StateGlobal {
     print("fullscreen: $fullscreen, resizeEdgeSize: ${_resizeEdgeSize.value}");
     _windowBorderWidth.value = fullscreen.isTrue ? 0 : kWindowBorderWidth;
     if (procWnd) {
+      if (windowId < 0 && desktopType == DesktopType.main) {
+        final requested = fullscreen.isTrue;
+        final transition = ++_tgdeskFullscreenTransition;
+        _applyHubFullscreen(requested, transition);
+        return;
+      }
       // TGDesk embedded sessions run inside the main window and never go
       // through the 'multi_window' launch branch in main.dart, so
       // stateGlobal._windowId stays at its default (-1) and
@@ -141,6 +153,22 @@ class StateGlobal {
           // We remove the redraw (width + 1, height + 1), because this issue cannot be reproduced.
           // https://github.com/rustdesk/rustdesk/issues/9675
         });
+      }
+    }
+  }
+
+  Future<void> _applyHubFullscreen(
+      bool fullscreenRequested, int transition) async {
+    if (transition != _tgdeskFullscreenTransition) return;
+    if (fullscreenRequested) {
+      _tgdeskHubWasMaximized = await windowManager.isMaximized();
+      if (transition != _tgdeskFullscreenTransition) return;
+      if (!_tgdeskHubWasMaximized) {
+        await windowManager.maximize();
+      }
+    } else if (!_tgdeskHubWasMaximized) {
+      if (await windowManager.isMaximized()) {
+        await windowManager.unmaximize();
       }
     }
   }
