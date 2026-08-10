@@ -18,7 +18,7 @@ import 'diagnostics_dialog.dart';
 import 'window_frame.dart';
 
 const _annotationPrefix = '__TGDESK_ANNOTATION__:';
-const _nativeSystemKeysShortcutEvent = 'tgdesk_system_keys_toggle';
+const tgdeskSystemKeysShortcutEvent = 'tgdesk_system_keys_toggle';
 
 class RemoteSessionEntry {
   const RemoteSessionEntry({
@@ -39,6 +39,7 @@ class RemoteSessionsManager extends ChangeNotifier {
   static final RemoteSessionsManager instance = RemoteSessionsManager._();
 
   final List<RemoteSessionEntry> _entries = [];
+  final Map<String, VoidCallback> _systemKeysShortcutHandlers = {};
   List<RemoteSessionEntry> get entries => List.unmodifiable(_entries);
 
   /// Mesmo conteúdo de [entries], com o nome que as abas usam.
@@ -55,6 +56,21 @@ class RemoteSessionsManager extends ChangeNotifier {
           : null;
 
   bool isOpen(String deviceId) => _entries.any((e) => e.deviceId == deviceId);
+
+  void registerSystemKeysShortcutHandler(
+      String deviceId, VoidCallback handler) {
+    _systemKeysShortcutHandlers[deviceId] = handler;
+  }
+
+  void unregisterSystemKeysShortcutHandler(String deviceId) {
+    _systemKeysShortcutHandlers.remove(deviceId);
+  }
+
+  Future<void> handleNativeSystemKeysShortcut() async {
+    final deviceId = active?.deviceId;
+    if (deviceId == null) return;
+    _systemKeysShortcutHandlers[deviceId]?.call();
+  }
 
   /// Abre uma sessão e a traz para a frente.
   ///
@@ -208,12 +224,8 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
     // lanÃ§a "Instance not found" no primeiro frame e o Hub fica cinza.
     initSharedStates(widget.remoteId);
     _inputBlocked = BlockInputState.find(widget.remoteId);
-    platformFFI.registerEventHandler(
-      _nativeSystemKeysShortcutEvent,
-      'tgdesk-remote-${widget.deviceId}',
-      _handleNativeSystemKeysShortcut,
-      replace: true,
-    );
+    RemoteSessionsManager.instance.registerSystemKeysShortcutHandler(
+        widget.deviceId, _toggleSystemKeysFromShortcut);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await Future<void>.delayed(const Duration(milliseconds: 700));
       if (!mounted) return;
@@ -250,10 +262,8 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
       bind.hostStopSystemKeyPropagate(stopped: false);
     }
     _ffi?.inputModel.enterOrLeave(false);
-    platformFFI.unregisterEventHandler(
-      _nativeSystemKeysShortcutEvent,
-      'tgdesk-remote-${widget.deviceId}',
-    );
+    RemoteSessionsManager.instance
+        .unregisterSystemKeysShortcutHandler(widget.deviceId);
     HardwareKeyboard.instance.removeHandler(_handleGlobalKeyEvent);
     if (_inputBlocked.isTrue) {
       bind.sessionToggleOption(sessionId: _sessionId, value: 'unblock-input');
@@ -394,12 +404,6 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
       return _toggleSystemKeysFromShortcut();
     }
     return false;
-  }
-
-  Future<void> _handleNativeSystemKeysShortcut(
-      Map<String, dynamic> event) async {
-    if (!mounted || !_isActiveKeyboardSession()) return;
-    _toggleSystemKeysFromShortcut();
   }
 
   void _clearDrawing() {

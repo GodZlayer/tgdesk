@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:desktop_multi_window/desktop_multi_window.dart';
+import 'package:flutter/foundation.dart';
 import 'package:flutter_hbb/common.dart';
 import 'package:get/get.dart';
 import 'package:window_manager/window_manager.dart';
@@ -20,6 +23,7 @@ class StateGlobal {
   final svcStatus = SvcStatus.notReady.obs;
   final RxInt videoConnCount = 0.obs;
   final RxBool isFocused = false.obs;
+  bool _tgdeskHubWasMaximized = false;
   // for mobile and web
   bool isInMainPage = true;
   bool isWebVisible = true;
@@ -98,17 +102,17 @@ class StateGlobal {
   setFullscreen(bool v, {bool procWnd = true}) {
     if (_fullscreen.value == v) return;
 
-    // The Hub embeds the RustDesk canvas in the main Flutter window. Native
-    // Win32 fullscreen/maximize recreates the Flutter texture surface on this
-    // path and makes the peer reconnect forever. Integrated fullscreen is a
-    // composition change only: hide the Hub chrome and let the existing
-    // session/texture keep its native window and connection untouched.
+    // The Hub keeps the same canvas ancestry while the native window enters
+    // fullscreen. The native transition is now safe because the chrome and
+    // rail use stable zero-sized slots instead of removing/reparenting the
+    // live texture subtree.
     final hubWindow = windowId < 0 && desktopType == DesktopType.main;
     if (hubWindow && !isWebDesktop) {
       _fullscreen.value = v;
       _showTabBar.value = !v;
       _windowBorderWidth.value = v ? 0 : kWindowBorderWidth;
       refreshResizeEdgeSize();
+      if (procWnd) unawaited(_setHubNativeFullscreen(v));
       return;
     }
 
@@ -118,6 +122,24 @@ class StateGlobal {
       procFullscreenWeb();
     } else {
       procFullscreenNative(procWnd);
+    }
+  }
+
+  Future<void> _setHubNativeFullscreen(bool requested) async {
+    try {
+      if (requested) {
+        _tgdeskHubWasMaximized = await windowManager.isMaximized();
+      }
+      await windowManager.setFullScreen(requested);
+      if (!requested && _tgdeskHubWasMaximized) {
+        // setFullScreen restores the previous window bounds itself; keep the
+        // remembered maximize state only for the next entry.
+        _tgdeskHubWasMaximized = false;
+      }
+    } catch (error) {
+      // The content fullscreen remains usable if the window backend rejects
+      // the native transition; never tear down or reconnect the peer.
+      debugPrint('TGDesk native fullscreen failed: $error');
     }
   }
 

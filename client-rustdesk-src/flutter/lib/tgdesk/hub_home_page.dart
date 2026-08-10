@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/material.dart';
+import 'package:flutter_hbb/models/platform_model.dart';
 import '../models/state_model.dart';
 import 'package:get/get.dart';
 import 'api_client.dart';
@@ -89,6 +90,14 @@ class _HubHomePageState extends State<HubHomePage> {
     super.initState();
     _control.addListener(_onControl);
     TgdeskApi.addDeviceEventListener(_onDeviceEvent);
+    platformFFI.registerEventHandler(
+      tgdeskSystemKeysShortcutEvent,
+      'tgdesk-hub-system-keys',
+      (_) async {
+        await RemoteSessionsManager.instance.handleNativeSystemKeysShortcut();
+      },
+      replace: true,
+    );
     _readUpdateState();
     _readBrandingAccess();
   }
@@ -113,6 +122,8 @@ class _HubHomePageState extends State<HubHomePage> {
   void dispose() {
     _control.removeListener(_onControl);
     TgdeskApi.removeDeviceEventListener(_onDeviceEvent);
+    platformFFI.unregisterEventHandler(
+        tgdeskSystemKeysShortcutEvent, 'tgdesk-hub-system-keys');
     super.dispose();
   }
 
