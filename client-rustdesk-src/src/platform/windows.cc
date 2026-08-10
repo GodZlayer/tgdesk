@@ -822,11 +822,17 @@ extern "C"
                                         (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
                 if (key_down && ctrl_down && shift_down)
                 {
-                    if (tgdesk_shortcut_key_down != msgInfo->vkCode)
-                    {
-                        tgdesk_shortcut_key_down = msgInfo->vkCode;
-                        rustdesk_tgdesk_shortcut(msgInfo->vkCode);
-                    }
+                    // Sempre reporta a descida; quem decide se isso vira um
+                    // comando é o Rust, pela janela de tempo.
+                    //
+                    // Havia aqui uma trava igual à de lá: só reportava se a
+                    // tecla não constasse como já descida. Quando a captura
+                    // ligava, o rdev instalava o gancho dele e passava à frente
+                    // deste — a SOLTURA ia para ele, esta trava nunca se abria,
+                    // e a partir daí todo Ctrl+Shift+I era engolido aqui sem
+                    // virar comando. Ligava uma vez e não desligava mais.
+                    tgdesk_shortcut_key_down = msgInfo->vkCode;
+                    rustdesk_tgdesk_shortcut(msgInfo->vkCode);
                     return 1;
                 }
                 if (key_up && tgdesk_shortcut_key_down == (int)msgInfo->vkCode)

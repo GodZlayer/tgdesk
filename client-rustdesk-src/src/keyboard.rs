@@ -14,7 +14,7 @@ use hbb_common::message_proto::*;
 use rdev::KeyCode;
 use rdev::{Event, EventType, Key};
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicI32, AtomicU32, AtomicU64, Ordering};
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
@@ -77,6 +77,29 @@ pub fn tgdesk_shortcut_name(vk: i32) -> Option<&'static str> {
 /// que o atalho não faz nada.
 #[cfg(all(feature = "flutter", target_os = "windows"))]
 static TGDESK_SHORTCUT_DOWN: AtomicU32 = AtomicU32::new(0);
+/// Último acorde disparado, e quando. É o que impede o toque duplo.
+///
+/// Antes bastava o bit de "tecla descida": quem visse a descida primeiro
+/// disparava, e os demais calavam até a soltura. O problema é que a descida e
+/// a soltura podem ser vistas por camadas DIFERENTES — o conjunto de ganchos
+/// instalados muda exatamente no instante em que a captura liga. Perdida a
+/// soltura, o bit ficava preso para sempre e o acorde nunca mais disparava:
+/// ligava uma vez e não desligava nunca.
+///
+/// Uma janela de tempo não depende de ninguém avisar que a tecla subiu.
+#[cfg(all(feature = "flutter", target_os = "windows"))]
+static TGDESK_LAST_SHORTCUT_VK: AtomicI32 = AtomicI32::new(0);
+#[cfg(all(feature = "flutter", target_os = "windows"))]
+static TGDESK_LAST_SHORTCUT_MS: AtomicU64 = AtomicU64::new(0);
+
+#[cfg(all(feature = "flutter", target_os = "windows"))]
+#[inline]
+fn tgdesk_now_millis() -> u64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
 #[cfg(all(feature = "flutter", target_os = "windows"))]
 static TGDESK_RAW_CTRL_DOWN: AtomicBool = AtomicBool::new(false);
 #[cfg(all(feature = "flutter", target_os = "windows"))]
@@ -102,9 +125,17 @@ pub extern "C" fn rustdesk_tgdesk_shortcut(vk: i32) {
     if bit == 0 {
         return;
     }
-    if TGDESK_SHORTCUT_DOWN.fetch_or(bit, Ordering::SeqCst) & bit != 0 {
+    // Marcar a tecla como descida serve para engolir a soltura correspondente
+    // na mesma camada. Não é mais o que decide se dispara.
+    TGDESK_SHORTCUT_DOWN.fetch_or(bit, Ordering::SeqCst);
+    let now = tgdesk_now_millis();
+    let same_key = TGDESK_LAST_SHORTCUT_VK.load(Ordering::SeqCst) == vk;
+    let elapsed = now.saturating_sub(TGDESK_LAST_SHORTCUT_MS.load(Ordering::SeqCst));
+    if same_key && elapsed < 300 {
         return;
     }
+    TGDESK_LAST_SHORTCUT_VK.store(vk, Ordering::SeqCst);
+    TGDESK_LAST_SHORTCUT_MS.store(now, Ordering::SeqCst);
     let Some(name) = tgdesk_shortcut_name(vk) else {
         return;
     };

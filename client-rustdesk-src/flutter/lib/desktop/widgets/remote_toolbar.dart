@@ -500,6 +500,10 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
   // ou fechada, então abrir cresce para a direita em vez de arrastar a barra
   // para longe de onde o técnico a deixou.
   final _collapsedWidth = Rxn<double>();
+  // O retângulo onde a barra mora, em coordenadas globais — a área do acesso
+  // remoto, não a janela. É a régua que o arrasto precisa usar.
+  final _areaKey = GlobalKey(debugLabel: 'remote_toolbar_area');
+  final _areaRect = Rxn<Rect>();
   // When false (default), the toolbar stays on the top edge and the drag
   // handle just slides it horizontally — preserving long-standing UX while
   // still fixing the bug where dragging only moved the handle. When true,
@@ -741,6 +745,11 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
             _collapsedWidth.value = s.width;
           }
         }
+        final areaRo = _areaKey.currentContext?.findRenderObject();
+        if (areaRo is RenderBox && areaRo.hasSize) {
+          final rect = areaRo.localToGlobal(Offset.zero) & areaRo.size;
+          if (_areaRect.value != rect) _areaRect.value = rect;
+        }
       });
 
       // No TGDesk os dois estados saem do MESMO construtor: recolher não troca
@@ -779,6 +788,7 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
               }
               if (!left.isFinite || left < 0) left = 0;
               return Stack(
+                key: _areaKey,
                 children: [
                   Positioned(
                     left: left,
@@ -905,6 +915,9 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
           // Dentro da fileira, o mesmo tamanho dos outros botões — é o que
           // faz a barra ter um só tamanho de ícone.
           iconSize: inline ? _ToolbarTheme.buttonSize : 20,
+          leftAnchored: widget.tgdeskMode && isHorizontal,
+          areaRect: _areaRect,
+          anchorWidth: _collapsedWidth,
         ),
       );
       if (inline) {
@@ -3381,6 +3394,21 @@ class _DraggableShowHide extends StatefulWidget {
   /// Sem moldura própria: a alça é servida dentro da barra, não ao lado dela.
   final bool bare;
 
+  /// A barra assenta pela borda esquerda de [areaRect], e não centrada na
+  /// janela. Quando verdadeiro, o arrasto tem de falar essa mesma língua.
+  final bool leftAnchored;
+
+  /// Onde a barra realmente mora, em coordenadas globais.
+  ///
+  /// Não é a janela: é o retângulo do acesso remoto, que exclui a barra de
+  /// título e a barra lateral do Hub. O arrasto usava a janela inteira, e por
+  /// isso o ponteiro e a barra concordavam no centro e divergiam cada vez mais
+  /// na direção das bordas.
+  final Rxn<Rect> areaRect;
+
+  /// Largura da barra recolhida — a régua da âncora.
+  final Rxn<double> anchorWidth;
+
   /// Tamanho dos ícones. Dentro da barra do TGDesk é o mesmo dos demais
   /// botões, para que uma fileira só não tenha dois tamanhos de ícone.
   final double iconSize;
@@ -3391,6 +3419,9 @@ class _DraggableShowHide extends StatefulWidget {
     this.horizontalGrowth = false,
     this.bare = false,
     this.iconSize = 20,
+    this.leftAnchored = false,
+    required this.areaRect,
+    required this.anchorWidth,
     required this.id,
     required this.ffi,
     required this.sessionId,
@@ -3480,8 +3511,27 @@ class _DraggableShowHideState extends State<_DraggableShowHide> {
     return winner;
   }
 
+  /// Onde a borda esquerda da barra está agora, em coordenadas globais, no
+  /// modo ancorado à esquerda. É a inversa exata da conta que a posiciona.
+  double? _leftAnchoredBarLeft() {
+    if (!widget.leftAnchored) return null;
+    final area = widget.areaRect.value;
+    if (area == null) return null;
+    final anchor =
+        widget.anchorWidth.value ?? widget.toolbarSize.value?.width ?? 0;
+    return area.left + widget.fraction.value * (area.width - anchor);
+  }
+
   void _ensureDragGrabOffset(Offset cursor) {
     if (_dragGrabOffset != null) return;
+    final barLeft = _leftAnchoredBarLeft();
+    if (barLeft != null) {
+      _dragToolbarSize =
+          _toolbarSizeForEdge(widget.edge.value, widget.toolbarSize.value);
+      _dragLongAxisGrabOffset = cursor.dx - barLeft;
+      _dragGrabOffset = Offset(_dragLongAxisGrabOffset!, 0);
+      return;
+    }
     final mediaSize = MediaQueryData.fromView(View.of(context)).size;
     final toolbarSize =
         _toolbarSizeForEdge(widget.edge.value, widget.toolbarSize.value);
@@ -3514,6 +3564,19 @@ class _DraggableShowHideState extends State<_DraggableShowHide> {
     final toolbarSize = _toolbarSizeForEdge(winner, _dragToolbarSize);
     final grabOffset = _dragGrabOffsetForEdge(winner, toolbarSize);
     final double frac;
+    // Ancorada à esquerda: a fração diz onde começa a barra dentro da área do
+    // acesso remoto, e é a mesma conta que a posiciona — invertida. Enquanto o
+    // arrasto media sobre a janela inteira e em fração de centro, o ponteiro e
+    // a barra só coincidiam no meio.
+    final area = widget.leftAnchored ? widget.areaRect.value : null;
+    if (area != null && _isHorizontalEdge(winner)) {
+      final anchor = widget.anchorWidth.value ?? toolbarSize.width;
+      final span = area.width - anchor;
+      final barLeft = cursor.dx - grabOffset - area.left;
+      frac = span <= 0 ? 0.0 : (barLeft / span).clamp(0.0, 1.0);
+      widget.previewFraction.value = frac;
+      return;
+    }
     if (winner == _ToolbarEdge.top || winner == _ToolbarEdge.bottom) {
       frac = _fractionForAlignedDrag(
         cursor: cursor.dx,

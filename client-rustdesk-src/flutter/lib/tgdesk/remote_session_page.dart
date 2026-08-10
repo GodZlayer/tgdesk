@@ -2,8 +2,6 @@ import 'dart:convert';
 import 'dart:async';
 import 'dart:ui' as ui;
 
-import 'package:window_manager/window_manager.dart';
-
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_hbb/common.dart';
@@ -231,7 +229,6 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
   // do sistema à máquina remota é o técnico, uma vez, de propósito.
   final RxBool _captureSystemKeys = false.obs;
   final Map<String, int> _lastShortcutMicros = {};
-  Worker? _fullscreenProbe;
   Color _color = const Color(0xffff3b30);
   double _strokeWidth = 5;
   Offset? _lastPoint;
@@ -263,8 +260,6 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
     _inputBlocked = BlockInputState.find(widget.remoteId);
     RemoteSessionsManager.instance
         .registerShortcutHandler(widget.deviceId, _runShortcut);
-    _fullscreenProbe =
-        ever<bool>(stateGlobal.fullscreen, _reportFullscreenGeometry);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await Future<void>.delayed(const Duration(milliseconds: 700));
       if (!mounted) return;
@@ -313,7 +308,6 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
       bind.hostStopSystemKeyPropagate(stopped: false);
     }
     _ffi?.inputModel.enterOrLeave(false);
-    _fullscreenProbe?.dispose();
     RemoteSessionsManager.instance.unregisterShortcutHandler(widget.deviceId);
     HardwareKeyboard.instance.removeHandler(_handleGlobalKeyEvent);
     if (_inputBlocked.isTrue) {
@@ -464,20 +458,52 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
   ///           quer dizer que a faixa é da árvore de widgets, não do Windows.
   ///
   /// Some daqui assim que a causa estiver identificada.
-  Future<void> _reportFullscreenGeometry(bool fullscreen) async {
-    if (!fullscreen || !mounted || !_isActiveKeyboardSession()) return;
-    await Future<void>.delayed(const Duration(milliseconds: 600));
-    if (!mounted) return;
-    final janela = await windowManager.getBounds();
-    final view = MediaQueryData.fromView(ui.window);
-    final canvas = _ffi?.canvasModel.size;
-    _notify(
-      'janela ${janela.width.toStringAsFixed(0)}x${janela.height.toStringAsFixed(0)}'
-      ' @${janela.left.toStringAsFixed(0)},${janela.top.toStringAsFixed(0)}'
-      ' · view ${view.size.width.toStringAsFixed(0)}x${view.size.height.toStringAsFixed(0)}'
-      ' · canvas ${canvas?.width.toStringAsFixed(0)}x${canvas?.height.toStringAsFixed(0)}'
-      ' · dpr ${view.devicePixelRatio.toStringAsFixed(2)}',
-      icon: Icons.straighten,
+  ///
+  /// Da primeira vez era uma tarja de três segundos e você não viu nenhuma —
+  /// pode ter passado batido ou nem ter disparado. Agora é um painel fixo,
+  /// desenhado enquanto a tela cheia durar, com o número que faltava: o
+  /// deslocamento do canvas. Se `canvas y` for a altura do botão flutuante, a
+  /// faixa é da conta que centraliza a imagem, e o Windows está inocente.
+  Widget _fullscreenProbePanel() {
+    return Positioned(
+      left: 16,
+      bottom: 16,
+      child: Obx(() {
+        if (stateGlobal.fullscreen.isFalse) return const SizedBox.shrink();
+        final view = MediaQueryData.fromView(ui.window);
+        final canvas = _ffi?.canvasModel;
+        String n(num? v) => v == null ? '?' : v.toStringAsFixed(1);
+        return Material(
+          color: const Color(0xcc000000),
+          borderRadius: BorderRadius.circular(6),
+          child: Padding(
+            padding: const EdgeInsets.all(10),
+            child: DefaultTextStyle(
+              style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontFamily: 'monospace',
+                  decoration: TextDecoration.none),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('view    ${n(view.size.width)} x ${n(view.size.height)}'
+                      '   dpr ${n(view.devicePixelRatio)}'),
+                  Text('padding top ${n(view.padding.top)}'
+                      '   viewPadding top ${n(view.viewPadding.top)}'),
+                  Text('canvas  ${n(canvas?.size.width)} x'
+                      ' ${n(canvas?.size.height)}'),
+                  Text('canvas  x ${n(canvas?.x)}   y ${n(canvas?.y)}'
+                      '   escala ${n(canvas?.scale)}'),
+                  Text('remoto  ${canvas?.getDisplayWidth()} x'
+                      ' ${canvas?.getDisplayHeight()}'),
+                ],
+              ),
+            ),
+          ),
+        );
+      }),
     );
   }
 
@@ -776,6 +802,8 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
               );
             }),
           ),
+          // TEMPORÁRIO — ver _fullscreenProbePanel.
+          _fullscreenProbePanel(),
         ],
       ),
     );
