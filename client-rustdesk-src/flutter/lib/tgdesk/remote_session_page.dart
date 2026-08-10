@@ -117,6 +117,7 @@ class RemoteSessionsManager extends ChangeNotifier {
   /// lista mostraria tela vazia com abas abertas.
   void closeAt(int index) {
     if (index < 0 || index >= _entries.length) return;
+    final wasActive = index == _activeIndex;
     _entries.removeAt(index);
     if (_entries.isEmpty) {
       _activeIndex = -1;
@@ -125,6 +126,21 @@ class RemoteSessionsManager extends ChangeNotifier {
     } else if (_activeIndex >= _entries.length) {
       _activeIndex = _entries.length - 1;
     }
+    if (wasActive) {
+      stateGlobal.setFullscreen(false, procWnd: false);
+      if (isWindows) bind.hostStopSystemKeyPropagate(stopped: false);
+    }
+    notifyListeners();
+  }
+
+  /// Fecha todas as abas e deixa o Hub sem uma sessão ativa. A remoção dos
+  /// filhos do IndexedStack dispara o dispose de cada RemotePage, que encerra
+  /// a sessão RustDesk correspondente.
+  void closeAll() {
+    if (_entries.isEmpty && _activeIndex == -1) return;
+    _entries.clear();
+    _activeIndex = -1;
+    if (isWindows) bind.hostStopSystemKeyPropagate(stopped: false);
     notifyListeners();
   }
 }
@@ -165,7 +181,6 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
   // computador local; um novo clique no canvas retoma o controle remoto.
   final RxBool _captureSystemKeys = true.obs;
   int _lastSystemKeysShortcutMicros = 0;
-  Worker? _tgdeskFullscreenWatcher;
   Color _color = const Color(0xffff3b30);
   double _strokeWidth = 5;
   Offset? _lastPoint;
@@ -199,18 +214,6 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
       _handleNativeSystemKeysShortcut,
       replace: true,
     );
-    _tgdeskFullscreenWatcher = ever<bool>(stateGlobal.fullscreen, (_) {
-      if (!_isActiveKeyboardSession()) return;
-      final ffi = _ffi;
-      if (ffi == null) return;
-      // The native window has just changed size. Ask the peer for a fresh
-      // frame after the Flutter texture has received its final bounds; this
-      // recovers the first image when Win32 resized the surface mid-connect.
-      Future<void>.delayed(const Duration(milliseconds: 120), () {
-        if (!mounted || !_isActiveKeyboardSession()) return;
-        unawaited(sessionRefreshVideo(ffi.sessionId, ffi.ffiModel.pi));
-      });
-    });
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await Future<void>.delayed(const Duration(milliseconds: 700));
       if (!mounted) return;
@@ -240,7 +243,13 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
 
   @override
   void dispose() {
-    _tgdeskFullscreenWatcher?.dispose();
+    if (_isActiveKeyboardSession()) {
+      stateGlobal.setFullscreen(false, procWnd: false);
+    }
+    if (isWindows) {
+      bind.hostStopSystemKeyPropagate(stopped: false);
+    }
+    _ffi?.inputModel.enterOrLeave(false);
     platformFFI.unregisterEventHandler(
       _nativeSystemKeysShortcutEvent,
       'tgdesk-remote-${widget.deviceId}',

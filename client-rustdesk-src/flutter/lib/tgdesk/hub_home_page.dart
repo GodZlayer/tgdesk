@@ -199,6 +199,14 @@ class _HubHomePageState extends State<HubHomePage> {
     } catch (_) {}
   }
 
+  Future<void> _closeRemoteSessions() async {
+    stateGlobal.setFullscreen(false, procWnd: false);
+    RemoteSessionsManager.instance.closeAll();
+    // Let IndexedStack remove the RemotePage children so their asynchronous
+    // FFI/session cleanup starts before the window is hidden.
+    await Future<void>.delayed(Duration.zero);
+  }
+
   @override
   Widget build(BuildContext context) {
     final isSuperAdmin = AppState.isSuperAdmin;
@@ -235,6 +243,7 @@ class _HubHomePageState extends State<HubHomePage> {
       productName: _productName,
       updateStatus: _updateStatus,
       onForceUpdate: _requestForcedUpdate,
+      onBeforeClose: _closeRemoteSessions,
       actions: [
         if (_version.isNotEmpty)
           Center(

@@ -47,6 +47,10 @@ static EXIT_SHORTCUT_KEY_DOWN: AtomicBool = AtomicBool::new(false);
 // click and can consume the key before Flutter receives it.
 #[cfg(all(feature = "flutter", target_os = "windows"))]
 static TGDESK_SYSTEM_KEYS_SHORTCUT_DOWN: AtomicBool = AtomicBool::new(false);
+#[cfg(all(feature = "flutter", target_os = "windows"))]
+static TGDESK_RAW_CTRL_DOWN: AtomicBool = AtomicBool::new(false);
+#[cfg(all(feature = "flutter", target_os = "windows"))]
+static TGDESK_RAW_SHIFT_DOWN: AtomicBool = AtomicBool::new(false);
 
 /// Entry point for the Windows low-level hook fallback. The rdev grab loop is
 /// normally the first layer to see the chord, but the Windows hook also calls
@@ -55,10 +59,39 @@ static TGDESK_SYSTEM_KEYS_SHORTCUT_DOWN: AtomicBool = AtomicBool::new(false);
 #[cfg(all(feature = "flutter", target_os = "windows"))]
 #[no_mangle]
 pub extern "C" fn rustdesk_tgdesk_system_key_shortcut() {
-    let _ = crate::flutter::push_global_event(
-        crate::flutter::APP_TYPE_MAIN,
-        r#"{"name":"tgdesk_system_keys_toggle"}"#.to_string(),
-    );
+    if !TGDESK_SYSTEM_KEYS_SHORTCUT_DOWN.swap(true, Ordering::SeqCst) {
+        let _ = crate::flutter::push_global_event(
+            crate::flutter::APP_TYPE_MAIN,
+            r#"{"name":"tgdesk_system_keys_toggle"}"#.to_string(),
+        );
+    }
+}
+
+#[cfg(all(feature = "flutter", target_os = "windows"))]
+#[no_mangle]
+pub extern "C" fn rustdesk_tgdesk_system_key_shortcut_release() {
+    TGDESK_SYSTEM_KEYS_SHORTCUT_DOWN.store(false, Ordering::SeqCst);
+}
+
+#[cfg(all(feature = "flutter", target_os = "windows"))]
+pub fn handle_tgdesk_raw_shortcut(platform_code: i32, down: bool) -> bool {
+    match platform_code {
+        16 | 160 | 161 => TGDESK_RAW_SHIFT_DOWN.store(down, Ordering::SeqCst),
+        17 | 162 | 163 => TGDESK_RAW_CTRL_DOWN.store(down, Ordering::SeqCst),
+        73 if down
+            && TGDESK_RAW_CTRL_DOWN.load(Ordering::SeqCst)
+            && TGDESK_RAW_SHIFT_DOWN.load(Ordering::SeqCst) =>
+        {
+            rustdesk_tgdesk_system_key_shortcut();
+            return true;
+        }
+        73 if !down && TGDESK_SYSTEM_KEYS_SHORTCUT_DOWN.load(Ordering::SeqCst) => {
+            rustdesk_tgdesk_system_key_shortcut_release();
+            return true;
+        }
+        _ => {}
+    }
+    false
 }
 
 // Track whether relative mouse mode is currently active.

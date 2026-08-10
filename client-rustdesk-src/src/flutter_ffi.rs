@@ -600,6 +600,10 @@ pub fn session_handle_flutter_raw_key_event(
     lock_modes: i32,
     down_or_up: bool,
 ) {
+    #[cfg(all(feature = "flutter", target_os = "windows"))]
+    if crate::keyboard::handle_tgdesk_raw_shortcut(platform_code, down_or_up) {
+        return;
+    }
     if let Some(session) = sessions::get_session_by_session_id(&session_id) {
         let keyboard_mode = session.get_keyboard_mode();
         session.handle_flutter_raw_key_event(
@@ -652,6 +656,24 @@ pub fn session_input_key(
     shift: bool,
     command: bool,
 ) {
+    #[cfg(all(feature = "flutter", target_os = "windows"))]
+    {
+        // When the native remote canvas owns focus, Flutter's Focus handler
+        // never sees Ctrl+Shift+I. This is the final input path before a key
+        // is sent to the peer, so consume the chord here and route it through
+        // the same global event used by the native hook.
+        let is_i = name.eq_ignore_ascii_case("VK_I")
+            || name.eq_ignore_ascii_case("I")
+            || name.eq_ignore_ascii_case("KeyI");
+        if is_i && down && ctrl && shift {
+            crate::keyboard::rustdesk_tgdesk_system_key_shortcut();
+            return;
+        }
+        if is_i && !down && !press {
+            crate::keyboard::rustdesk_tgdesk_system_key_shortcut_release();
+            return;
+        }
+    }
     if let Some(session) = sessions::get_session_by_session_id(&session_id) {
         // #[cfg(any(target_os = "android", target_os = "ios"))]
         session.input_key(&name, down, press, alt, ctrl, shift, command);

@@ -692,6 +692,7 @@ extern "C"
     // or the rdev grabber and therefore still sees Ctrl+Shift+I after the
     // remote canvas has taken native focus.
     void rustdesk_tgdesk_system_key_shortcut();
+    void rustdesk_tgdesk_system_key_shortcut_release();
 
     static HANDLE thread;
     static DWORD thread_id;
@@ -782,6 +783,7 @@ extern "C"
                 if (key_up && tgdesk_system_key_shortcut_down)
                 {
                     tgdesk_system_key_shortcut_down = false;
+                    rustdesk_tgdesk_system_key_shortcut_release();
                     return 1;
                 }
             }

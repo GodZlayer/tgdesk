@@ -70,6 +70,7 @@ class TgdeskWindowScaffold extends StatefulWidget {
     this.updateStatus,
     this.onForceUpdate,
     this.hideChrome,
+    this.onBeforeClose,
   });
 
   /// Conteúdo abaixo da barra de título.
@@ -105,6 +106,9 @@ class TgdeskWindowScaffold extends StatefulWidget {
   /// observável e a barra reage sozinha.
   final bool Function()? hideChrome;
 
+  /// Limpa sessões/recursos do Hub antes de esconder a janela principal.
+  final Future<void> Function()? onBeforeClose;
+
   @override
   State<TgdeskWindowScaffold> createState() => _TgdeskWindowScaffoldState();
 }
@@ -134,7 +138,9 @@ class _TgdeskWindowScaffoldState extends State<TgdeskWindowScaffold>
 
   @override
   void onWindowClose() {
-    if (_isMainWindow) windowManager.hide();
+    if (_isMainWindow) {
+      _close();
+    }
   }
 
   // O ícone de maximizar precisa dizer o que o clique VAI fazer, e para isso
@@ -188,6 +194,7 @@ class _TgdeskWindowScaffoldState extends State<TgdeskWindowScaffold>
   }
 
   Future<void> _close() async {
+    await widget.onBeforeClose?.call();
     if (_isMainWindow) {
       await windowManager.hide();
     } else {
