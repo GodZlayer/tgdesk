@@ -339,16 +339,21 @@ class _TgdeskWindowScaffoldState extends State<TgdeskWindowScaffold>
   }
 
   Widget _buildFrame(BuildContext context, {required bool semBarra}) {
-    // In fullscreen there is no shell chrome at all. Returning the remote
-    // surface directly avoids keeping a Column/Expanded layout boundary that
-    // can retain the pre-fullscreen title-bar constraints for one frame.
-    if (semBarra) {
-      return SizedBox.expand(child: widget.child);
-    }
+    // Keep the same Column/Expanded ancestry in both modes. Replacing the
+    // root with SizedBox.expand during a live remote session can reparent the
+    // texture subtree and make RustDesk reconnect forever. In fullscreen the
+    // title slots simply become zero-height; the remote child is never
+    // removed/reinserted.
     return Column(
       children: [
-        if (!semBarra) _buildTitleBar(context),
-        if (!semBarra) const Divider(height: 1),
+        SizedBox(
+          height: semBarra ? 0 : 40,
+          child: semBarra ? const SizedBox.shrink() : _buildTitleBar(context),
+        ),
+        SizedBox(
+          height: semBarra ? 0 : 1,
+          child: semBarra ? const SizedBox.shrink() : const Divider(height: 1),
+        ),
         Expanded(child: widget.child),
       ],
     );

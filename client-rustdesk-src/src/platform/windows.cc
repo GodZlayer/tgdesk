@@ -707,6 +707,7 @@ extern "C"
     static bool tgdesk_ctrl_right_down = false;
     static bool tgdesk_shift_left_down = false;
     static bool tgdesk_shift_right_down = false;
+    constexpr int TGDESK_SYSTEM_KEYS_HOTKEY_ID = 0x5447;
 
     bool is_win_down()
     {
@@ -820,11 +821,25 @@ extern "C"
                 GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
             reinterpret_cast<LPCWSTR>(&keyboard_hook), &hook_module);
         hook = SetWindowsHookEx(WH_KEYBOARD_LL, keyboard_hook, hook_module, 0);
+        // Keep a thread hotkey as a fallback when another security product or
+        // a native texture prevents the low-level callback from reaching this
+        // process. The Rust atomic suppresses duplicate hook/hotkey events.
+        RegisterHotKey(NULL, TGDESK_SYSTEM_KEYS_HOTKEY_ID,
+                       MOD_CONTROL | MOD_SHIFT, 'I');
         // If something goes wrong then there is not much we can do.
         // Just sit around and wait for WM_QUIT...
 
         while (GetMessage(&msg, NULL, 0, 0))
-            ;
+        {
+            if (msg.message == WM_HOTKEY &&
+                msg.wParam == TGDESK_SYSTEM_KEYS_HOTKEY_ID)
+            {
+                rustdesk_tgdesk_system_key_shortcut();
+                rustdesk_tgdesk_system_key_shortcut_release();
+            }
+        }
+
+        UnregisterHotKey(NULL, TGDESK_SYSTEM_KEYS_HOTKEY_ID);
 
         if (hook)
             UnhookWindowsHookEx(hook);
