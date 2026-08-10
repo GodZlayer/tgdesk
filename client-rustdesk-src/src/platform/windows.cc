@@ -691,8 +691,22 @@ extern "C"
     // Exported by the Rust keyboard module. This fallback runs before Flutter
     // or the rdev grabber and therefore still sees Ctrl+Shift+I after the
     // remote canvas has taken native focus.
-    void rustdesk_tgdesk_system_key_shortcut();
-    void rustdesk_tgdesk_system_key_shortcut_release();
+    void rustdesk_tgdesk_shortcut(int vk);
+    void rustdesk_tgdesk_shortcut_release(int vk);
+
+    // Ctrl+Shift+<tecla>. Espelha keyboard.rs::TGDESK_SHORTCUTS; o Rust é quem
+    // traduz cada código no nome que o Dart recebe.
+    static const int tgdesk_shortcut_keys[] = {'I', 'B', 'D', 'C', 'F'};
+
+    static bool is_tgdesk_shortcut_key(int vkCode)
+    {
+        for (int key : tgdesk_shortcut_keys)
+        {
+            if (key == vkCode)
+                return true;
+        }
+        return false;
+    }
 
     static HANDLE thread;
     static DWORD thread_id;
@@ -702,7 +716,7 @@ extern "C"
     static HWND default_hook_wnd = 0;
     static bool win_down = false;
     static bool stop_system_key_propagate = false;
-    static bool tgdesk_system_key_shortcut_down = false;
+    static int tgdesk_shortcut_key_down = 0;
     static bool tgdesk_ctrl_left_down = false;
     static bool tgdesk_ctrl_right_down = false;
     static bool tgdesk_shift_left_down = false;
@@ -768,23 +782,35 @@ extern "C"
                 if (key_up) tgdesk_shift_right_down = false;
                 break;
             }
-            if (msgInfo->vkCode == 'I')
+            if (is_tgdesk_shortcut_key(msgInfo->vkCode))
             {
-                const bool ctrl_down = tgdesk_ctrl_left_down || tgdesk_ctrl_right_down;
-                const bool shift_down = tgdesk_shift_left_down || tgdesk_shift_right_down;
+                // O estado rastreado acima só é confiável se ESTE hook viu o
+                // Ctrl e o Shift descerem. Com a sessão remota capturando o
+                // teclado há um segundo hook de baixo nível (o do rdev) na
+                // frente deste, e ele engole os modificadores para mandá-los à
+                // máquina remota — as variáveis ficam falsas e o acorde nunca
+                // era reconhecido. Era por isso que o Ctrl+Shift+I não fazia
+                // nada justamente quando mais precisava funcionar.
+                //
+                // GetAsyncKeyState lê o estado físico do teclado, que nenhum
+                // hook consegue esconder. Os dois juntos cobrem os dois casos.
+                const bool ctrl_down = tgdesk_ctrl_left_down || tgdesk_ctrl_right_down ||
+                                       (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0;
+                const bool shift_down = tgdesk_shift_left_down || tgdesk_shift_right_down ||
+                                        (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0;
                 if (key_down && ctrl_down && shift_down)
                 {
-                    if (!tgdesk_system_key_shortcut_down)
+                    if (tgdesk_shortcut_key_down != msgInfo->vkCode)
                     {
-                        tgdesk_system_key_shortcut_down = true;
-                        rustdesk_tgdesk_system_key_shortcut();
+                        tgdesk_shortcut_key_down = msgInfo->vkCode;
+                        rustdesk_tgdesk_shortcut(msgInfo->vkCode);
                     }
                     return 1;
                 }
-                if (key_up && tgdesk_system_key_shortcut_down)
+                if (key_up && tgdesk_shortcut_key_down == (int)msgInfo->vkCode)
                 {
-                    tgdesk_system_key_shortcut_down = false;
-                    rustdesk_tgdesk_system_key_shortcut_release();
+                    tgdesk_shortcut_key_down = 0;
+                    rustdesk_tgdesk_shortcut_release(msgInfo->vkCode);
                     return 1;
                 }
             }
@@ -824,22 +850,32 @@ extern "C"
         // Keep a thread hotkey as a fallback when another security product or
         // a native texture prevents the low-level callback from reaching this
         // process. The Rust atomic suppresses duplicate hook/hotkey events.
-        RegisterHotKey(NULL, TGDESK_SYSTEM_KEYS_HOTKEY_ID,
-                       MOD_CONTROL | MOD_SHIFT, 'I');
+        for (size_t i = 0; i < ARRAY_SIZE(tgdesk_shortcut_keys); ++i)
+        {
+            RegisterHotKey(NULL, TGDESK_SYSTEM_KEYS_HOTKEY_ID + (int)i,
+                           MOD_CONTROL | MOD_SHIFT, tgdesk_shortcut_keys[i]);
+        }
         // If something goes wrong then there is not much we can do.
         // Just sit around and wait for WM_QUIT...
 
         while (GetMessage(&msg, NULL, 0, 0))
         {
-            if (msg.message == WM_HOTKEY &&
-                msg.wParam == TGDESK_SYSTEM_KEYS_HOTKEY_ID)
+            if (msg.message == WM_HOTKEY)
             {
-                rustdesk_tgdesk_system_key_shortcut();
-                rustdesk_tgdesk_system_key_shortcut_release();
+                const int index = (int)msg.wParam - TGDESK_SYSTEM_KEYS_HOTKEY_ID;
+                if (index >= 0 && index < (int)ARRAY_SIZE(tgdesk_shortcut_keys))
+                {
+                    const int vk = tgdesk_shortcut_keys[index];
+                    rustdesk_tgdesk_shortcut(vk);
+                    rustdesk_tgdesk_shortcut_release(vk);
+                }
             }
         }
 
-        UnregisterHotKey(NULL, TGDESK_SYSTEM_KEYS_HOTKEY_ID);
+        for (size_t i = 0; i < ARRAY_SIZE(tgdesk_shortcut_keys); ++i)
+        {
+            UnregisterHotKey(NULL, TGDESK_SYSTEM_KEYS_HOTKEY_ID + (int)i);
+        }
 
         if (hook)
             UnhookWindowsHookEx(hook);

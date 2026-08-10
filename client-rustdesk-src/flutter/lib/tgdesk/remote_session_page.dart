@@ -18,7 +18,18 @@ import 'diagnostics_dialog.dart';
 import 'window_frame.dart';
 
 const _annotationPrefix = '__TGDESK_ANNOTATION__:';
-const tgdeskSystemKeysShortcutEvent = 'tgdesk_system_keys_toggle';
+
+/// Evento único que o núcleo empurra quando reconhece um Ctrl+Shift+<tecla>.
+/// O nome do comando vem no campo `action`; a tabela de teclas vive no Rust
+/// (keyboard.rs::TGDESK_SHORTCUTS) para as três camadas nativas lerem a mesma.
+const tgdeskShortcutEvent = 'tgdesk_shortcut';
+
+/// Nomes dos comandos, iguais dos dois lados da ponte.
+const tgdeskActionSystemKeys = 'system_keys';
+const tgdeskActionBlockInput = 'block_input';
+const tgdeskActionDrawing = 'drawing';
+const tgdeskActionClipboard = 'clipboard';
+const tgdeskActionFileTransfer = 'file_transfer';
 
 class RemoteSessionEntry {
   const RemoteSessionEntry({
@@ -39,7 +50,7 @@ class RemoteSessionsManager extends ChangeNotifier {
   static final RemoteSessionsManager instance = RemoteSessionsManager._();
 
   final List<RemoteSessionEntry> _entries = [];
-  final Map<String, VoidCallback> _systemKeysShortcutHandlers = {};
+  final Map<String, void Function(String)> _shortcutHandlers = {};
   List<RemoteSessionEntry> get entries => List.unmodifiable(_entries);
 
   /// Mesmo conteúdo de [entries], com o nome que as abas usam.
@@ -57,19 +68,21 @@ class RemoteSessionsManager extends ChangeNotifier {
 
   bool isOpen(String deviceId) => _entries.any((e) => e.deviceId == deviceId);
 
-  void registerSystemKeysShortcutHandler(
-      String deviceId, VoidCallback handler) {
-    _systemKeysShortcutHandlers[deviceId] = handler;
+  void registerShortcutHandler(String deviceId, void Function(String) handler) {
+    _shortcutHandlers[deviceId] = handler;
   }
 
-  void unregisterSystemKeysShortcutHandler(String deviceId) {
-    _systemKeysShortcutHandlers.remove(deviceId);
+  void unregisterShortcutHandler(String deviceId) {
+    _shortcutHandlers.remove(deviceId);
   }
 
-  Future<void> handleNativeSystemKeysShortcut() async {
+  /// O acorde nativo é global — vale para o computador inteiro, não para um
+  /// widget. Quem responde é sempre a sessão que está à frente: é a máquina que
+  /// o técnico está operando quando aperta a tecla.
+  Future<void> handleNativeShortcut(String action) async {
     final deviceId = active?.deviceId;
     if (deviceId == null) return;
-    _systemKeysShortcutHandlers[deviceId]?.call();
+    _shortcutHandlers[deviceId]?.call(action);
   }
 
   /// Abre uma sessão e a traz para a frente.
@@ -189,14 +202,18 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
   final _focusNode = FocusNode();
   final List<_DrawingSegment> _segments = [];
   late final RxBool _inputBlocked;
-  bool _drawing = false;
+  // Observáveis, e não campos comuns, porque agora os botões do toolbar
+  // flutuante mostram o estado de cada comando. O toolbar é construído dentro
+  // da RemotePage, longe deste setState: só um Rx faz o ícone acompanhar quem
+  // apertou o atalho.
+  final RxBool _drawingOn = false.obs;
+  final RxBool _clipboardOn = false.obs;
+  final RxBool _fileTransferOn = false.obs;
   bool _eraser = false;
-  bool _clipboardEnabled = false;
-  bool _fileTransferEnabled = false;
   // Começa com o grabber remoto ativo. Ctrl+Shift+I libera o teclado para o
   // computador local; um novo clique no canvas retoma o controle remoto.
   final RxBool _captureSystemKeys = true.obs;
-  int _lastSystemKeysShortcutMicros = 0;
+  final Map<String, int> _lastShortcutMicros = {};
   Color _color = const Color(0xffff3b30);
   double _strokeWidth = 5;
   Offset? _lastPoint;
@@ -215,17 +232,17 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
     if (isWindows) {
       bind.hostStopSystemKeyPropagate(stopped: true);
     }
-    // O canvas remoto pode manter o foco e consumir Ctrl+Shift+I antes de o
+    // O canvas remoto pode manter o foco e consumir o acorde antes de o
     // Focus.onKeyEvent do shell receber a tecla. O handler global garante que
-    // o atalho continue funcionando como no Parsec, mas só para a aba ativa.
+    // os atalhos continuem funcionando como no Parsec, mas só para a aba ativa.
     HardwareKeyboard.instance.addHandler(_handleGlobalKeyEvent);
     // Este estado Ã© lido pelo shell antes de o filho RemotePage entrar na
     // Ã¡rvore. Sem registrar os estados compartilhados neste ponto, o GetX
     // lanÃ§a "Instance not found" no primeiro frame e o Hub fica cinza.
     initSharedStates(widget.remoteId);
     _inputBlocked = BlockInputState.find(widget.remoteId);
-    RemoteSessionsManager.instance.registerSystemKeysShortcutHandler(
-        widget.deviceId, _toggleSystemKeysFromShortcut);
+    RemoteSessionsManager.instance
+        .registerShortcutHandler(widget.deviceId, _runShortcut);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await Future<void>.delayed(const Duration(milliseconds: 700));
       if (!mounted) return;
@@ -262,19 +279,18 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
       bind.hostStopSystemKeyPropagate(stopped: false);
     }
     _ffi?.inputModel.enterOrLeave(false);
-    RemoteSessionsManager.instance
-        .unregisterSystemKeysShortcutHandler(widget.deviceId);
+    RemoteSessionsManager.instance.unregisterShortcutHandler(widget.deviceId);
     HardwareKeyboard.instance.removeHandler(_handleGlobalKeyEvent);
     if (_inputBlocked.isTrue) {
       bind.sessionToggleOption(sessionId: _sessionId, value: 'unblock-input');
     }
-    if (_clipboardEnabled) {
+    if (_clipboardOn.isTrue) {
       bind.sessionToggleOption(
         sessionId: _sessionId,
         value: 'disable-clipboard',
       );
     }
-    if (_fileTransferEnabled) {
+    if (_fileTransferOn.isTrue) {
       bind.sessionToggleOption(
         sessionId: _sessionId,
         value: kOptionEnableFileCopyPaste,
@@ -325,12 +341,10 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
   }
 
   void _toggleDrawing() {
-    setState(() {
-      _drawing = !_drawing;
-      _lastPoint = null;
-    });
+    _lastPoint = null;
+    _drawingOn.toggle();
     _focusNode.requestFocus();
-    _notify(_drawing ? 'Anotação ativada' : 'Anotação encerrada');
+    _notify(_drawingOn.isTrue ? 'Anotação ativada' : 'Anotação encerrada');
   }
 
   void _toggleClipboard() {
@@ -338,8 +352,8 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
       sessionId: _sessionId,
       value: 'disable-clipboard',
     );
-    setState(() => _clipboardEnabled = !_clipboardEnabled);
-    _notify(_clipboardEnabled
+    _clipboardOn.toggle();
+    _notify(_clipboardOn.isTrue
         ? 'Copiar e colar ativado'
         : 'Copiar e colar desativado');
   }
@@ -349,8 +363,8 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
       sessionId: _sessionId,
       value: kOptionEnableFileCopyPaste,
     );
-    setState(() => _fileTransferEnabled = !_fileTransferEnabled);
-    _notify(_fileTransferEnabled
+    _fileTransferOn.toggle();
+    _notify(_fileTransferOn.isTrue
         ? 'Transferência de arquivos ativada'
         : 'Transferência de arquivos desativada');
   }
@@ -383,27 +397,58 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
     return RemoteSessionsManager.instance.active?.deviceId == widget.deviceId;
   }
 
-  bool _toggleSystemKeysFromShortcut() {
+  /// Tudo que é comando de sessão passa por aqui — atalho nativo, tecla vista
+  /// pelo Flutter ou clique no botão do toolbar. Um caminho só significa um
+  /// comportamento só, e o estado que os botões mostram nunca discorda do que
+  /// o teclado acabou de fazer.
+  bool _runShortcut(String action) {
     final now = DateTime.now().microsecondsSinceEpoch;
-    // Windows/Flutter podem entregar o mesmo KeyDown ao handler global e ao
-    // FocusNode. Evita duas alternâncias e mantém uma única notificação.
-    if (now - _lastSystemKeysShortcutMicros < 100000) return true;
-    _lastSystemKeysShortcutMicros = now;
-    _toggleSystemKeys();
+    // O mesmo toque pode chegar pelo hook nativo E pelo teclado do Flutter.
+    // Sem esta janela, um comando alternaria duas vezes e pareceria inerte.
+    if (now - (_lastShortcutMicros[action] ?? 0) < 200000) return true;
+    _lastShortcutMicros[action] = now;
+    switch (action) {
+      case tgdeskActionSystemKeys:
+        _toggleSystemKeys();
+        break;
+      case tgdeskActionBlockInput:
+        _toggleInputBlock();
+        break;
+      case tgdeskActionDrawing:
+        _toggleDrawing();
+        break;
+      case tgdeskActionClipboard:
+        _toggleClipboard();
+        break;
+      case tgdeskActionFileTransfer:
+        _toggleFileTransfer();
+        break;
+      default:
+        return false;
+    }
     return true;
   }
+
+  /// A tecla de cada comando, do lado do Flutter. É a mesma tabela do Rust;
+  /// aqui ela existe para o caso em que o acorde chega pelo teclado normal —
+  /// janela em foco e nenhum hook no meio.
+  static final _shortcutKeys = <LogicalKeyboardKey, String>{
+    LogicalKeyboardKey.keyI: tgdeskActionSystemKeys,
+    LogicalKeyboardKey.keyB: tgdeskActionBlockInput,
+    LogicalKeyboardKey.keyD: tgdeskActionDrawing,
+    LogicalKeyboardKey.keyC: tgdeskActionClipboard,
+    LogicalKeyboardKey.keyF: tgdeskActionFileTransfer,
+  };
 
   bool _handleGlobalKeyEvent(KeyEvent event) {
     if (!mounted || event is! KeyDownEvent || !_isActiveKeyboardSession()) {
       return false;
     }
     final keys = HardwareKeyboard.instance;
-    if (event.logicalKey == LogicalKeyboardKey.keyI &&
-        keys.isControlPressed &&
-        keys.isShiftPressed) {
-      return _toggleSystemKeysFromShortcut();
-    }
-    return false;
+    if (!keys.isControlPressed || !keys.isShiftPressed) return false;
+    final action = _shortcutKeys[event.logicalKey];
+    if (action == null) return false;
+    return _runShortcut(action);
   }
 
   void _clearDrawing() {
@@ -461,68 +506,79 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
     }
     if (event.logicalKey == LogicalKeyboardKey.escape &&
         stateGlobal.fullscreen.value &&
-        !_drawing) {
+        _drawingOn.isFalse) {
       stateGlobal.setFullscreen(false);
       return KeyEventResult.handled;
     }
     if (keys.isControlPressed && keys.isShiftPressed) {
-      if (event.logicalKey == LogicalKeyboardKey.keyI) {
-        return _toggleSystemKeysFromShortcut()
+      final action = _shortcutKeys[event.logicalKey];
+      if (action != null) {
+        return _runShortcut(action)
             ? KeyEventResult.handled
             : KeyEventResult.ignored;
       }
-      if (event.logicalKey == LogicalKeyboardKey.keyB) {
-        _toggleInputBlock();
-        return KeyEventResult.handled;
-      }
-      if (event.logicalKey == LogicalKeyboardKey.keyD) {
-        _toggleDrawing();
-        return KeyEventResult.handled;
-      }
-      if (event.logicalKey == LogicalKeyboardKey.keyC) {
-        _toggleClipboard();
-        return KeyEventResult.handled;
-      }
-      if (event.logicalKey == LogicalKeyboardKey.keyF) {
-        _toggleFileTransfer();
-        return KeyEventResult.handled;
-      }
     }
-    if (_drawing && event.logicalKey == LogicalKeyboardKey.escape) {
+    if (_drawingOn.isTrue && event.logicalKey == LogicalKeyboardKey.escape) {
       _toggleDrawing();
       return KeyEventResult.handled;
     }
     return KeyEventResult.ignored;
   }
 
+  /// Os comandos de sessão, um botão cada, no toolbar flutuante. A ordem é a
+  /// mesma da tabela de atalhos, e cada dica de tela repete o acorde: o botão
+  /// ensina o atalho, e quem já sabe o atalho não precisa do botão.
+  List<TgdeskToolbarAction> _toolbarActions() => [
+        TgdeskToolbarAction(
+          active: _inputBlocked,
+          activeIcon: Icons.keyboard_alt_outlined,
+          inactiveIcon: Icons.keyboard_hide_outlined,
+          activeTooltip: 'Liberar mouse e teclado do cliente (Ctrl+Shift+B)',
+          inactiveTooltip: 'Bloquear mouse e teclado do cliente (Ctrl+Shift+B)',
+          onPressed: () => _runShortcut(tgdeskActionBlockInput),
+        ),
+        TgdeskToolbarAction(
+          active: _drawingOn,
+          activeIcon: Icons.edit_off_outlined,
+          inactiveIcon: Icons.draw_outlined,
+          activeTooltip: 'Encerrar anotação (Ctrl+Shift+D)',
+          inactiveTooltip: 'Anotar na tela do cliente (Ctrl+Shift+D)',
+          onPressed: () => _runShortcut(tgdeskActionDrawing),
+        ),
+        TgdeskToolbarAction(
+          active: _clipboardOn,
+          activeIcon: Icons.content_paste_go_outlined,
+          inactiveIcon: Icons.content_paste_off_outlined,
+          activeTooltip: 'Desativar copiar e colar (Ctrl+Shift+C)',
+          inactiveTooltip: 'Ativar copiar e colar (Ctrl+Shift+C)',
+          onPressed: () => _runShortcut(tgdeskActionClipboard),
+        ),
+        TgdeskToolbarAction(
+          active: _fileTransferOn,
+          activeIcon: Icons.file_copy_outlined,
+          inactiveIcon: Icons.folder_off_outlined,
+          activeTooltip: 'Desativar transferência de arquivos (Ctrl+Shift+F)',
+          inactiveTooltip: 'Ativar transferência de arquivos (Ctrl+Shift+F)',
+          onPressed: () => _runShortcut(tgdeskActionFileTransfer),
+        ),
+      ];
+
+  /// O que sobrou do menu: diagnóstico não é um comando que se liga e desliga,
+  /// é uma janela que se abre. Botão de estado seria mentira para ele.
   Widget _tgdeskToolbarMenu(BuildContext context) => PopupMenuButton<String>(
         tooltip: 'Ferramentas TGDesk',
         icon: const Icon(Icons.build_circle_outlined, size: 20),
         onSelected: (value) {
-          switch (value) {
-            case 'diagnostics':
-              showDialog<void>(
-                context: context,
-                barrierDismissible: false,
-                builder: (_) => DiagnosticDialog(
-                  deviceId: widget.deviceId,
-                  deviceName: widget.hostname,
-                  online: true,
-                ),
-              );
-              break;
-            case 'block_input':
-              _toggleInputBlock();
-              break;
-            case 'drawing':
-              _toggleDrawing();
-              break;
-            case 'clipboard':
-              _toggleClipboard();
-              break;
-            case 'file_transfer':
-              _toggleFileTransfer();
-              break;
+          if (value == 'diagnostics') {
+            showDialog<void>(
+              context: context,
+              barrierDismissible: false,
+              builder: (_) => DiagnosticDialog(
+                deviceId: widget.deviceId,
+                deviceName: widget.hostname,
+                online: true,
+              ),
+            );
           }
         },
         itemBuilder: (_) => [
@@ -531,51 +587,6 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
             child: _MenuEntry(
               icon: Icons.science_outlined,
               text: 'Diagnósticos do dispositivo',
-            ),
-          ),
-          PopupMenuItem<String>(
-            value: 'block_input',
-            child: _MenuEntry(
-              icon: _inputBlocked.isTrue
-                  ? Icons.keyboard_alt_outlined
-                  : Icons.keyboard_hide_outlined,
-              text: _inputBlocked.isTrue
-                  ? 'Liberar mouse e teclado do cliente'
-                  : 'Bloquear mouse e teclado do cliente',
-              shortcut: 'Ctrl+Shift+B',
-            ),
-          ),
-          PopupMenuItem<String>(
-            value: 'drawing',
-            child: _MenuEntry(
-              icon: _drawing ? Icons.edit_off_outlined : Icons.draw_outlined,
-              text:
-                  _drawing ? 'Encerrar anotação' : 'Anotar na tela do cliente',
-              shortcut: 'Ctrl+Shift+D',
-            ),
-          ),
-          PopupMenuItem<String>(
-            value: 'clipboard',
-            child: _MenuEntry(
-              icon: _clipboardEnabled
-                  ? Icons.content_paste_go_outlined
-                  : Icons.content_paste_off_outlined,
-              text: _clipboardEnabled
-                  ? 'Desativar copiar e colar'
-                  : 'Ativar copiar e colar',
-              shortcut: 'Ctrl+Shift+C',
-            ),
-          ),
-          PopupMenuItem<String>(
-            value: 'file_transfer',
-            child: _MenuEntry(
-              icon: _fileTransferEnabled
-                  ? Icons.file_copy_outlined
-                  : Icons.folder_off_outlined,
-              text: _fileTransferEnabled
-                  ? 'Desativar transferência de arquivos'
-                  : 'Ativar transferência de arquivos',
-              shortcut: 'Ctrl+Shift+F',
             ),
           ),
         ],
@@ -638,6 +649,7 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
                 tgdeskShortcutHandler: _handleTgdeskShortcut,
                 tgdeskCaptureSystemKeys: _captureSystemKeys,
                 tgdeskToggleSystemKeys: _toggleSystemKeys,
+                tgdeskActions: _toolbarActions(),
                 tgdeskCloseSession: () {
                   _notify('Sessão remota encerrada');
                   RemoteSessionsManager.instance.close(widget.deviceId);
@@ -645,53 +657,67 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
               ),
             ),
           ),
-          if (_drawing)
-            Positioned.fill(
-              child: LayoutBuilder(
-                builder: (context, constraints) => GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onPanStart: (event) =>
-                      _startStroke(event, constraints.biggest),
-                  onPanUpdate: (event) =>
-                      _continueStroke(event, constraints.biggest),
-                  onPanEnd: (_) => _lastPoint = null,
-                  child: CustomPaint(
-                    painter: _AnnotationPainter(_segments),
-                  ),
-                ),
-              ),
-            ),
-          if (_inputBlocked.isTrue)
-            Positioned(
-              right: 14,
-              bottom: 14,
-              child: _StatusChip(
-                icon: Icons.keyboard_hide_outlined,
-                text: 'Entrada do cliente bloqueada',
-                color: const Color(0xffffb020),
-                onTap: _toggleInputBlock,
-              ),
-            ),
-          if (_drawing) _drawingToolbar(),
-          if (_clipboardEnabled || _fileTransferEnabled)
-            Positioned(
-              left: 14,
-              bottom: 14,
-              child: _StatusChip(
-                icon: _fileTransferEnabled
-                    ? Icons.file_copy_outlined
-                    : Icons.content_paste_go_outlined,
-                text: _clipboardEnabled && _fileTransferEnabled
-                    ? 'Copiar, colar e arquivos ativos'
-                    : _fileTransferEnabled
-                        ? 'Transferência de arquivos ativa'
-                        : 'Copiar e colar ativo',
-                color: const Color(0xff35a7ff),
-                onTap: _fileTransferEnabled
-                    ? _toggleFileTransfer
-                    : _toggleClipboard,
-              ),
-            ),
+          // Camada de sobreposição num Obx só: os comandos agora vivem em
+          // observáveis, porque o mesmo estado é lido daqui e dos botões do
+          // toolbar, que são construídos lá dentro da RemotePage. Um setState
+          // desta classe não alcançaria os dois.
+          Positioned.fill(
+            child: Obx(() {
+              final drawing = _drawingOn.value;
+              final clipboard = _clipboardOn.value;
+              final files = _fileTransferOn.value;
+              return Stack(
+                fit: StackFit.expand,
+                children: [
+                  if (drawing)
+                    Positioned.fill(
+                      child: LayoutBuilder(
+                        builder: (context, constraints) => GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onPanStart: (event) =>
+                              _startStroke(event, constraints.biggest),
+                          onPanUpdate: (event) =>
+                              _continueStroke(event, constraints.biggest),
+                          onPanEnd: (_) => _lastPoint = null,
+                          child: CustomPaint(
+                            painter: _AnnotationPainter(_segments),
+                          ),
+                        ),
+                      ),
+                    ),
+                  if (_inputBlocked.value)
+                    Positioned(
+                      right: 14,
+                      bottom: 14,
+                      child: _StatusChip(
+                        icon: Icons.keyboard_hide_outlined,
+                        text: 'Entrada do cliente bloqueada',
+                        color: const Color(0xffffb020),
+                        onTap: _toggleInputBlock,
+                      ),
+                    ),
+                  if (drawing) _drawingToolbar(),
+                  if (clipboard || files)
+                    Positioned(
+                      left: 14,
+                      bottom: 14,
+                      child: _StatusChip(
+                        icon: files
+                            ? Icons.file_copy_outlined
+                            : Icons.content_paste_go_outlined,
+                        text: clipboard && files
+                            ? 'Copiar, colar e arquivos ativos'
+                            : files
+                                ? 'Transferência de arquivos ativa'
+                                : 'Copiar e colar ativo',
+                        color: const Color(0xff35a7ff),
+                        onTap: files ? _toggleFileTransfer : _toggleClipboard,
+                      ),
+                    ),
+                ],
+              );
+            }),
+          ),
         ],
       ),
     );
@@ -804,22 +830,18 @@ class _AnnotationPainter extends CustomPainter {
   bool shouldRepaint(covariant _AnnotationPainter oldDelegate) => true;
 }
 
+/// Os comandos com atalho saíram do menu e viraram botão; o que sobra aqui não
+/// tem acorde para mostrar.
 class _MenuEntry extends StatelessWidget {
-  const _MenuEntry(
-      {required this.icon, required this.text, this.shortcut = ''});
+  const _MenuEntry({required this.icon, required this.text});
   final IconData icon;
   final String text;
-  final String shortcut;
 
   @override
   Widget build(BuildContext context) => Row(children: [
         Icon(icon),
         const SizedBox(width: 12),
         Expanded(child: Text(text)),
-        if (shortcut.isNotEmpty) ...[
-          const SizedBox(width: 20),
-          Text(shortcut, style: Theme.of(context).textTheme.labelSmall),
-        ],
       ]);
 }
 

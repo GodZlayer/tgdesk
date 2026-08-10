@@ -14,7 +14,7 @@ use hbb_common::message_proto::*;
 use rdev::KeyCode;
 use rdev::{Event, EventType, Key};
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::{
     collections::HashMap,
     sync::{Arc, Mutex},
@@ -45,12 +45,51 @@ static EXIT_SHORTCUT_KEY_DOWN: AtomicBool = AtomicBool::new(false);
 // Native escape chord for TGDesk/Parsec-style system-key capture. It must be
 // handled in the rdev grab loop because the remote canvas owns focus after a
 // click and can consume the key before Flutter receives it.
+/// Os acordes Ctrl+Shift+<tecla> do TGDesk e o nome que cada um leva ao Dart.
+///
+/// A tabela é a fonte única: a camada C++ (hook de baixo nível), o laço do rdev
+/// e o caminho de entrada do Flutter consultam esta mesma lista. Antes só o
+/// Ctrl+Shift+I existia, escrito à mão em cada uma dessas três camadas — e
+/// bastava uma delas não enxergar a tecla para o atalho sumir sem explicação.
 #[cfg(all(feature = "flutter", target_os = "windows"))]
-static TGDESK_SYSTEM_KEYS_SHORTCUT_DOWN: AtomicBool = AtomicBool::new(false);
+pub const TGDESK_SHORTCUTS: &[(i32, &str)] = &[
+    (0x49, "system_keys"),   // I — devolve Alt+Tab e afins ao computador local
+    (0x42, "block_input"),   // B — bloqueia teclado e mouse do cliente
+    (0x44, "drawing"),       // D — anotação na tela
+    (0x43, "clipboard"),     // C — copiar e colar
+    (0x46, "file_transfer"), // F — transferência de arquivos
+];
+
+#[cfg(all(feature = "flutter", target_os = "windows"))]
+#[inline]
+pub fn tgdesk_shortcut_name(vk: i32) -> Option<&'static str> {
+    TGDESK_SHORTCUTS
+        .iter()
+        .find(|(code, _)| *code == vk)
+        .map(|(_, name)| *name)
+}
+
+/// Quais acordes estão com a tecla pressionada agora.
+///
+/// Cada camada dispara ao ver a tecla descer, e mais de uma pode ver a mesma
+/// descida. O bit por tecla faz a primeira ganhar e as outras calarem, até a
+/// soltura — sem isso o mesmo toque alternaria o estado duas vezes e pareceria
+/// que o atalho não faz nada.
+#[cfg(all(feature = "flutter", target_os = "windows"))]
+static TGDESK_SHORTCUT_DOWN: AtomicU32 = AtomicU32::new(0);
 #[cfg(all(feature = "flutter", target_os = "windows"))]
 static TGDESK_RAW_CTRL_DOWN: AtomicBool = AtomicBool::new(false);
 #[cfg(all(feature = "flutter", target_os = "windows"))]
 static TGDESK_RAW_SHIFT_DOWN: AtomicBool = AtomicBool::new(false);
+
+#[cfg(all(feature = "flutter", target_os = "windows"))]
+#[inline]
+fn tgdesk_shortcut_bit(vk: i32) -> u32 {
+    match TGDESK_SHORTCUTS.iter().position(|(code, _)| *code == vk) {
+        Some(index) => 1u32 << index,
+        None => 0,
+    }
+}
 
 /// Entry point for the Windows low-level hook fallback. The rdev grab loop is
 /// normally the first layer to see the chord, but the Windows hook also calls
@@ -58,38 +97,79 @@ static TGDESK_RAW_SHIFT_DOWN: AtomicBool = AtomicBool::new(false);
 /// the event. Dart receives the same global event and suppresses duplicates.
 #[cfg(all(feature = "flutter", target_os = "windows"))]
 #[no_mangle]
-pub extern "C" fn rustdesk_tgdesk_system_key_shortcut() {
-    if !TGDESK_SYSTEM_KEYS_SHORTCUT_DOWN.swap(true, Ordering::SeqCst) {
-        let _ = crate::flutter::push_global_event(
-            crate::flutter::APP_TYPE_MAIN,
-            r#"{"name":"tgdesk_system_keys_toggle"}"#.to_string(),
-        );
+pub extern "C" fn rustdesk_tgdesk_shortcut(vk: i32) {
+    let bit = tgdesk_shortcut_bit(vk);
+    if bit == 0 {
+        return;
     }
+    if TGDESK_SHORTCUT_DOWN.fetch_or(bit, Ordering::SeqCst) & bit != 0 {
+        return;
+    }
+    let Some(name) = tgdesk_shortcut_name(vk) else {
+        return;
+    };
+    let _ = crate::flutter::push_global_event(
+        crate::flutter::APP_TYPE_MAIN,
+        format!(r#"{{"name":"tgdesk_shortcut","action":"{}"}}"#, name),
+    );
 }
 
 #[cfg(all(feature = "flutter", target_os = "windows"))]
 #[no_mangle]
-pub extern "C" fn rustdesk_tgdesk_system_key_shortcut_release() {
-    TGDESK_SYSTEM_KEYS_SHORTCUT_DOWN.store(false, Ordering::SeqCst);
+pub extern "C" fn rustdesk_tgdesk_shortcut_release(vk: i32) {
+    let bit = tgdesk_shortcut_bit(vk);
+    if bit != 0 {
+        TGDESK_SHORTCUT_DOWN.fetch_and(!bit, Ordering::SeqCst);
+    }
+}
+
+#[cfg(all(feature = "flutter", target_os = "windows"))]
+#[inline]
+pub fn is_tgdesk_shortcut_down(vk: i32) -> bool {
+    let bit = tgdesk_shortcut_bit(vk);
+    bit != 0 && TGDESK_SHORTCUT_DOWN.load(Ordering::SeqCst) & bit != 0
+}
+
+/// A mesma tabela vista pelo laço do rdev, que fala em [Key] e não em VK.
+#[cfg(all(feature = "flutter", target_os = "windows"))]
+#[inline]
+fn tgdesk_shortcut_vk(key: Key) -> Option<i32> {
+    match key {
+        Key::KeyI => Some(0x49),
+        Key::KeyB => Some(0x42),
+        Key::KeyD => Some(0x44),
+        Key::KeyC => Some(0x43),
+        Key::KeyF => Some(0x46),
+        _ => None,
+    }
 }
 
 #[cfg(all(feature = "flutter", target_os = "windows"))]
 pub fn handle_tgdesk_raw_shortcut(platform_code: i32, down: bool) -> bool {
     match platform_code {
-        16 | 160 | 161 => TGDESK_RAW_SHIFT_DOWN.store(down, Ordering::SeqCst),
-        17 | 162 | 163 => TGDESK_RAW_CTRL_DOWN.store(down, Ordering::SeqCst),
-        73 if down
-            && TGDESK_RAW_CTRL_DOWN.load(Ordering::SeqCst)
-            && TGDESK_RAW_SHIFT_DOWN.load(Ordering::SeqCst) =>
-        {
-            rustdesk_tgdesk_system_key_shortcut();
-            return true;
+        16 | 160 | 161 => {
+            TGDESK_RAW_SHIFT_DOWN.store(down, Ordering::SeqCst);
+            return false;
         }
-        73 if !down && TGDESK_SYSTEM_KEYS_SHORTCUT_DOWN.load(Ordering::SeqCst) => {
-            rustdesk_tgdesk_system_key_shortcut_release();
-            return true;
+        17 | 162 | 163 => {
+            TGDESK_RAW_CTRL_DOWN.store(down, Ordering::SeqCst);
+            return false;
         }
         _ => {}
+    }
+    if tgdesk_shortcut_bit(platform_code) == 0 {
+        return false;
+    }
+    if down
+        && TGDESK_RAW_CTRL_DOWN.load(Ordering::SeqCst)
+        && TGDESK_RAW_SHIFT_DOWN.load(Ordering::SeqCst)
+    {
+        rustdesk_tgdesk_shortcut(platform_code);
+        return true;
+    }
+    if !down && is_tgdesk_shortcut_down(platform_code) {
+        rustdesk_tgdesk_shortcut_release(platform_code);
+        return true;
     }
     false
 }
@@ -673,23 +753,19 @@ fn start_grab_loop() {
 
             #[cfg(all(feature = "flutter", target_os = "windows"))]
             {
-                let (ctrl, shift, _, _) = client::get_modifiers_state(false, false, false, false);
-                if key == Key::KeyI && is_press && ctrl && shift {
-                    // Keep the chord out of the remote peer and notify the
-                    // active TGDesk session through Flutter's event stream.
-                    if !TGDESK_SYSTEM_KEYS_SHORTCUT_DOWN.swap(true, Ordering::SeqCst) {
-                        let _ = crate::flutter::push_global_event(
-                            crate::flutter::APP_TYPE_MAIN,
-                            r#"{"name":"tgdesk_system_keys_toggle"}"#.to_string(),
-                        );
+                if let Some(vk) = tgdesk_shortcut_vk(key) {
+                    let (ctrl, shift, _, _) =
+                        client::get_modifiers_state(false, false, false, false);
+                    if is_press && ctrl && shift {
+                        // Keep the chord out of the remote peer and notify the
+                        // active TGDesk session through Flutter's event stream.
+                        rustdesk_tgdesk_shortcut(vk);
+                        return None;
                     }
-                    return None;
-                }
-                if key == Key::KeyI
-                    && !is_press
-                    && TGDESK_SYSTEM_KEYS_SHORTCUT_DOWN.swap(false, Ordering::SeqCst)
-                {
-                    return None;
+                    if !is_press && is_tgdesk_shortcut_down(vk) {
+                        rustdesk_tgdesk_shortcut_release(vk);
+                        return None;
+                    }
                 }
             }
 

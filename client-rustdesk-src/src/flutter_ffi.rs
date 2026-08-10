@@ -662,16 +662,22 @@ pub fn session_input_key(
         // never sees Ctrl+Shift+I. This is the final input path before a key
         // is sent to the peer, so consume the chord here and route it through
         // the same global event used by the native hook.
-        let is_i = name.eq_ignore_ascii_case("VK_I")
-            || name.eq_ignore_ascii_case("I")
-            || name.eq_ignore_ascii_case("KeyI");
-        if is_i && down && ctrl && shift {
-            crate::keyboard::rustdesk_tgdesk_system_key_shortcut();
-            return;
-        }
-        if is_i && !down && !press {
-            crate::keyboard::rustdesk_tgdesk_system_key_shortcut_release();
-            return;
+        let letter = name
+            .trim_start_matches("VK_")
+            .trim_start_matches("vk_")
+            .trim_start_matches("Key")
+            .chars()
+            .next()
+            .map(|c| c.to_ascii_uppercase() as i32);
+        if let Some(vk) = letter.filter(|vk| crate::keyboard::tgdesk_shortcut_name(*vk).is_some()) {
+            if down && ctrl && shift {
+                crate::keyboard::rustdesk_tgdesk_shortcut(vk);
+                return;
+            }
+            if !down && !press && crate::keyboard::is_tgdesk_shortcut_down(vk) {
+                crate::keyboard::rustdesk_tgdesk_shortcut_release(vk);
+                return;
+            }
         }
     }
     if let Some(session) = sessions::get_session_by_session_id(&session_id) {

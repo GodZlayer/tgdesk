@@ -53,6 +53,7 @@ class RemotePage extends StatefulWidget {
     this.tgdeskShortcutHandler,
     this.tgdeskCaptureSystemKeys,
     this.tgdeskToggleSystemKeys,
+    this.tgdeskActions = const [],
   }) : super(key: key) {
     initSharedStates(id);
   }
@@ -74,6 +75,7 @@ class RemotePage extends StatefulWidget {
   final KeyEventResult Function(KeyEvent event)? tgdeskShortcutHandler;
   final RxBool? tgdeskCaptureSystemKeys;
   final VoidCallback? tgdeskToggleSystemKeys;
+  final List<TgdeskToolbarAction> tgdeskActions;
   final SimpleWrapper<State<RemotePage>?> _lastState = SimpleWrapper(null);
   final DesktopTabController? tabController;
 
@@ -110,7 +112,8 @@ class _RemotePageState extends State<RemotePage>
   // preso, Alt+Tab e a tecla Windows deixam de funcionar na máquina do
   // técnico, e isso precisa ser escolha dele, não estado inicial.
   final RxBool _captureSystemKeys = false.obs;
-  bool _systemKeyShortcutActive = false;
+  // Tecla do último acorde TGDesk consumido, para engolir também a soltura.
+  LogicalKeyboardKey? _tgdeskShortcutKeyDown;
   final _uniqueKey = UniqueKey();
 
   var _blockableOverlayState = BlockableOverlayState();
@@ -310,11 +313,14 @@ class _RemotePageState extends State<RemotePage>
     }
     final tgdeskShortcut = widget.tgdeskShortcutHandler?.call(event);
     if (tgdeskShortcut != null && tgdeskShortcut != KeyEventResult.ignored) {
+      // A soltura da tecla do acorde tem que morrer aqui também. Enviada ao
+      // peer sozinha, ela chega como um "key up" sem o "key down" que nunca
+      // foi — e a máquina remota fica com a tecla presa.
+      _tgdeskShortcutKeyDown = event.logicalKey;
       return tgdeskShortcut;
     }
-    if (_systemKeyShortcutActive &&
-        event.logicalKey == LogicalKeyboardKey.keyI) {
-      if (event is KeyUpEvent) _systemKeyShortcutActive = false;
+    if (_tgdeskShortcutKeyDown == event.logicalKey) {
+      if (event is KeyUpEvent) _tgdeskShortcutKeyDown = null;
       return KeyEventResult.handled;
     }
     if (event is! KeyDownEvent) return KeyEventResult.ignored;
@@ -345,14 +351,11 @@ class _RemotePageState extends State<RemotePage>
       );
       return KeyEventResult.handled;
     }
-    if (event.logicalKey != LogicalKeyboardKey.keyI ||
-        !keyboard.isControlPressed ||
-        !keyboard.isShiftPressed) {
-      return KeyEventResult.ignored;
-    }
-    _systemKeyShortcutActive = true;
-    _toggleSystemKeyCapture();
-    return KeyEventResult.handled;
+    // O Ctrl+Shift+I tinha um segundo tratamento aqui, à parte do que a sessão
+    // TGDesk faz. Dois donos do mesmo acorde alternavam o estado duas vezes no
+    // mesmo toque, e o atalho parecia não fazer nada. Quem manda nos comandos
+    // é o handler da sessão, logo acima.
+    return KeyEventResult.ignored;
   }
 
   @override
@@ -552,6 +555,7 @@ class _RemotePageState extends State<RemotePage>
           tgdeskCloseSession: widget.tgdeskCloseSession,
           captureSystemKeys: _systemKeysCapture,
           toggleSystemKeys: _toggleSystemKeyCapture,
+          tgdeskActions: widget.tgdeskActions,
         );
 
     bodyWidget() {

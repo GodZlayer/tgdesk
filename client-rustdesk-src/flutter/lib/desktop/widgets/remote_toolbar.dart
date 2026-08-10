@@ -451,6 +451,7 @@ class RemoteToolbar extends StatefulWidget {
   final VoidCallback? tgdeskCloseSession;
   final RxBool? captureSystemKeys;
   final VoidCallback? toggleSystemKeys;
+  final List<TgdeskToolbarAction> tgdeskActions;
 
   RemoteToolbar({
     Key? key,
@@ -465,6 +466,7 @@ class RemoteToolbar extends StatefulWidget {
     this.tgdeskCloseSession,
     this.captureSystemKeys,
     this.toggleSystemKeys,
+    this.tgdeskActions = const [],
   }) : super(key: key);
 
   @override
@@ -861,6 +863,11 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
         captureSystemKeys: widget.captureSystemKeys!,
         onPressed: widget.toggleSystemKeys!,
       ));
+    }
+    if (widget.tgdeskMode) {
+      for (final action in widget.tgdeskActions) {
+        toolbarItems.add(_TgdeskActionButton(action: action));
+      }
     }
     if (widget.tgdeskMode && widget.tgdeskMenuBuilder != null) {
       toolbarItems.add(widget.tgdeskMenuBuilder!(context));
@@ -2812,6 +2819,56 @@ class _CloseMenu extends StatelessWidget {
       color: _ToolbarTheme.redColor,
       hoverColor: _ToolbarTheme.hoverRedColor,
     );
+  }
+}
+
+/// Um comando do TGDesk com botão próprio no toolbar flutuante.
+///
+/// Estava tudo dentro de um menu suspenso: para bloquear o teclado do cliente
+/// era preciso abrir o menu, achar a linha e ler o texto. Comando de sessão é
+/// coisa de apertar no meio do atendimento — e o botão também é onde o técnico
+/// vê se o comando está ligado, o que um item de menu fechado nunca mostra.
+class TgdeskToolbarAction {
+  const TgdeskToolbarAction({
+    required this.active,
+    required this.activeIcon,
+    required this.inactiveIcon,
+    required this.activeTooltip,
+    required this.inactiveTooltip,
+    required this.onPressed,
+  });
+
+  final RxBool active;
+  final IconData activeIcon;
+  final IconData inactiveIcon;
+  final String activeTooltip;
+  final String inactiveTooltip;
+  final VoidCallback onPressed;
+}
+
+class _TgdeskActionButton extends StatelessWidget {
+  const _TgdeskActionButton({required this.action});
+
+  final TgdeskToolbarAction action;
+
+  @override
+  Widget build(BuildContext context) {
+    return Obx(() {
+      final on = action.active.value;
+      return _IconMenuButton(
+        icon: Icon(
+          on ? action.activeIcon : action.inactiveIcon,
+          size: _ToolbarTheme.buttonSize,
+          color: Colors.white,
+        ),
+        tooltip: on ? action.activeTooltip : action.inactiveTooltip,
+        onPressed: action.onPressed,
+        color: on ? _ToolbarTheme.blueColor : _ToolbarTheme.inactiveColor,
+        hoverColor: on
+            ? _ToolbarTheme.hoverBlueColor
+            : _ToolbarTheme.hoverInactiveColor,
+      );
+    });
   }
 }
 

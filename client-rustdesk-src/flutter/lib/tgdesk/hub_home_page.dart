@@ -91,10 +91,12 @@ class _HubHomePageState extends State<HubHomePage> {
     _control.addListener(_onControl);
     TgdeskApi.addDeviceEventListener(_onDeviceEvent);
     platformFFI.registerEventHandler(
-      tgdeskSystemKeysShortcutEvent,
-      'tgdesk-hub-system-keys',
-      (_) async {
-        await RemoteSessionsManager.instance.handleNativeSystemKeysShortcut();
+      tgdeskShortcutEvent,
+      'tgdesk-hub-shortcuts',
+      (evt) async {
+        final action = evt['action']?.toString();
+        if (action == null || action.isEmpty) return;
+        await RemoteSessionsManager.instance.handleNativeShortcut(action);
       },
       replace: true,
     );
@@ -123,7 +125,7 @@ class _HubHomePageState extends State<HubHomePage> {
     _control.removeListener(_onControl);
     TgdeskApi.removeDeviceEventListener(_onDeviceEvent);
     platformFFI.unregisterEventHandler(
-        tgdeskSystemKeysShortcutEvent, 'tgdesk-hub-system-keys');
+        tgdeskShortcutEvent, 'tgdesk-hub-shortcuts');
     super.dispose();
   }
 
