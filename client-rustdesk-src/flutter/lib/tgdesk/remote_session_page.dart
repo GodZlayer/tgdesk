@@ -465,9 +465,11 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
   /// deslocamento do canvas. Se `canvas y` for a altura do botão flutuante, a
   /// faixa é da conta que centraliza a imagem, e o Windows está inocente.
   Widget _fullscreenProbePanel() {
+    // No canto SUPERIOR esquerdo: embaixo ele saía cortado, o que por si já
+    // era um dado — o conteúdo passa do fim da janela visível.
     return Positioned(
       left: 16,
-      bottom: 16,
+      top: 56,
       child: Obx(() {
         if (stateGlobal.fullscreen.isFalse) return const SizedBox.shrink();
         final view = MediaQueryData.fromView(ui.window);
@@ -498,6 +500,48 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
                       '   escala ${n(canvas?.scale)}'),
                   Text('remoto  ${canvas?.getDisplayWidth()} x'
                       ' ${canvas?.getDisplayHeight()}'),
+                  // A diferença entre a view e o canvas é a moldura do Hub que
+                  // sobrou. Em tela cheia deveria ser zero nos dois eixos.
+                  Text(
+                      'moldura ${n(view.size.width - (canvas?.size.width ?? 0))}'
+                      ' x ${n(view.size.height - (canvas?.size.height ?? 0))}'),
+                ],
+              ),
+            ),
+          ),
+        );
+      }),
+    );
+  }
+
+  /// TEMPORÁRIO — o mesmo painel, mas dentro da moldura do Hub, para saber se
+  /// ela colapsou. Fica no topo direito porque a esquerda já está ocupada.
+  Widget _fullscreenChromeProbe() {
+    return Positioned(
+      right: 16,
+      top: 56,
+      child: Obx(() {
+        final cheia = stateGlobal.fullscreen.value;
+        if (!cheia) return const SizedBox.shrink();
+        return Material(
+          color: const Color(0xcc000000),
+          borderRadius: BorderRadius.circular(6),
+          child: Padding(
+            padding: const EdgeInsets.all(10),
+            child: DefaultTextStyle(
+              style: const TextStyle(
+                  color: Colors.white,
+                  fontSize: 12,
+                  fontFamily: 'monospace',
+                  decoration: TextDecoration.none),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text('fullscreen  $cheia'),
+                  Text('embedded    ${widget.embedded}'),
+                  Text('aba ativa   '
+                      '${RemoteSessionsManager.instance.activeIndex}'),
                 ],
               ),
             ),
@@ -804,6 +848,7 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
           ),
           // TEMPORÁRIO — ver _fullscreenProbePanel.
           _fullscreenProbePanel(),
+          _fullscreenChromeProbe(),
         ],
       ),
     );

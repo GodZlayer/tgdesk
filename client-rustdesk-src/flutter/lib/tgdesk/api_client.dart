@@ -298,6 +298,17 @@ class TgdeskApi {
   static Future<List<dynamic>> devices() async =>
       await _send('GET', '/api/v1/devices') as List<dynamic>;
 
+  /// Servidores de serviço já promovidos e candidatos ainda dentro da janela.
+  /// A janela vem junto na resposta para a tela nunca precisar assumir um prazo
+  /// que o servidor pode ter mudado.
+  static Future<Map<String, dynamic>> crmDevices() async =>
+      await _send('GET', '/api/v1/admin/crm/devices') as Map<String, dynamic>;
+
+  static Future<void> setCrmTier(String deviceId, bool enabled) async {
+    await _send('PUT', '/api/v1/admin/devices/$deviceId/crm-tier',
+        body: {'enabled': enabled});
+  }
+
   static Future<String> remoteCredential(String deviceId) async {
     final response =
         await _send('GET', '/api/v1/devices/$deviceId/remote-credential')

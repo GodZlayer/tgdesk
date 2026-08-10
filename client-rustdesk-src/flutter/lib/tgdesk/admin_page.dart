@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'dart:math' as math;
 
 import 'admin_catalog_page.dart';
+import 'admin_crm_services_tab.dart';
 import 'admin_os_catalog_tab.dart';
 import 'admin_regions_tab.dart';
 import 'api_client.dart';
@@ -49,6 +50,11 @@ class _AdminDashboardState extends State<AdminPage> {
       subtitle: 'Organiza\u{00e7}\u{00f5}es, redes e pessoas',
       icon: Icons.account_tree_outlined
     ),
+    (
+      title: 'Servi\u{00e7}os / CRM',
+      subtitle: 'M\u{00e1}quinas-servidor dentro da VPN',
+      icon: Icons.dns_outlined
+    ),
   ];
 
   Widget _content() {
@@ -65,6 +71,8 @@ class _AdminDashboardState extends State<AdminPage> {
         return const _FeesEditor();
       case 5:
         return const _LinkedEditor();
+      case 6:
+        return const AdminCrmServicesTab();
       default:
         return const _LinkedEditor();
     }
@@ -274,6 +282,14 @@ class _AdminPageState extends State<_LegacyAdminPage> {
           'Organizações, redes, técnicos, supervisores e dispositivos no mesmo mapa operacional.',
       icon: Icons.account_tree_outlined,
       builder: (_) => const _LinkedEditor(),
+    ),
+    _AdminSection(
+      key: 'crm_services',
+      title: 'Serviços / CRM',
+      description:
+          'Máquinas-servidor que vivem dentro da VPN e podem ser alcançadas por qualquer dispositivo que peça.',
+      icon: Icons.dns_outlined,
+      builder: (_) => const AdminCrmServicesTab(),
     ),
     _AdminSection(
       key: 'quotas',

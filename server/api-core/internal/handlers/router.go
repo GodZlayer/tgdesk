@@ -89,6 +89,15 @@ func NewRouter(s *Server) http.Handler {
 	mux.Handle("POST /api/v1/devices/rustdesk-id", private(http.HandlerFunc(s.ReportRustdeskID)))
 	mux.Handle("POST /api/v1/devices/telemetry", private(http.HandlerFunc(s.ReportTelemetry)))
 	mux.Handle("GET /ws/presence", private(http.HandlerFunc(s.PresenceWS)))
+	// Ingresso em servidor de serviço (tier 'crm'). private() porque o pedido
+	// pressupõe túnel — é o caminho cliente→hub, o único que já está aberto
+	// antes de existir subrede compartilhada. Autenticado por device_id +
+	// device_token no corpo, como os demais endpoints de dispositivo.
+	mux.Handle("POST /api/v1/crm/join", private(http.HandlerFunc(s.CRMJoin)))
+	mux.Handle("GET /api/v1/admin/crm/devices", admin(s.ListCRMDevices))
+	mux.Handle("PUT /api/v1/admin/devices/{id}/crm-tier", admin(func(w http.ResponseWriter, r *http.Request) {
+		s.SetCRMTier(w, r, r.PathValue("id"))
+	}))
 
 	// Autenticado — qualquer técnico (RBAC aplicado dentro do handler).
 	mux.Handle("POST /api/v1/pairing/bind", private(auth(http.HandlerFunc(s.Bind))))

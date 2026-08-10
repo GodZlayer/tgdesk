@@ -739,6 +739,9 @@ extern "C"
     // Tem de ser NESTA thread: o callback de um WH_KEYBOARD_LL roda na thread
     // que o registrou, e ela é a única aqui que bombeia mensagens.
     constexpr UINT TGDESK_WM_REHOOK = WM_APP + 1;
+    // Sonda periódica do acorde de saída — ver keyboard_thread.
+    constexpr UINT_PTR TGDESK_PROBE_TIMER_ID = 0x5450;
+    static bool tgdesk_probe_combo_down = false;
     static bool tgdesk_ctrl_left_down = false;
     static bool tgdesk_ctrl_right_down = false;
     static bool tgdesk_shift_left_down = false;
@@ -883,11 +886,41 @@ extern "C"
             RegisterHotKey(NULL, TGDESK_SYSTEM_KEYS_HOTKEY_ID + (int)i,
                            MOD_CONTROL | MOD_SHIFT, tgdesk_shortcut_keys[i]);
         }
+        // Sonda do Ctrl+Shift+I, fora da disputa de ganchos.
+        //
+        // Enquanto os atalhos estão indo para a máquina remota, o gancho do
+        // rdev fica na frente do nosso e consome as teclas antes que cheguem
+        // aqui. Reinstalar o nosso resolve até o rdev reinstalar o dele: é uma
+        // corrida que não dá para vencer de forma confiável, e era ela que
+        // deixava o Ctrl+Shift+I sem funcionar justamente no estado em que ele
+        // é a única saída.
+        //
+        // GetAsyncKeyState lê o estado FÍSICO do teclado. Nenhum gancho, de
+        // ninguém, altera essa leitura — não há corrida para vencer. 25ms é
+        // rápido para a mão e barato para o processador.
+        SetTimer(NULL, TGDESK_PROBE_TIMER_ID, 25, NULL);
+
         // If something goes wrong then there is not much we can do.
         // Just sit around and wait for WM_QUIT...
 
         while (GetMessage(&msg, NULL, 0, 0))
         {
+            if (msg.message == WM_TIMER && msg.wParam == TGDESK_PROBE_TIMER_ID)
+            {
+                const bool combo =
+                    stop_system_key_propagate &&
+                    (GetAsyncKeyState(VK_CONTROL) & 0x8000) != 0 &&
+                    (GetAsyncKeyState(VK_SHIFT) & 0x8000) != 0 &&
+                    (GetAsyncKeyState('I') & 0x8000) != 0;
+                // Só na descida: a sonda vê o acorde enquanto os dedos
+                // estiverem nas teclas, e sem isto ele dispararia em rajada.
+                if (combo && !tgdesk_probe_combo_down)
+                {
+                    rustdesk_tgdesk_shortcut('I');
+                }
+                tgdesk_probe_combo_down = combo;
+                continue;
+            }
             if (msg.message == TGDESK_WM_REHOOK)
             {
                 if (hook)
@@ -908,6 +941,7 @@ extern "C"
             }
         }
 
+        KillTimer(NULL, TGDESK_PROBE_TIMER_ID);
         for (size_t i = 0; i < ARRAY_SIZE(tgdesk_shortcut_keys); ++i)
         {
             UnregisterHotKey(NULL, TGDESK_SYSTEM_KEYS_HOTKEY_ID + (int)i);
