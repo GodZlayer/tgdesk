@@ -3,7 +3,7 @@
 ; uso único validada pelo servidor dentro do próprio TGDesk.
 
 #define MyAppName "TGDesk"
-#define MyAppVersion "1.2.45"
+#define MyAppVersion "1.2.46"
 #define MyAppPublisher "TGDesk"
 #ifndef TGDeskServerHost
   #define TGDeskServerHost "127.0.0.1"
@@ -27,7 +27,7 @@ OutputDir=.\output
 ; esta linha por texto exato para garantir que o instalador esta identificado
 ; com a versao publicada. Derivar aqui apagaria essa verificacao. As duas
 ; versoes deste arquivo sobem juntas, no passo 1 do fluxo de release.
-OutputBaseFilename=tgdesk-installer-1.2.45
+OutputBaseFilename=tgdesk-installer-1.2.46
 Compression=lzma2
 SolidCompression=yes
 ArchitecturesInstallIn64BitMode=x64compatible
@@ -910,6 +910,10 @@ end;
 
 [UninstallRun]
 Filename: "{app}\tgdesk.exe"; Parameters: "--uninstall-service"; RunOnceId: "TGDeskService"; Flags: runhidden waituntilterminated skipifdoesntexist
+; O TGDesk instala o driver de display virtual (usbmmidd_v2) sob demanda,
+; quando a maquina nao tem tela fisica. Ele nao sai junto com os arquivos,
+; entao precisa ser removido explicitamente na desinstalacao.
+Filename: "{app}\tgdesk.exe"; Parameters: "--uninstall-amyuni-idd"; RunOnceId: "TGDeskVirtualDisplay"; Flags: runhidden waituntilterminated skipifdoesntexist
 
 [UninstallDelete]
 Type: filesandordirs; Name: "{app}"

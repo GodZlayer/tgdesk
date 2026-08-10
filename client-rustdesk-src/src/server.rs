@@ -34,6 +34,8 @@ use crate::ipc::Data;
 
 pub mod audio_service;
 #[cfg(target_os = "windows")]
+pub mod audio_process_loopback;
+#[cfg(target_os = "windows")]
 pub mod terminal_helper;
 #[cfg(not(any(target_os = "android", target_os = "ios")))]
 pub mod terminal_service;

@@ -58,6 +58,8 @@ pub const TGDESK_SHORTCUTS: &[(i32, &str)] = &[
     (0x44, "drawing"),       // D — anotação na tela
     (0x43, "clipboard"),     // C — copiar e colar
     (0x46, "file_transfer"), // F — transferência de arquivos
+    (0x4D, "microphone"),    // M — meu microfone sai nas caixas do cliente
+    (0x41, "remote_audio"),  // A — escutar ou não o som do PC do cliente
 ];
 
 #[cfg(all(feature = "flutter", target_os = "windows"))]

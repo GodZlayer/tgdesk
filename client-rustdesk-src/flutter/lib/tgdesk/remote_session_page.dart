@@ -42,6 +42,8 @@ const tgdeskActionBlockInput = 'block_input';
 const tgdeskActionDrawing = 'drawing';
 const tgdeskActionClipboard = 'clipboard';
 const tgdeskActionFileTransfer = 'file_transfer';
+const tgdeskActionMicrophone = 'microphone';
+const tgdeskActionRemoteAudio = 'remote_audio';
 
 class RemoteSessionEntry {
   const RemoteSessionEntry({
@@ -222,6 +224,11 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage>
   final RxBool _drawingOn = false.obs;
   final RxBool _clipboardOn = false.obs;
   final RxBool _fileTransferOn = false.obs;
+  // Meu microfone começa DESLIGADO: o cliente não deve me ouvir sem que eu
+  // tenha pedido isso uma vez, de propósito.
+  final RxBool _microphoneOn = false.obs;
+  // O som do PC do cliente começa LIGADO — é o motivo de estar na sessão.
+  final RxBool _remoteAudioOn = true.obs;
   bool _eraser = false;
   // Começa DESLIGADO, e só o botão do toolbar ou o Ctrl+Shift+I ligam.
   //
@@ -296,9 +303,16 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage>
           value: kOptionEnableFileCopyPaste,
         );
       }
+      // 'disable-audio' é lembrado por dispositivo, então o estado do botão vem
+      // do que ficou guardado, não de um palpite.
+      final audioDisabled = bind.sessionGetToggleOptionSync(
+        sessionId: sessionId,
+        arg: 'disable-audio',
+      );
       if (!mounted) return;
       _clipboardOn.value = true;
       _fileTransferOn.value = true;
+      _remoteAudioOn.value = !audioDisabled;
     });
   }
 
@@ -316,6 +330,11 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage>
     HardwareKeyboard.instance.removeHandler(_handleGlobalKeyEvent);
     if (_inputBlocked.isTrue) {
       bind.sessionToggleOption(sessionId: _sessionId, value: 'unblock-input');
+    }
+    // O microfone é o único destes que não pode ficar ligado: sair da sessão
+    // com ele aberto deixaria o cliente me ouvindo sem eu estar olhando.
+    if (_microphoneOn.isTrue) {
+      bind.sessionCloseVoiceCall(sessionId: _sessionId);
     }
     // Copiar e colar e arquivos não são mais desfeitos aqui. Ficam ligados,
     // que é como a próxima sessão vai querê-los de qualquer forma — e a
@@ -415,6 +434,45 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage>
     );
   }
 
+  /// Manda o meu microfone para as caixas do cliente, ou para de mandar.
+  ///
+  /// Nada do cliente é capturado aqui, e por isso o outro lado aceita sem
+  /// perguntar — ele só mostra que está ativo, e pode encerrar quando quiser.
+  void _toggleMicrophone() {
+    if (_microphoneOn.isTrue) {
+      bind.sessionCloseVoiceCall(sessionId: _sessionId);
+    } else {
+      bind.sessionRequestVoiceCall(sessionId: _sessionId);
+    }
+    _microphoneOn.toggle();
+    _notify(
+      _microphoneOn.isTrue
+          ? 'Microfone ligado — o cliente está te ouvindo'
+          : 'Microfone desligado',
+      icon: _microphoneOn.isTrue ? Icons.mic_none : Icons.mic_off_outlined,
+    );
+  }
+
+  /// Liga e desliga a minha escuta do som do PC do cliente.
+  ///
+  /// Isso não silencia o cliente: as caixas dele continuam como estavam, e a
+  /// minha voz continua saindo lá mesmo com a escuta desligada.
+  void _toggleRemoteAudio() {
+    bind.sessionToggleOption(
+      sessionId: _sessionId,
+      value: 'disable-audio',
+    );
+    _remoteAudioOn.toggle();
+    _notify(
+      _remoteAudioOn.isTrue
+          ? 'Escutando o som do cliente'
+          : 'Som do cliente silenciado aqui',
+      icon: _remoteAudioOn.isTrue
+          ? Icons.volume_up_outlined
+          : Icons.volume_off_outlined,
+    );
+  }
+
   /// Liga e desliga o grabber, que é o que realmente decide quem fica com o
   /// Alt+Tab.
   ///
@@ -500,6 +558,12 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage>
       case tgdeskActionFileTransfer:
         _toggleFileTransfer();
         break;
+      case tgdeskActionMicrophone:
+        _toggleMicrophone();
+        break;
+      case tgdeskActionRemoteAudio:
+        _toggleRemoteAudio();
+        break;
       default:
         return false;
     }
@@ -515,6 +579,8 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage>
     LogicalKeyboardKey.keyD: tgdeskActionDrawing,
     LogicalKeyboardKey.keyC: tgdeskActionClipboard,
     LogicalKeyboardKey.keyF: tgdeskActionFileTransfer,
+    LogicalKeyboardKey.keyM: tgdeskActionMicrophone,
+    LogicalKeyboardKey.keyA: tgdeskActionRemoteAudio,
   };
 
   bool _handleGlobalKeyEvent(KeyEvent event) {
@@ -637,6 +703,22 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage>
           activeTooltip: 'Desativar transferência de arquivos (Ctrl+Shift+F)',
           inactiveTooltip: 'Ativar transferência de arquivos (Ctrl+Shift+F)',
           onPressed: () => _runShortcut(tgdeskActionFileTransfer),
+        ),
+        TgdeskToolbarAction(
+          active: _microphoneOn,
+          activeIcon: Icons.mic_none,
+          inactiveIcon: Icons.mic_off_outlined,
+          activeTooltip: 'Desligar meu microfone (Ctrl+Shift+M)',
+          inactiveTooltip: 'Falar no computador do cliente (Ctrl+Shift+M)',
+          onPressed: () => _runShortcut(tgdeskActionMicrophone),
+        ),
+        TgdeskToolbarAction(
+          active: _remoteAudioOn,
+          activeIcon: Icons.volume_up_outlined,
+          inactiveIcon: Icons.volume_off_outlined,
+          activeTooltip: 'Parar de escutar o som do cliente (Ctrl+Shift+A)',
+          inactiveTooltip: 'Escutar o som do cliente (Ctrl+Shift+A)',
+          onPressed: () => _runShortcut(tgdeskActionRemoteAudio),
         ),
       ];
 

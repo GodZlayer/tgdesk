@@ -183,9 +183,17 @@ mod cpal_impl {
         static ref HOST_SCREEN_CAPTURE_KIT: Result<Host, cpal::HostUnavailable> = cpal::host_from_id(cpal::HostId::ScreenCaptureKit);
     }
 
+    /// A live capture, whatever produced it. Dropping it stops the capture.
+    pub trait CaptureStream {}
+
+    impl CaptureStream for cpal::Stream {}
+
+    #[cfg(target_os = "windows")]
+    impl CaptureStream for crate::server::audio_process_loopback::Capture {}
+
     #[derive(Default)]
     pub struct State {
-        stream: Option<(Box<dyn StreamTrait>, Arc<Message>)>,
+        stream: Option<(Box<dyn CaptureStream>, Arc<Message>)>,
     }
 
     impl super::service::Reset for State {
@@ -346,8 +354,22 @@ mod cpal_impl {
         Ok((device, format))
     }
 
-    fn play(sp: &GenericService) -> ResultType<(Box<dyn StreamTrait>, Arc<Message>)> {
+    fn play(sp: &GenericService) -> ResultType<(Box<dyn CaptureStream>, Arc<Message>)> {
         use cpal::SampleFormat::*;
+        // Preferred on Windows: capture the system audio with our own process tree
+        // excluded, so the voice we play here for the local user is never captured
+        // and echoed back to the peer. Only when no specific input device was chosen,
+        // because an explicit choice means the user does not want output loopback.
+        #[cfg(target_os = "windows")]
+        if super::get_audio_input().is_empty() {
+            match play_process_loopback(sp) {
+                Ok(stream) => return Ok(stream),
+                Err(err) => log::info!(
+                    "falling back to plain output loopback, process loopback unavailable: {}",
+                    err
+                ),
+            }
+        }
         let (device, config) = get_device()?;
         let sp = sp.clone();
         // Sample rate must be one of 8000, 12000, 16000, 24000, or 48000.
@@ -381,6 +403,37 @@ mod cpal_impl {
         Ok((
             Box::new(stream),
             Arc::new(create_format_msg(sample_rate, ch as _)),
+        ))
+    }
+
+    #[cfg(target_os = "windows")]
+    fn play_process_loopback(
+        sp: &GenericService,
+    ) -> ResultType<(Box<dyn CaptureStream>, Arc<Message>)> {
+        use crate::server::audio_process_loopback as loopback;
+
+        let sample_rate = loopback::SAMPLE_RATE;
+        let encode_channel = if loopback::CHANNELS > 1 { Stereo } else { Mono };
+        let mut encoder = Encoder::new(sample_rate, encode_channel, LowDelay)?;
+        // 10 ms of interleaved samples, the frame size the encoder expects.
+        let encode_len = (sample_rate as usize / 100) * loopback::CHANNELS as usize;
+        let sp = sp.clone();
+        let mut buffer: std::collections::VecDeque<f32> = Default::default();
+        unsafe {
+            AUDIO_ZERO_COUNT = 0;
+        }
+        // We ask the device for the format the encoder wants, so no resampling or
+        // rechanneling is needed on this path.
+        let capture = loopback::start(std::process::id(), move |data| {
+            buffer.extend(data);
+            while buffer.len() >= encode_len {
+                let frame: Vec<f32> = buffer.drain(0..encode_len).collect();
+                send_f32(&frame, &mut encoder, &sp);
+            }
+        })?;
+        Ok((
+            Box::new(capture),
+            Arc::new(create_format_msg(sample_rate, loopback::CHANNELS)),
         ))
     }
 

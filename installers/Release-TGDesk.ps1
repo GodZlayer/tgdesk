@@ -75,6 +75,28 @@ function Resolve-ServerHost([string]$Root) {
     return $serverHost
 }
 
+# O core Rust (virtual_display_manager.rs) cria um monitor virtual quando a
+# maquina nao tem tela fisica; sem isso o acesso remoto fica preto. Ele exige
+# `usbmmidd_v2\usbmmIdd.inf` ao lado do executavel. Como o robocopy /MIR espelha
+# o stage a partir do build do Flutter, o driver precisa ser copiado depois.
+function Copy-VirtualDisplayDriver([string]$VendorRoot, [string]$StageRoot) {
+    $source = Join-Path $VendorRoot 'usbmmidd_v2'
+    if (-not (Test-Path -LiteralPath $source)) {
+        throw "Driver de display virtual ausente em $source. Rode installers\Fetch-VirtualDisplayDriver.ps1."
+    }
+    $destination = Join-Path $StageRoot 'usbmmidd_v2'
+    if (Test-Path -LiteralPath $destination) {
+        Remove-Item -LiteralPath $destination -Recurse -Force
+    }
+    Copy-Item -LiteralPath $source -Destination $destination -Recurse -Force
+
+    $inf = Join-Path $destination 'usbmmIdd.inf'
+    if (-not (Test-Path -LiteralPath $inf)) {
+        throw "Driver de display virtual incompleto: $inf nao encontrado."
+    }
+    return (Get-ChildItem -LiteralPath $destination -File -Recurse).Count
+}
+
 function New-ModuleRelease(
     [string]$Version,
     [string]$StageRoot,
@@ -133,6 +155,7 @@ $serverDeployRoot = Join-Path $root 'server'
 $serverEnvPath = Join-Path $root 'server\.env'
 $serverComposePath = Join-Path $root 'server\docker-compose.yml'
 $stageRoot = Join-Path $PSScriptRoot 'stage-unified'
+$vendorRoot = Join-Path $PSScriptRoot 'vendor'
 $releaseRoot = Join-Path $root 'server\releases\modules'
 $installerScript = Join-Path $PSScriptRoot 'tgdesk-installer.iss'
 $buildRoot = Join-Path $flutterRoot 'build\windows\x64\runner\Release'
@@ -230,6 +253,10 @@ if ($LASTEXITCODE -gt 7) {
     throw "Robocopy falhou com codigo $LASTEXITCODE."
 }
 Set-TextFile (Join-Path $stageRoot 'version.txt') $Version
+
+Write-Step 'Empacotando driver de display virtual'
+$driverFiles = Copy-VirtualDisplayDriver -VendorRoot $vendorRoot -StageRoot $stageRoot
+Write-Host "Arquivos do driver copiados: $driverFiles"
 
 $recoveryScript = Join-Path $PSScriptRoot 'tgdesk-recovery.ps1'
 if (-not (Test-Path -LiteralPath $recoveryScript)) {

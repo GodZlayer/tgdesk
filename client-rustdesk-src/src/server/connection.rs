@@ -3557,14 +3557,14 @@ impl Connection {
                         _ => {}
                     },
                     Some(misc::Union::AudioFormat(format)) => {
-                        if !self.disable_audio {
-                            // Drop the audio sender previously.
-                            drop(std::mem::replace(&mut self.audio_sender, None));
-                            self.audio_sender = Some(start_audio_thread());
-                            self.audio_sender
-                                .as_ref()
-                                .map(|a| allow_err!(a.send(MediaData::AudioFormat(format))));
-                        }
+                        // Not gated on `disable_audio`: that option means "do not send me
+                        // audio", it says nothing about the operator's voice coming in.
+                        // Drop the audio sender previously.
+                        drop(std::mem::replace(&mut self.audio_sender, None));
+                        self.audio_sender = Some(start_audio_thread());
+                        self.audio_sender
+                            .as_ref()
+                            .map(|a| allow_err!(a.send(MediaData::AudioFormat(format))));
                     }
                     #[cfg(feature = "flutter")]
                     #[cfg(not(any(target_os = "android", target_os = "ios")))]
@@ -3653,14 +3653,12 @@ impl Connection {
                     _ => {}
                 },
                 Some(message::Union::AudioFrame(frame)) => {
-                    if !self.disable_audio {
-                        if let Some(sender) = &self.audio_sender {
-                            allow_err!(sender.send(MediaData::AudioFrame(Box::new(frame))));
-                        } else {
-                            log::warn!(
-                                "Processing audio frame without the voice call audio sender."
-                            );
-                        }
+                    // Inbound audio is the operator's voice, so it must not be silenced by
+                    // `disable_audio`, which only asks us to stop sending our own audio.
+                    if let Some(sender) = &self.audio_sender {
+                        allow_err!(sender.send(MediaData::AudioFrame(Box::new(frame))));
+                    } else {
+                        log::warn!("Processing audio frame without the voice call audio sender.");
                     }
                 }
                 Some(message::Union::VoiceCallRequest(request)) => {
@@ -3669,8 +3667,10 @@ impl Connection {
                             NonZeroI64::new(request.req_timestamp)
                                 .unwrap_or(NonZeroI64::new(get_time()).unwrap()),
                         );
-                        // Notify the connection manager.
-                        self.send_to_cm(Data::VoiceCallIncoming);
+                        // Accept without asking: this only plays the operator's voice on
+                        // this machine's speakers, nothing here is captured or sent. The
+                        // connection manager still shows it is active, and can close it.
+                        self.handle_voice_call(true).await;
                     } else {
                         self.close_voice_call().await;
                     }
@@ -4397,10 +4397,10 @@ impl Connection {
         if let Some(ts) = self.voice_call_request_timestamp.take() {
             let msg = new_voice_call_response(ts.get(), accepted);
             if accepted {
-                crate::audio_service::set_voice_call_input_device(
-                    crate::get_default_sound_input(),
-                    false,
-                );
+                // Do not switch the capture device to the microphone here.
+                // The audio service keeps capturing system audio (loopback) so the
+                // remote side can still hear this machine while the voice call is up.
+                // Capturing this machine's microphone is a separate, consented track.
                 self.send_to_cm(Data::StartVoiceCall);
             } else {
                 self.send_to_cm(Data::CloseVoiceCall("".to_owned()));
@@ -4422,7 +4422,6 @@ impl Connection {
     }
 
     pub async fn close_voice_call(&mut self) {
-        crate::audio_service::set_voice_call_input_device(None, true);
         // Notify the connection manager that the voice call has been closed.
         self.send_to_cm(Data::CloseVoiceCall("".to_owned()));
         self.voice_calling = false;
@@ -4818,16 +4817,9 @@ impl Connection {
             return;
         }
         self.closed = true;
-        // If voice A,B -> C, and A,B has voice call
-        // B disconnects, C will reset the voice call input.
-        //
-        // It may be acceptable, because it's not a common case,
-        // and it's immediately known when the input device changes.
-        // C can change the input device manually in cm interface.
-        //
-        // We can add a (Vec<conn_id>, input device) to avoid this.
-        // But it's not necessary now and we have to consider two audio services(client, server).
-        crate::audio_service::set_voice_call_input_device(None, true);
+        // The incoming connection never switches the capture device anymore, so there is
+        // nothing to reset here. Resetting used to clobber a device the user had picked
+        // manually in the cm interface, and it leaked across connections (A,B -> C).
         log::info!("#{} Connection closed: {}", self.inner.id(), reason);
         if lock && self.lock_after_session_end && self.keyboard {
             #[cfg(not(any(target_os = "android", target_os = "ios")))]
