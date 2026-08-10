@@ -897,6 +897,13 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
     final spacer = isHorizontal
         ? SizedBox(width: _ToolbarTheme.buttonHMargin * 2)
         : SizedBox(height: _ToolbarTheme.buttonHMargin * 2);
+    // No TGDesk a alça entra na MESMA fileira dos botões. Empilhada como no
+    // RustDesk original ela virava uma segunda barra colada embaixo da
+    // primeira, e expandir o toolbar dobrava a altura sobre a tela remota.
+    // Aqui expandir só alarga a barra para os lados; a altura é sempre a
+    // mesma, e o que fica em cima do desktop remoto continua sendo uma faixa
+    // só.
+    final inlineHandle = widget.tgdeskMode && isHorizontal;
     final toolbarMaterial = Material(
       elevation: _ToolbarTheme.elevation,
       shadowColor: MyTheme.color(context).shadow,
@@ -918,6 +925,10 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
                 children: [
                   spacer,
                   ...toolbarItems,
+                  if (inlineHandle) ...[
+                    spacer,
+                    _buildDraggableCollapse(context, edge, isHorizontal),
+                  ],
                   spacer,
                 ],
               ),
@@ -925,6 +936,9 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
         ),
       ),
     );
+    if (inlineHandle) {
+      return toolbarMaterial;
+    }
     final handle = _buildDraggableCollapse(context, edge, isHorizontal);
     // The handle hangs off the interior face of the toolbar (away from the
     // docked edge), centered along that face by the Flex's default cross-axis

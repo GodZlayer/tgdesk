@@ -24,6 +24,16 @@ const _annotationPrefix = '__TGDESK_ANNOTATION__:';
 /// (keyboard.rs::TGDESK_SHORTCUTS) para as três camadas nativas lerem a mesma.
 const tgdeskShortcutEvent = 'tgdesk_shortcut';
 
+/// As duas fontes de entrada do núcleo (keyboard.rs::input_source).
+///
+/// A "1" é o gancho global do rdev: ele fica na frente do Windows e engole
+/// Alt+Tab, tecla Windows e afins para mandá-los ao computador remoto. A "2"
+/// são os eventos de teclado da própria janela: as teclas normais continuam
+/// chegando ao remoto, mas os atalhos do sistema seguem sendo do computador
+/// do técnico. É essa troca que o Ctrl+Shift+I faz.
+const kInputSourceGrab = 'Input source 1';
+const kInputSourceFlutter = 'Input source 2';
+
 /// Nomes dos comandos, iguais dos dois lados da ponte.
 const tgdeskActionSystemKeys = 'system_keys';
 const tgdeskActionBlockInput = 'block_input';
@@ -210,9 +220,13 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
   final RxBool _clipboardOn = false.obs;
   final RxBool _fileTransferOn = false.obs;
   bool _eraser = false;
-  // Começa com o grabber remoto ativo. Ctrl+Shift+I libera o teclado para o
-  // computador local; um novo clique no canvas retoma o controle remoto.
-  final RxBool _captureSystemKeys = true.obs;
+  // Começa DESLIGADO, e só o botão do toolbar ou o Ctrl+Shift+I ligam.
+  //
+  // Antes a captura subia sozinha quando a janela ganhava o foco: bastava
+  // clicar na tela remota para o técnico perder Alt+Tab e a tecla Windows no
+  // próprio computador, sem ter pedido nada. Quem decide entregar os atalhos
+  // do sistema à máquina remota é o técnico, uma vez, de propósito.
+  final RxBool _captureSystemKeys = false.obs;
   final Map<String, int> _lastShortcutMicros = {};
   Color _color = const Color(0xffff3b30);
   double _strokeWidth = 5;
@@ -229,9 +243,11 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
     // global de entrada precisa ser preparado aqui uma vez por sessÃ£o.
     bind.mainInitInputSource();
     stateGlobal.getInputSource(force: true);
-    if (isWindows) {
-      bind.hostStopSystemKeyPropagate(stopped: true);
-    }
+    // A sessão nasce sem grabber. É esta linha que devolve o Alt+Tab: com a
+    // fonte de entrada do Flutter, as teclas continuam chegando à máquina
+    // remota pelos eventos da janela, mas nenhum gancho global do RustDesk
+    // engole atalho de sistema no computador do técnico.
+    _applySystemKeysCapture(false);
     // O canvas remoto pode manter o foco e consumir o acorde antes de o
     // Focus.onKeyEvent do shell receber a tecla. O handler global garante que
     // os atalhos continuem funcionando como no Parsec, mas só para a aba ativa.
@@ -315,28 +331,36 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
       value: willBlock ? 'block-input' : 'unblock-input',
     );
     _inputBlocked.value = willBlock;
-    _notify(willBlock
-        ? 'Entrada local do cliente bloqueada'
-        : 'Entrada local do cliente liberada');
+    _notify(
+      willBlock
+          ? 'Entrada local do cliente bloqueada'
+          : 'Entrada local do cliente liberada',
+      icon: willBlock
+          ? Icons.keyboard_hide_outlined
+          : Icons.keyboard_alt_outlined,
+      color: willBlock ? const Color(0xffffb020) : const Color(0xff35a7ff),
+    );
   }
 
-  void _notify(String text) {
-    final messenger = ScaffoldMessenger.maybeOf(context);
-    if (messenger != null) {
-      messenger
-        ..hideCurrentSnackBar()
-        ..showSnackBar(SnackBar(
-          content: Text(text),
-          duration: const Duration(seconds: 3),
-          behavior: SnackBarBehavior.floating,
-        ));
-      return;
-    }
-    BotToast.showText(
-      text: text,
+  /// Aviso passageiro, com o desenho da tarja escura que antes ficava fixa na
+  /// tela.
+  ///
+  /// Eram duas coisas erradas ao mesmo tempo: a tarja bonita nunca saía —
+  /// virava sujeira permanente sobre o desktop do cliente — e o que sumia
+  /// sozinho era a barra branca do Material, que destoava de tudo. Agora o
+  /// estado de cada comando é o botão aceso no toolbar, e a tarja voltou ao
+  /// que serve: dizer o que acabou de acontecer e sair.
+  void _notify(
+    String text, {
+    IconData icon = Icons.info_outline,
+    Color color = const Color(0xff35a7ff),
+  }) {
+    BotToast.showCustomText(
       duration: const Duration(seconds: 3),
-      clickClose: true,
+      align: const Alignment(0, 0.82),
       onlyOne: true,
+      clickClose: true,
+      toastBuilder: (_) => _StatusChip(icon: icon, text: text, color: color),
     );
   }
 
@@ -344,7 +368,10 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
     _lastPoint = null;
     _drawingOn.toggle();
     _focusNode.requestFocus();
-    _notify(_drawingOn.isTrue ? 'Anotação ativada' : 'Anotação encerrada');
+    _notify(
+      _drawingOn.isTrue ? 'Anotação ativada' : 'Anotação encerrada',
+      icon: _drawingOn.isTrue ? Icons.draw_outlined : Icons.edit_off_outlined,
+    );
   }
 
   void _toggleClipboard() {
@@ -353,9 +380,14 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
       value: 'disable-clipboard',
     );
     _clipboardOn.toggle();
-    _notify(_clipboardOn.isTrue
-        ? 'Copiar e colar ativado'
-        : 'Copiar e colar desativado');
+    _notify(
+      _clipboardOn.isTrue
+          ? 'Copiar e colar ativado'
+          : 'Copiar e colar desativado',
+      icon: _clipboardOn.isTrue
+          ? Icons.content_paste_go_outlined
+          : Icons.content_paste_off_outlined,
+    );
   }
 
   void _toggleFileTransfer() {
@@ -364,32 +396,49 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
       value: kOptionEnableFileCopyPaste,
     );
     _fileTransferOn.toggle();
-    _notify(_fileTransferOn.isTrue
-        ? 'Transferência de arquivos ativada'
-        : 'Transferência de arquivos desativada');
+    _notify(
+      _fileTransferOn.isTrue
+          ? 'Transferência de arquivos ativada'
+          : 'Transferência de arquivos desativada',
+      icon: _fileTransferOn.isTrue
+          ? Icons.file_copy_outlined
+          : Icons.folder_off_outlined,
+    );
+  }
+
+  /// Liga e desliga o grabber, que é o que realmente decide quem fica com o
+  /// Alt+Tab.
+  ///
+  /// A flag de propagação sozinha nunca resolveu: quem engole as teclas é o
+  /// laço do rdev, e ele roda enquanto a fonte de entrada for a "1". Trocar
+  /// para a fonte do Flutter desliga o gancho global inteiro — as teclas
+  /// continuam indo à máquina remota pelos eventos da janela, e os atalhos do
+  /// Windows voltam a ser do computador do técnico.
+  Future<void> _applySystemKeysCapture(bool capture) async {
+    await stateGlobal.setInputSource(
+      _sessionId,
+      capture ? kInputSourceGrab : kInputSourceFlutter,
+    );
+    if (isWindows) {
+      bind.hostStopSystemKeyPropagate(stopped: capture);
+    }
+    _ffi?.inputModel.enterOrLeave(capture);
   }
 
   void _toggleSystemKeys() {
     _captureSystemKeys.toggle();
     final capture = _captureSystemKeys.value;
-    if (isWindows) {
-      bind.hostStopSystemKeyPropagate(stopped: capture);
-    }
-    final ffi = _ffi;
-    if (ffi != null) {
-      if (capture) {
-        ffi.inputModel.enterOrLeave(true);
-        _focusNode.requestFocus();
-      } else {
-        // A flag nativa de propagação não basta: o rdev grabber do RustDesk
-        // também precisa ser liberado para Alt+Tab voltar ao computador local.
-        ffi.inputModel.enterOrLeave(false);
-        _focusNode.unfocus();
-      }
-    }
-    _notify(capture
-        ? 'Atalhos do Windows enviados ao computador remoto'
-        : 'Atalhos do Windows liberados neste computador');
+    // O foco fica onde está nos dois casos. Tirá-lo ao soltar os atalhos
+    // interrompia a digitação — e soltar Alt+Tab nunca quis dizer parar de
+    // escrever na máquina remota.
+    _focusNode.requestFocus();
+    unawaited(_applySystemKeysCapture(capture));
+    _notify(
+      capture
+          ? 'Atalhos do Windows enviados ao computador remoto'
+          : 'Atalhos do Windows liberados neste computador',
+      icon: capture ? Icons.keyboard_tab : Icons.keyboard,
+    );
   }
 
   bool _isActiveKeyboardSession() {
@@ -657,63 +706,32 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
               ),
             ),
           ),
-          // Camada de sobreposição num Obx só: os comandos agora vivem em
-          // observáveis, porque o mesmo estado é lido daqui e dos botões do
-          // toolbar, que são construídos lá dentro da RemotePage. Um setState
-          // desta classe não alcançaria os dois.
+          // Sobra a anotação. As tarjas de estado saíram daqui: o que está
+          // ligado agora se lê no botão aceso do toolbar, que é onde também se
+          // desliga. Tarja fixa sobre o desktop do cliente só tapava a tela do
+          // que o técnico foi ver.
           Positioned.fill(
             child: Obx(() {
-              final drawing = _drawingOn.value;
-              final clipboard = _clipboardOn.value;
-              final files = _fileTransferOn.value;
+              if (_drawingOn.isFalse) return const SizedBox.shrink();
               return Stack(
                 fit: StackFit.expand,
                 children: [
-                  if (drawing)
-                    Positioned.fill(
-                      child: LayoutBuilder(
-                        builder: (context, constraints) => GestureDetector(
-                          behavior: HitTestBehavior.opaque,
-                          onPanStart: (event) =>
-                              _startStroke(event, constraints.biggest),
-                          onPanUpdate: (event) =>
-                              _continueStroke(event, constraints.biggest),
-                          onPanEnd: (_) => _lastPoint = null,
-                          child: CustomPaint(
-                            painter: _AnnotationPainter(_segments),
-                          ),
+                  Positioned.fill(
+                    child: LayoutBuilder(
+                      builder: (context, constraints) => GestureDetector(
+                        behavior: HitTestBehavior.opaque,
+                        onPanStart: (event) =>
+                            _startStroke(event, constraints.biggest),
+                        onPanUpdate: (event) =>
+                            _continueStroke(event, constraints.biggest),
+                        onPanEnd: (_) => _lastPoint = null,
+                        child: CustomPaint(
+                          painter: _AnnotationPainter(_segments),
                         ),
                       ),
                     ),
-                  if (_inputBlocked.value)
-                    Positioned(
-                      right: 14,
-                      bottom: 14,
-                      child: _StatusChip(
-                        icon: Icons.keyboard_hide_outlined,
-                        text: 'Entrada do cliente bloqueada',
-                        color: const Color(0xffffb020),
-                        onTap: _toggleInputBlock,
-                      ),
-                    ),
-                  if (drawing) _drawingToolbar(),
-                  if (clipboard || files)
-                    Positioned(
-                      left: 14,
-                      bottom: 14,
-                      child: _StatusChip(
-                        icon: files
-                            ? Icons.file_copy_outlined
-                            : Icons.content_paste_go_outlined,
-                        text: clipboard && files
-                            ? 'Copiar, colar e arquivos ativos'
-                            : files
-                                ? 'Transferência de arquivos ativa'
-                                : 'Copiar e colar ativo',
-                        color: const Color(0xff35a7ff),
-                        onTap: files ? _toggleFileTransfer : _toggleClipboard,
-                      ),
-                    ),
+                  ),
+                  _drawingToolbar(),
                 ],
               );
             }),
@@ -871,34 +889,30 @@ class _ColorButton extends StatelessWidget {
       );
 }
 
+/// A tarja escura dos avisos. Nasceu fixa na tela e virou passageira, mas o
+/// desenho é o mesmo — era a parte que estava certa.
 class _StatusChip extends StatelessWidget {
   const _StatusChip({
     required this.icon,
     required this.text,
     required this.color,
-    required this.onTap,
   });
   final IconData icon;
   final String text;
   final Color color;
-  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) => Material(
         color: const Color(0xff111820).withOpacity(.96),
         elevation: 6,
         borderRadius: BorderRadius.circular(24),
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(24),
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-            child: Row(mainAxisSize: MainAxisSize.min, children: [
-              Icon(icon, color: color, size: 18),
-              const SizedBox(width: 8),
-              Text(text),
-            ]),
-          ),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          child: Row(mainAxisSize: MainAxisSize.min, children: [
+            Icon(icon, color: color, size: 18),
+            const SizedBox(width: 8),
+            Text(text, style: const TextStyle(color: Colors.white)),
+          ]),
         ),
       );
 }

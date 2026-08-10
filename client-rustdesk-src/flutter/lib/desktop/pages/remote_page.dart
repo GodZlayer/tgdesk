@@ -577,22 +577,15 @@ class _RemotePageState extends State<RemotePage>
                           _rawKeyFocusNode.unfocus();
                         });
                       }
-                      if (imageFocused) {
-                        if (widget.tgdeskEmbedded &&
-                            widget.tgdeskCaptureSystemKeys != null &&
-                            !widget.tgdeskCaptureSystemKeys!.value) {
-                          // Ctrl+Shift+I releases the native grabber. Clicking
-                          // the remote canvas is the Parsec-style way to take
-                          // control back.
-                          widget.tgdeskCaptureSystemKeys!.value = true;
-                          if (isWindows) {
-                            bind.hostStopSystemKeyPropagate(stopped: true);
-                          }
-                        }
-                        _ffi.inputModel.enterOrLeave(true);
-                      } else {
-                        _ffi.inputModel.enterOrLeave(false);
-                      }
+                      // Ganhar o foco NÃO liga mais a captura de atalhos do
+                      // sistema. Clicar na tela remota tomava o Alt+Tab do
+                      // técnico sem ele ter pedido; agora só o botão do
+                      // toolbar e o Ctrl+Shift+I ligam, e o foco apenas
+                      // acompanha o estado que já foi escolhido.
+                      final capturing =
+                          widget.tgdeskCaptureSystemKeys?.value ?? true;
+                      _ffi.inputModel
+                          .enterOrLeave(imageFocused && capturing);
                     }
                   },
                   onKeyEventInterceptor: _interceptTgdeskShortcut,
