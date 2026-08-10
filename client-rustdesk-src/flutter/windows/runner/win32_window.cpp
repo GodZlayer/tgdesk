@@ -298,6 +298,40 @@ Win32Window::MessageHandler(HWND hwnd,
       return 0;
     }
 
+    // The client area can change WITHOUT a WM_SIZE.
+    //
+    // WM_SIZE is only generated when the WINDOW rectangle changes size. A
+    // SetWindowPos with SWP_FRAMECHANGED | SWP_NOSIZE -- which is what
+    // window_manager issues when entering and leaving fullscreen -- only
+    // changes the frame calculation: the window keeps its size while the
+    // client area becomes a different rectangle. With no WM_SIZE the Flutter
+    // view kept its previous size, larger than the window, so the app laid out
+    // against a stale viewport: a black band on one side and clipped content
+    // on the other.
+    //
+    // WM_WINDOWPOSCHANGED always arrives, and it arrives after WM_NCCALCSIZE,
+    // so the client area is already final here. Refitting the child view at
+    // this point keeps it matching the window no matter who resized it or how.
+    //
+    // No `return`: DefWindowProc still needs this message to generate the
+    // WM_SIZE and WM_MOVE that other code depends on.
+    case WM_WINDOWPOSCHANGED: {
+      if (child_content_ != nullptr) {
+        RECT rect = GetClientArea();
+        // Only touch the child when it is actually out of date. This message
+        // also arrives on every move, and repainting the view while the user
+        // drags the window would be wasted work.
+        RECT current = {};
+        if (!GetWindowRect(child_content_, &current) ||
+            (current.right - current.left) != (rect.right - rect.left) ||
+            (current.bottom - current.top) != (rect.bottom - rect.top)) {
+          MoveWindow(child_content_, rect.left, rect.top,
+                     rect.right - rect.left, rect.bottom - rect.top, TRUE);
+        }
+      }
+      break;
+    }
+
     case WM_ACTIVATE:
       if (child_content_ != nullptr) {
         SetFocus(child_content_);

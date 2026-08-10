@@ -1,6 +1,7 @@
-import 'dart:convert';
+﻿import 'dart:convert';
 import 'dart:async';
-import 'dart:ui' as ui;
+
+import 'package:window_manager/window_manager.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -209,7 +210,8 @@ class TgdeskRemoteSessionPage extends StatefulWidget {
       _TgdeskRemoteSessionPageState();
 }
 
-class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
+class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage>
+    with WindowListener {
   final _focusNode = FocusNode();
   final List<_DrawingSegment> _segments = [];
   late final RxBool _inputBlocked;
@@ -260,6 +262,7 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
     _inputBlocked = BlockInputState.find(widget.remoteId);
     RemoteSessionsManager.instance
         .registerShortcutHandler(widget.deviceId, _runShortcut);
+    if (widget.embedded) windowManager.addListener(this);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await Future<void>.delayed(const Duration(milliseconds: 700));
       if (!mounted) return;
@@ -308,6 +311,7 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
       bind.hostStopSystemKeyPropagate(stopped: false);
     }
     _ffi?.inputModel.enterOrLeave(false);
+    if (widget.embedded) windowManager.removeListener(this);
     RemoteSessionsManager.instance.unregisterShortcutHandler(widget.deviceId);
     HardwareKeyboard.instance.removeHandler(_handleGlobalKeyEvent);
     if (_inputBlocked.isTrue) {
@@ -446,112 +450,23 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
     );
   }
 
-  /// TEMPORÁRIO — medição da faixa preta da tela cheia.
+  /// Voltar para a janela devolve o teclado e o mouse à sessão.
   ///
-  /// Já tentei corrigir essa faixa três vezes deduzindo de onde ela vinha, e
-  /// errei nas três. Estes números dizem em qual camada os pixels somem:
+  /// A RemotePage escuta as janelas do multi-window, que não é por onde os
+  /// eventos da janela principal passam — então, embutida no Hub, ela nunca
+  /// sabia que a janela voltou. O foco ficava solto, e com ele a marca de
+  /// "sessão atual" que o núcleo usa para rotear mouse e teclado: a tela
+  /// remota continuava desenhando e não respondia a nada.
   ///
-  /// - janela: o retângulo da janela nativa. Deve ser o monitor inteiro.
-  /// - view:   o que o Flutter recebeu para desenhar. Menor que a janela quer
-  ///           dizer que a moldura nativa ainda está reservando espaço.
-  /// - canvas: o retângulo que sobra para o desktop remoto. Menor que a view
-  ///           quer dizer que a faixa é da árvore de widgets, não do Windows.
-  ///
-  /// Some daqui assim que a causa estiver identificada.
-  ///
-  /// Da primeira vez era uma tarja de três segundos e você não viu nenhuma —
-  /// pode ter passado batido ou nem ter disparado. Agora é um painel fixo,
-  /// desenhado enquanto a tela cheia durar, com o número que faltava: o
-  /// deslocamento do canvas. Se `canvas y` for a altura do botão flutuante, a
-  /// faixa é da conta que centraliza a imagem, e o Windows está inocente.
-  Widget _fullscreenProbePanel() {
-    // No canto SUPERIOR esquerdo: embaixo ele saía cortado, o que por si já
-    // era um dado — o conteúdo passa do fim da janela visível.
-    return Positioned(
-      left: 16,
-      top: 56,
-      child: Obx(() {
-        if (stateGlobal.fullscreen.isFalse) return const SizedBox.shrink();
-        final view = MediaQueryData.fromView(ui.window);
-        final canvas = _ffi?.canvasModel;
-        String n(num? v) => v == null ? '?' : v.toStringAsFixed(1);
-        return Material(
-          color: const Color(0xcc000000),
-          borderRadius: BorderRadius.circular(6),
-          child: Padding(
-            padding: const EdgeInsets.all(10),
-            child: DefaultTextStyle(
-              style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 12,
-                  fontFamily: 'monospace',
-                  decoration: TextDecoration.none),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text('view    ${n(view.size.width)} x ${n(view.size.height)}'
-                      '   dpr ${n(view.devicePixelRatio)}'),
-                  Text('padding top ${n(view.padding.top)}'
-                      '   viewPadding top ${n(view.viewPadding.top)}'),
-                  Text('canvas  ${n(canvas?.size.width)} x'
-                      ' ${n(canvas?.size.height)}'),
-                  Text('canvas  x ${n(canvas?.x)}   y ${n(canvas?.y)}'
-                      '   escala ${n(canvas?.scale)}'),
-                  Text('remoto  ${canvas?.getDisplayWidth()} x'
-                      ' ${canvas?.getDisplayHeight()}'),
-                  // A diferença entre a view e o canvas é a moldura do Hub que
-                  // sobrou. Em tela cheia deveria ser zero nos dois eixos.
-                  Text(
-                      'moldura ${n(view.size.width - (canvas?.size.width ?? 0))}'
-                      ' x ${n(view.size.height - (canvas?.size.height ?? 0))}'),
-                  // O árbitro entre as duas medidas que discordam.
-                  Text('conteudo ${n(_contentBox.value?.width)} x'
-                      ' ${n(_contentBox.value?.height)}'),
-                ],
-              ),
-            ),
-          ),
-        );
-      }),
-    );
-  }
-
-  /// TEMPORÁRIO — o mesmo painel, mas dentro da moldura do Hub, para saber se
-  /// ela colapsou. Fica no topo direito porque a esquerda já está ocupada.
-  Widget _fullscreenChromeProbe() {
-    return Positioned(
-      right: 16,
-      top: 56,
-      child: Obx(() {
-        final cheia = stateGlobal.fullscreen.value;
-        if (!cheia) return const SizedBox.shrink();
-        return Material(
-          color: const Color(0xcc000000),
-          borderRadius: BorderRadius.circular(6),
-          child: Padding(
-            padding: const EdgeInsets.all(10),
-            child: DefaultTextStyle(
-              style: const TextStyle(
-                  color: Colors.white,
-                  fontSize: 12,
-                  fontFamily: 'monospace',
-                  decoration: TextDecoration.none),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Text('fullscreen  $cheia'),
-                  Text('embedded    ${widget.embedded}'),
-                  Text('aba ativa   '
-                      '${RemoteSessionsManager.instance.activeIndex}'),
-                ],
-              ),
-            ),
-          ),
-        );
-      }),
-    );
+  /// Era por isso que ligar a captura ressuscitava a entrada — ela chama este
+  /// mesmo enterOrLeave por outro caminho. Consertar o sintoma pelo atalho
+  /// seria consertar pelo lugar errado.
+  @override
+  void onWindowFocus() {
+    super.onWindowFocus();
+    if (!mounted || !_isActiveKeyboardSession()) return;
+    _focusNode.requestFocus();
+    _ffi?.inputModel.enterOrLeave(true);
   }
 
   bool _isActiveKeyboardSession() {
@@ -785,32 +700,7 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
   // RemotePage receives the exact embedded viewport constraints through its
   // LayoutBuilder; no global window-coordinate recuo is needed here.
 
-  /// TEMPORÁRIO — o retângulo que esta sessão realmente recebeu.
-  ///
-  /// É o árbitro entre as duas medidas que discordam: a `view` diz que a
-  /// janela é grande, o `canvas` diz que sobrou menos. Se `conteudo` for igual
-  /// à view, a moldura do Hub colapsou e quem está errado é o canvas — que
-  /// então está com uma medida velha, de antes da tela cheia. Se `conteudo`
-  /// for igual ao canvas, a moldura é que não colapsou.
-  final _contentBox = Rxn<Size>();
-
   Widget _buildContent() {
-    // Medido a cada quadro: a janela muda de tamanho, a barra lateral aparece
-    // e some, e a tela cheia zera os dois. Comparar antes de escrever mantém
-    // isso barato.
-    return LayoutBuilder(builder: (context, constraints) {
-      // TEMPORÁRIO — ver _contentBox.
-      final medida = constraints.biggest;
-      if (_contentBox.value != medida) {
-        WidgetsBinding.instance.addPostFrameCallback((_) {
-          if (mounted) _contentBox.value = medida;
-        });
-      }
-      return _buildContentBody();
-    });
-  }
-
-  Widget _buildContentBody() {
     return Container(
       color: Colors.black,
       child: Stack(
@@ -871,9 +761,6 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
               );
             }),
           ),
-          // TEMPORÁRIO — ver _fullscreenProbePanel.
-          _fullscreenProbePanel(),
-          _fullscreenChromeProbe(),
         ],
       ),
     );

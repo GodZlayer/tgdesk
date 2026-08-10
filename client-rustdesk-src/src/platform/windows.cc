@@ -740,7 +740,12 @@ extern "C"
     // que o registrou, e ela é a única aqui que bombeia mensagens.
     constexpr UINT TGDESK_WM_REHOOK = WM_APP + 1;
     // Sonda periódica do acorde de saída — ver keyboard_thread.
-    constexpr UINT_PTR TGDESK_PROBE_TIMER_ID = 0x5450;
+    //
+    // O identificador vem do RETORNO de SetTimer, e não de uma constante
+    // nossa: com hWnd nulo o Windows ignora o id pedido e gera o dele. Eu
+    // comparava a mensagem com a constante, que nunca era o id real, e a sonda
+    // simplesmente nunca rodava.
+    static UINT_PTR tgdesk_probe_timer = 0;
     static bool tgdesk_probe_combo_down = false;
     static bool tgdesk_ctrl_left_down = false;
     static bool tgdesk_ctrl_right_down = false;
@@ -898,14 +903,15 @@ extern "C"
         // GetAsyncKeyState lê o estado FÍSICO do teclado. Nenhum gancho, de
         // ninguém, altera essa leitura — não há corrida para vencer. 25ms é
         // rápido para a mão e barato para o processador.
-        SetTimer(NULL, TGDESK_PROBE_TIMER_ID, 25, NULL);
+        tgdesk_probe_timer = SetTimer(NULL, 0, 25, NULL);
 
         // If something goes wrong then there is not much we can do.
         // Just sit around and wait for WM_QUIT...
 
         while (GetMessage(&msg, NULL, 0, 0))
         {
-            if (msg.message == WM_TIMER && msg.wParam == TGDESK_PROBE_TIMER_ID)
+            if (msg.message == WM_TIMER && tgdesk_probe_timer != 0 &&
+                msg.wParam == tgdesk_probe_timer)
             {
                 const bool combo =
                     stop_system_key_propagate &&
@@ -941,7 +947,11 @@ extern "C"
             }
         }
 
-        KillTimer(NULL, TGDESK_PROBE_TIMER_ID);
+        if (tgdesk_probe_timer != 0)
+        {
+            KillTimer(NULL, tgdesk_probe_timer);
+            tgdesk_probe_timer = 0;
+        }
         for (size_t i = 0; i < ARRAY_SIZE(tgdesk_shortcut_keys); ++i)
         {
             UnregisterHotKey(NULL, TGDESK_SYSTEM_KEYS_HOTKEY_ID + (int)i);
