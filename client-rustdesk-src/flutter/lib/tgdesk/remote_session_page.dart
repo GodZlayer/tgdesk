@@ -1,5 +1,8 @@
 import 'dart:convert';
 import 'dart:async';
+import 'dart:ui' as ui;
+
+import 'package:window_manager/window_manager.dart';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -228,6 +231,7 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
   // do sistema à máquina remota é o técnico, uma vez, de propósito.
   final RxBool _captureSystemKeys = false.obs;
   final Map<String, int> _lastShortcutMicros = {};
+  Worker? _fullscreenProbe;
   Color _color = const Color(0xffff3b30);
   double _strokeWidth = 5;
   Offset? _lastPoint;
@@ -259,6 +263,8 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
     _inputBlocked = BlockInputState.find(widget.remoteId);
     RemoteSessionsManager.instance
         .registerShortcutHandler(widget.deviceId, _runShortcut);
+    _fullscreenProbe =
+        ever<bool>(stateGlobal.fullscreen, _reportFullscreenGeometry);
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await Future<void>.delayed(const Duration(milliseconds: 700));
       if (!mounted) return;
@@ -307,6 +313,7 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
       bind.hostStopSystemKeyPropagate(stopped: false);
     }
     _ffi?.inputModel.enterOrLeave(false);
+    _fullscreenProbe?.dispose();
     RemoteSessionsManager.instance.unregisterShortcutHandler(widget.deviceId);
     HardwareKeyboard.instance.removeHandler(_handleGlobalKeyEvent);
     if (_inputBlocked.isTrue) {
@@ -442,6 +449,35 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
           ? 'Atalhos do Windows enviados ao computador remoto'
           : 'Atalhos do Windows liberados neste computador',
       icon: capture ? Icons.keyboard_tab : Icons.keyboard,
+    );
+  }
+
+  /// TEMPORÁRIO — medição da faixa preta da tela cheia.
+  ///
+  /// Já tentei corrigir essa faixa três vezes deduzindo de onde ela vinha, e
+  /// errei nas três. Estes números dizem em qual camada os pixels somem:
+  ///
+  /// - janela: o retângulo da janela nativa. Deve ser o monitor inteiro.
+  /// - view:   o que o Flutter recebeu para desenhar. Menor que a janela quer
+  ///           dizer que a moldura nativa ainda está reservando espaço.
+  /// - canvas: o retângulo que sobra para o desktop remoto. Menor que a view
+  ///           quer dizer que a faixa é da árvore de widgets, não do Windows.
+  ///
+  /// Some daqui assim que a causa estiver identificada.
+  Future<void> _reportFullscreenGeometry(bool fullscreen) async {
+    if (!fullscreen || !mounted || !_isActiveKeyboardSession()) return;
+    await Future<void>.delayed(const Duration(milliseconds: 600));
+    if (!mounted) return;
+    final janela = await windowManager.getBounds();
+    final view = MediaQueryData.fromView(ui.window);
+    final canvas = _ffi?.canvasModel.size;
+    _notify(
+      'janela ${janela.width.toStringAsFixed(0)}x${janela.height.toStringAsFixed(0)}'
+      ' @${janela.left.toStringAsFixed(0)},${janela.top.toStringAsFixed(0)}'
+      ' · view ${view.size.width.toStringAsFixed(0)}x${view.size.height.toStringAsFixed(0)}'
+      ' · canvas ${canvas?.width.toStringAsFixed(0)}x${canvas?.height.toStringAsFixed(0)}'
+      ' · dpr ${view.devicePixelRatio.toStringAsFixed(2)}',
+      icon: Icons.straighten,
     );
   }
 

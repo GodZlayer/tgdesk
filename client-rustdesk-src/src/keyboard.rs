@@ -770,7 +770,10 @@ fn start_grab_loop() {
                     }
                     _ => {}
                 }
-                if let Some(vk) = tgdesk_shortcut_vk(key) {
+                // Este laço só roda com os atalhos indo para a máquina remota,
+                // e nesse estado o único acorde que fica aqui é o Ctrl+Shift+I
+                // — a saída. Os outros quatro seguem para o cliente.
+                if let Some(vk) = tgdesk_shortcut_vk(key).filter(|vk| *vk == 0x49) {
                     let ctrl = TGDESK_RAW_CTRL_DOWN.load(Ordering::SeqCst);
                     let shift = TGDESK_RAW_SHIFT_DOWN.load(Ordering::SeqCst);
                     if is_press && ctrl && shift {

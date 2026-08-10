@@ -494,11 +494,12 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
   // (collapsed handle vs expanded toolbar). Updated after every layout pass.
   final _toolbarSize = Rxn<Size>();
   final _toolbarKey = GlobalKey(debugLabel: 'remote_toolbar_root');
-  // A alça é o ponto fixo da barra do TGDesk: é por ela que se calcula onde a
-  // barra começa, para que abrir os botões cresça para a direita em vez de
-  // arrastar a alça para longe de onde o técnico a deixou.
-  final _handleKey = GlobalKey(debugLabel: 'remote_toolbar_handle');
-  final _handleSize = Rxn<Size>();
+  // Largura da barra recolhida, medida da última vez em que ela esteve assim.
+  //
+  // É a régua da âncora: a borda esquerda da barra fica no mesmo lugar aberta
+  // ou fechada, então abrir cresce para a direita em vez de arrastar a barra
+  // para longe de onde o técnico a deixou.
+  final _collapsedWidth = Rxn<double>();
   // When false (default), the toolbar stays on the top edge and the drag
   // handle just slides it horizontally — preserving long-standing UX while
   // still fixing the bug where dragging only moved the handle. When true,
@@ -736,28 +737,28 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
         if (ro is RenderBox && ro.hasSize) {
           final s = ro.size;
           if (_toolbarSize.value != s) _toolbarSize.value = s;
-        }
-        final handleRo = _handleKey.currentContext?.findRenderObject();
-        if (handleRo is RenderBox && handleRo.hasSize) {
-          final s = handleRo.size;
-          if (_handleSize.value != s) _handleSize.value = s;
+          if (collapse.isTrue && _collapsedWidth.value != s.width) {
+            _collapsedWidth.value = s.width;
+          }
         }
       });
 
+      // No TGDesk os dois estados saem do MESMO construtor: recolher não troca
+      // a barra por outra peça, apenas tira os botões do meio dela.
+      final singleBar = widget.tgdeskMode && isHorizontal;
       final content = KeyedSubtree(
         key: _toolbarKey,
-        child: collapse.isFalse
+        child: singleBar || collapse.isFalse
             ? _buildToolbar(context, edge, isHorizontal)
             : _buildDraggableCollapse(context, edge, isHorizontal),
       );
 
-      // A barra do TGDesk é ancorada pela alça, não pelo próprio centro.
+      // A barra do TGDesk é ancorada pela borda esquerda, não pelo centro.
       //
-      // O Align centra o que recebe na fração guardada: ao expandir, a barra
-      // ficava mais larga e o centro continuava no lugar, então ela crescia
-      // para os dois lados — na prática, para a esquerda, porque a alça fica
-      // na ponta. Fixando a borda que encosta na alça, abrir só acrescenta
-      // botões à direita e a alça não sai do lugar.
+      // O Align centra o que recebe na fração guardada: ao abrir, a barra fica
+      // mais larga e o centro continua no lugar, então ela cresce para os dois
+      // lados. Medindo a largura dela recolhida e ancorando por aí, a borda
+      // esquerda não se mexe e abrir só acrescenta botões à direita.
       //
       // Estes três são lidos AQUI, no corpo do Obx.
       //
@@ -766,13 +767,13 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
       // quem ele observa. Foi assim que a barra parou de se mover — arrastar
       // mudava a fração e nada era reconstruído.
       final fraction = _fraction.value;
-      final handleWidth = _handleSize.value?.width ?? 0;
-      final barWidth = _toolbarSize.value?.width ?? handleWidth;
+      final barWidth = _toolbarSize.value?.width ?? 0;
+      final anchorWidth = _collapsedWidth.value ?? barWidth;
 
-      final toolbar = widget.tgdeskMode && isHorizontal
+      final toolbar = singleBar
           ? LayoutBuilder(builder: (context, constraints) {
               final maxWidth = constraints.maxWidth;
-              var left = fraction * (maxWidth - handleWidth);
+              var left = fraction * (maxWidth - anchorWidth);
               if (barWidth > 0 && left + barWidth > maxWidth) {
                 left = maxWidth - barWidth;
               }
@@ -823,6 +824,36 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
     // (e.g. dragging a top-docked toolbar toward the left edge), so swap the
     // long/short axes when previewing a different orientation.
     final previewSize = _toolbarSizeForEdge(edge, measured);
+    // O fantasma tem de usar a MESMA âncora da barra de verdade. Centrado como
+    // no RustDesk, ele aparecia no meio do espaço que a barra ocuparia,
+    // enquanto a barra assenta pela esquerda — arrastar mostrava o retângulo
+    // num lugar e soltava a barra em outro.
+    if (widget.tgdeskMode && _isHorizontalEdge(edge)) {
+      final anchorWidth = _collapsedWidth.value ?? previewSize.width;
+      return LayoutBuilder(builder: (context, constraints) {
+        var left = fraction * (constraints.maxWidth - anchorWidth);
+        if (left + previewSize.width > constraints.maxWidth) {
+          left = constraints.maxWidth - previewSize.width;
+        }
+        if (!left.isFinite || left < 0) left = 0;
+        return Stack(children: [
+          Positioned(
+            left: left,
+            top: edge == _ToolbarEdge.top ? 0 : null,
+            bottom: edge == _ToolbarEdge.bottom ? 0 : null,
+            child: Container(
+              width: previewSize.width,
+              height: previewSize.height,
+              decoration: BoxDecoration(
+                color: color.withOpacity(0.10),
+                borderRadius: BorderRadius.circular(6),
+                border: Border.all(color: color.withOpacity(0.55), width: 1.5),
+              ),
+            ),
+          ),
+        ]);
+      });
+    }
     return Align(
       alignment: _alignmentForEdge(edge, fraction),
       child: Container(
@@ -845,41 +876,47 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
         triggerAutoHide();
       }
       final borderRadius = _collapseHandleBorderRadius(edge);
-      // A chave que mede a âncora fica na cabeça da alça, que é a borda
-      // esquerda da barra — a seta anda conforme a barra abre e não serve de
-      // referência para nada.
-      final measured = section != _HandleSection.collapseOnly;
+      // Dentro da barra do TGDesk a alça não tem elevação nem cantos próprios:
+      // ela é parte da fileira, e o Material de fora já dá sombra a tudo.
+      final inline = section != _HandleSection.whole;
+      final handle = Builder(
+        builder: (context) => _DraggableShowHide(
+          id: widget.id,
+          ffi: widget.ffi,
+          sessionId: widget.ffi.sessionId,
+          dragging: _dragging,
+          fraction: _fraction,
+          edge: _edge,
+          previewEdge: _previewEdge,
+          previewFraction: _previewFraction,
+          toolbarSize: _toolbarSize,
+          markDragEpoch: _markToolbarDragEpoch,
+          syncDockingOptionsAfterDragIfNeeded:
+              _syncDockingOptionsAfterDragIfNeeded,
+          isHorizontal: isHorizontal,
+          multiEdgeEnabled: _multiEdgeEnabled.value,
+          toolbarState: widget.state,
+          setFullscreen: _setFullscreen,
+          setMinimize: _minimize,
+          borderRadius: borderRadius,
+          section: section,
+          horizontalGrowth: widget.tgdeskMode && isHorizontal,
+          bare: inline,
+          // Dentro da fileira, o mesmo tamanho dos outros botões — é o que
+          // faz a barra ter um só tamanho de ícone.
+          iconSize: inline ? _ToolbarTheme.buttonSize : 20,
+        ),
+      );
+      if (inline) {
+        return Offstage(offstage: _dragging.isTrue, child: handle);
+      }
       return Offstage(
         offstage: _dragging.isTrue,
-        child: KeyedSubtree(
-          key: measured ? _handleKey : null,
-          child: Material(
-            elevation: _ToolbarTheme.elevation,
-            shadowColor: MyTheme.color(context).shadow,
-            borderRadius: borderRadius,
-            child: _DraggableShowHide(
-              id: widget.id,
-              ffi: widget.ffi,
-              sessionId: widget.ffi.sessionId,
-              dragging: _dragging,
-              fraction: _fraction,
-              edge: _edge,
-              previewEdge: _previewEdge,
-              previewFraction: _previewFraction,
-              toolbarSize: _toolbarSize,
-              markDragEpoch: _markToolbarDragEpoch,
-              syncDockingOptionsAfterDragIfNeeded:
-                  _syncDockingOptionsAfterDragIfNeeded,
-              isHorizontal: isHorizontal,
-              multiEdgeEnabled: _multiEdgeEnabled.value,
-              toolbarState: widget.state,
-              setFullscreen: _setFullscreen,
-              setMinimize: _minimize,
-              borderRadius: borderRadius,
-              section: section,
-              horizontalGrowth: widget.tgdeskMode && isHorizontal,
-            ),
-          ),
+        child: Material(
+          elevation: _ToolbarTheme.elevation,
+          shadowColor: MyTheme.color(context).shadow,
+          borderRadius: borderRadius,
+          child: handle,
         ),
       );
     });
@@ -996,35 +1033,40 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
                 children: [
                   // Cabeça da alça — arrastar, tela cheia, minimizar. É o
                   // ponto fixo da barra, e os botões nascem à direita dela.
-                  if (inlineHandle) ...[
-                    _buildDraggableCollapse(context, edge, isHorizontal,
-                        section: _HandleSection.head),
-                    spacer,
-                  ] else
-                    spacer,
+                  spacer,
                   if (inlineHandle)
-                    // Os ícones do RustDesk têm 32px, contra os 20 da alça —
-                    // ao lado dela pareciam enormes. Encolher a fileira
-                    // inteira de uma vez mantém as proporções internas e faz a
-                    // barra aberta ter a mesma altura da recolhida.
+                    // UMA fileira, e uma altura só.
+                    //
+                    // Antes eram três caixas emendadas — cabeça, botões e
+                    // seta, cada uma com moldura e altura próprias — e ainda
+                    // por cima os ícones do meio eram reduzidos, o que dava
+                    // dois tamanhos de ícone na mesma barra. Agora a cabeça e a
+                    // seta entram sem moldura e com o mesmo tamanho de ícone
+                    // dos demais, tudo dentro do mesmo Material.
+                    //
+                    // A fileira inteira é reduzida de uma vez para a altura
+                    // fixa da barra. Como TODOS os botões descem pela mesma
+                    // escala, continuam do mesmo tamanho entre si — e a barra
+                    // tem essa altura recolhida ou aberta, porque abrir apenas
+                    // acrescenta botões no meio.
                     SizedBox(
-                      height: _ToolbarTheme.height,
+                      height: _kTgdeskToolbarHeight,
                       child: FittedBox(
                         fit: BoxFit.scaleDown,
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
-                          children: toolbarItems,
+                          children: [
+                            _buildDraggableCollapse(context, edge, isHorizontal,
+                                section: _HandleSection.head),
+                            if (collapse.isFalse) ...toolbarItems,
+                            _buildDraggableCollapse(context, edge, isHorizontal,
+                                section: _HandleSection.collapseOnly),
+                          ],
                         ),
                       ),
                     )
                   else
                     ...toolbarItems,
-                  // E a seta fecha a fileira, depois do que ela abre.
-                  if (inlineHandle) ...[
-                    spacer,
-                    _buildDraggableCollapse(context, edge, isHorizontal,
-                        section: _HandleSection.collapseOnly),
-                  ],
                   spacer,
                 ],
               ),
@@ -3302,6 +3344,12 @@ class RdoMenuButton<T> extends StatelessWidget {
 /// outro.
 enum _HandleSection { whole, head, collapseOnly }
 
+/// Altura da fileira de botões do TGDesk: um botão inteiro (ícone de 32 mais
+/// 6 de margem em cima e embaixo) reduzido até o ícone bater os 20px da alça.
+const double _kTgdeskToolbarHeight =
+    (_ToolbarTheme.buttonSize + _ToolbarTheme.buttonVMargin * 2) *
+        (20.0 / _ToolbarTheme.buttonSize);
+
 class _DraggableShowHide extends StatefulWidget {
   final String id;
   final FFI ffi;
@@ -3330,10 +3378,19 @@ class _DraggableShowHide extends StatefulWidget {
   /// precisa dizer isso.
   final bool horizontalGrowth;
 
+  /// Sem moldura própria: a alça é servida dentro da barra, não ao lado dela.
+  final bool bare;
+
+  /// Tamanho dos ícones. Dentro da barra do TGDesk é o mesmo dos demais
+  /// botões, para que uma fileira só não tenha dois tamanhos de ícone.
+  final double iconSize;
+
   const _DraggableShowHide({
     Key? key,
     this.section = _HandleSection.whole,
     this.horizontalGrowth = false,
+    this.bare = false,
+    this.iconSize = 20,
     required this.id,
     required this.ffi,
     required this.sessionId,
@@ -3567,7 +3624,7 @@ class _DraggableShowHideState extends State<_DraggableShowHide> {
       padding: MaterialStateProperty.all(EdgeInsets.zero),
     );
     final isFullscreen = stateGlobal.fullscreen;
-    const double iconSize = 20;
+    final double iconSize = widget.iconSize;
 
     buttonWrapper(VoidCallback? onPressed, Widget child,
         {Color hoverColor = _ToolbarTheme.blueColor}) {
@@ -3670,6 +3727,18 @@ class _DraggableShowHideState extends State<_DraggableShowHide> {
                 })
             ],
           );
+    // Sem moldura quando a alça mora dentro da barra do TGDesk.
+    //
+    // Fundo, borda e altura própria fazem sentido quando ela é uma peça solta
+    // flutuando sobre a tela remota. Dentro da fileira, davam a ela contorno de
+    // caixa separada — e era isso que fazia a barra parecer três barras
+    // emendadas em vez de uma. Aqui ela é só mais um punhado de botões.
+    if (widget.bare) {
+      return TextButtonTheme(
+        data: TextButtonThemeData(style: buttonStyle),
+        child: child,
+      );
+    }
     return TextButtonTheme(
       data: TextButtonThemeData(style: buttonStyle),
       child: Container(

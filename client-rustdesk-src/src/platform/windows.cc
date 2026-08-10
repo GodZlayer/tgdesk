@@ -698,8 +698,18 @@ extern "C"
     // traduz cada código no nome que o Dart recebe.
     static const int tgdesk_shortcut_keys[] = {'I', 'B', 'D', 'C', 'F'};
 
-    static bool is_tgdesk_shortcut_key(int vkCode)
+    // Quais acordes este computador guarda para si.
+    //
+    // Com os atalhos sendo enviados à máquina remota, só o Ctrl+Shift+I fica:
+    // ele é a porta de saída, e precisa existir justamente quando todo o resto
+    // está indo embora. Os outros quatro seguem para o cliente como qualquer
+    // tecla — quem está operando a máquina de lá pode precisar deles lá.
+    //
+    // Sem os atalhos sendo enviados, os cinco são daqui.
+    static bool is_tgdesk_shortcut_key(int vkCode, bool sending_to_remote)
     {
+        if (sending_to_remote)
+            return vkCode == 'I';
         for (int key : tgdesk_shortcut_keys)
         {
             if (key == vkCode)
@@ -717,6 +727,18 @@ extern "C"
     static bool win_down = false;
     static bool stop_system_key_propagate = false;
     static int tgdesk_shortcut_key_down = 0;
+    static HMODULE tgdesk_hook_module = nullptr;
+    // Pedido de reinstalação do gancho, enviado à thread que o instalou.
+    //
+    // O Windows chama os ganchos de baixo nível do mais novo para o mais
+    // antigo. O rdev instala o dele quando a sessão começa a enviar os atalhos
+    // ao computador remoto, ficando na frente do nosso — e como ele consome as
+    // teclas para mandá-las adiante, o acorde nunca chegava aqui. Reinstalar o
+    // nosso nesse momento o coloca de volta na frente.
+    //
+    // Tem de ser NESTA thread: o callback de um WH_KEYBOARD_LL roda na thread
+    // que o registrou, e ela é a única aqui que bombeia mensagens.
+    constexpr UINT TGDESK_WM_REHOOK = WM_APP + 1;
     static bool tgdesk_ctrl_left_down = false;
     static bool tgdesk_ctrl_right_down = false;
     static bool tgdesk_shift_left_down = false;
@@ -782,7 +804,7 @@ extern "C"
                 if (key_up) tgdesk_shift_right_down = false;
                 break;
             }
-            if (is_tgdesk_shortcut_key(msgInfo->vkCode))
+            if (is_tgdesk_shortcut_key(msgInfo->vkCode, stop_system_key_propagate))
             {
                 // O estado rastreado acima só é confiável se ESTE hook viu o
                 // Ctrl e o Shift descerem. Com a sessão remota capturando o
@@ -841,12 +863,12 @@ extern "C"
         // Flutter links this callback into libtgdeskcore.dll. Resolve the
         // module containing the callback instead of assuming the executable
         // owns it; otherwise Windows may reject the global hook silently.
-        HMODULE hook_module = nullptr;
         GetModuleHandleExW(
             GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS |
                 GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-            reinterpret_cast<LPCWSTR>(&keyboard_hook), &hook_module);
-        hook = SetWindowsHookEx(WH_KEYBOARD_LL, keyboard_hook, hook_module, 0);
+            reinterpret_cast<LPCWSTR>(&keyboard_hook), &tgdesk_hook_module);
+        hook = SetWindowsHookEx(WH_KEYBOARD_LL, keyboard_hook,
+                                tgdesk_hook_module, 0);
         // Keep a thread hotkey as a fallback when another security product or
         // a native texture prevents the low-level callback from reaching this
         // process. The Rust atomic suppresses duplicate hook/hotkey events.
@@ -860,6 +882,14 @@ extern "C"
 
         while (GetMessage(&msg, NULL, 0, 0))
         {
+            if (msg.message == TGDESK_WM_REHOOK)
+            {
+                if (hook)
+                    UnhookWindowsHookEx(hook);
+                hook = SetWindowsHookEx(WH_KEYBOARD_LL, keyboard_hook,
+                                        tgdesk_hook_module, 0);
+                continue;
+            }
             if (msg.message == WM_HOTKEY)
             {
                 const int index = (int)msg.wParam - TGDESK_SYSTEM_KEYS_HOTKEY_ID;
@@ -944,7 +974,19 @@ extern "C"
 
     void win_stop_system_key_propagate(bool v)
     {
+        const bool was_stopping = stop_system_key_propagate;
         stop_system_key_propagate = v;
+        // Passar a enviar os atalhos ao computador remoto é exatamente quando
+        // o rdev entra na frente do nosso gancho. Reinstalamos o nosso para
+        // continuar vendo o Ctrl+Shift+I, que é a única saída dessa situação.
+        //
+        // Só na virada: esta função é chamada a cada entrada do mouse no
+        // canvas, e desinstalar e reinstalar o gancho a cada passada do
+        // ponteiro seria trocar o teclado de mãos dezenas de vezes por minuto.
+        if (v && !was_stopping && thread != NULL)
+        {
+            PostThreadMessage(thread_id, TGDESK_WM_REHOOK, 0, 0);
+        }
     }
 
     // https://stackoverflow.com/questions/4023586/correct-way-to-find-out-if-a-service-is-running-as-the-system-user
