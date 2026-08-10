@@ -577,15 +577,21 @@ class _RemotePageState extends State<RemotePage>
                           _rawKeyFocusNode.unfocus();
                         });
                       }
-                      // Ganhar o foco NÃO liga mais a captura de atalhos do
-                      // sistema. Clicar na tela remota tomava o Alt+Tab do
-                      // técnico sem ele ter pedido; agora só o botão do
-                      // toolbar e o Ctrl+Shift+I ligam, e o foco apenas
-                      // acompanha o estado que já foi escolhido.
-                      final capturing =
-                          widget.tgdeskCaptureSystemKeys?.value ?? true;
-                      _ffi.inputModel
-                          .enterOrLeave(imageFocused && capturing);
+                      // enterOrLeave acompanha o FOCO, e só ele.
+                      //
+                      // Eu havia condicionado isto à captura de atalhos, para
+                      // que clicar na tela não tomasse o Alt+Tab do técnico.
+                      // Estava consertando no lugar errado: além de avisar o
+                      // grabber, enterOrLeave é o que marca esta sessão como a
+                      // atual para a entrada. Sem essa marca, voltar para a
+                      // janela pelo Alt+Tab deixava a tela remota apenas
+                      // visual — sem clique e sem teclado.
+                      //
+                      // Quem decide sobre o Alt+Tab é a fonte de entrada:
+                      // change_grab_status sai na primeira linha quando o rdev
+                      // não está habilitado, que é o estado normal da sessão.
+                      // Então avisar o foco aqui não liga captura nenhuma.
+                      _ffi.inputModel.enterOrLeave(imageFocused);
                     }
                   },
                   onKeyEventInterceptor: _interceptTgdeskShortcut,

@@ -505,6 +505,9 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
                   Text(
                       'moldura ${n(view.size.width - (canvas?.size.width ?? 0))}'
                       ' x ${n(view.size.height - (canvas?.size.height ?? 0))}'),
+                  // O árbitro entre as duas medidas que discordam.
+                  Text('conteudo ${n(_contentBox.value?.width)} x'
+                      ' ${n(_contentBox.value?.height)}'),
                 ],
               ),
             ),
@@ -782,10 +785,32 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
   // RemotePage receives the exact embedded viewport constraints through its
   // LayoutBuilder; no global window-coordinate recuo is needed here.
 
+  /// TEMPORÁRIO — o retângulo que esta sessão realmente recebeu.
+  ///
+  /// É o árbitro entre as duas medidas que discordam: a `view` diz que a
+  /// janela é grande, o `canvas` diz que sobrou menos. Se `conteudo` for igual
+  /// à view, a moldura do Hub colapsou e quem está errado é o canvas — que
+  /// então está com uma medida velha, de antes da tela cheia. Se `conteudo`
+  /// for igual ao canvas, a moldura é que não colapsou.
+  final _contentBox = Rxn<Size>();
+
   Widget _buildContent() {
     // Medido a cada quadro: a janela muda de tamanho, a barra lateral aparece
     // e some, e a tela cheia zera os dois. Comparar antes de escrever mantém
     // isso barato.
+    return LayoutBuilder(builder: (context, constraints) {
+      // TEMPORÁRIO — ver _contentBox.
+      final medida = constraints.biggest;
+      if (_contentBox.value != medida) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (mounted) _contentBox.value = medida;
+        });
+      }
+      return _buildContentBody();
+    });
+  }
+
+  Widget _buildContentBody() {
     return Container(
       color: Colors.black,
       child: Stack(
