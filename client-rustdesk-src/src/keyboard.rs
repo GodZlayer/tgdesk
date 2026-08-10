@@ -753,15 +753,26 @@ fn start_grab_loop() {
 
             #[cfg(all(feature = "flutter", target_os = "windows"))]
             {
+                // Ctrl e Shift contados aqui mesmo, a partir dos eventos que
+                // este laço já recebe.
+                //
+                // Antes eu lia MODIFIERS_STATE, que é preenchido lá adiante,
+                // dentro de process_event — e process_event só roda quando o
+                // grab está registrado como ativo. Era uma dependência de
+                // ordem e de estado alheio para responder a uma pergunta que
+                // este laço pode responder sozinho: a tecla passou por aqui.
+                match key {
+                    Key::ControlLeft | Key::ControlRight => {
+                        TGDESK_RAW_CTRL_DOWN.store(is_press, Ordering::SeqCst)
+                    }
+                    Key::ShiftLeft | Key::ShiftRight => {
+                        TGDESK_RAW_SHIFT_DOWN.store(is_press, Ordering::SeqCst)
+                    }
+                    _ => {}
+                }
                 if let Some(vk) = tgdesk_shortcut_vk(key) {
-                    // A tupla é (alt, ctrl, shift, command) — e este trecho a
-                    // lia como (ctrl, shift, ...), testando na prática
-                    // "Alt+Ctrl". Era por isso que, com a captura ligada, os
-                    // comandos do TGDesk sumiam: com o grabber ativo ESTE é o
-                    // único caminho que vê a tecla, e a condição nunca era
-                    // verdadeira.
-                    let (_alt, ctrl, shift, _command) =
-                        client::get_modifiers_state(false, false, false, false);
+                    let ctrl = TGDESK_RAW_CTRL_DOWN.load(Ordering::SeqCst);
+                    let shift = TGDESK_RAW_SHIFT_DOWN.load(Ordering::SeqCst);
                     if is_press && ctrl && shift {
                         // Keep the chord out of the remote peer and notify the
                         // active TGDesk session through Flutter's event stream.

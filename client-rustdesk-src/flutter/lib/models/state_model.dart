@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:desktop_multi_window/desktop_multi_window.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter/painting.dart' show Size;
 import 'package:flutter_hbb/common.dart';
 import 'package:get/get.dart';
 import 'package:window_manager/window_manager.dart';
@@ -151,6 +152,21 @@ class StateGlobal {
       // moldura ficava certa e o conteúdo continuava do tamanho velho, que é
       // onde eu tinha parado antes.
       if (isWindows) {
+        if (requested) {
+          // Ao ENTRAR falta um detalhe a mais, e é o que me escapou: depois da
+          // primeira passagem a janela já está exatamente no retângulo do
+          // monitor. Pedir de novo o mesmo retângulo não é mudança de tamanho
+          // nenhuma, o Windows não emite WM_SIZE, e é só no WM_SIZE que o
+          // runner reposiciona a view do Flutter — a moldura ficava certa e o
+          // conteúdo continuava deslocado. Encolher um pixel antes faz a
+          // segunda passagem ser uma mudança de verdade.
+          //
+          // O tamanho final não vem desta conta: quem o define é a passagem
+          // seguinte, com o retângulo do monitor medido pelo próprio
+          // window_manager. Este pixel só existe entre uma linha e outra.
+          final size = await windowManager.getSize();
+          await windowManager.setSize(Size(size.width, size.height - 1));
+        }
         await windowManager.setFullScreen(requested);
       }
       if (!requested && _tgdeskHubWasMaximized) {

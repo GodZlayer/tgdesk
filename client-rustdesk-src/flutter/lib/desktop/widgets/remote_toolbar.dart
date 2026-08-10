@@ -189,7 +189,15 @@ int _monitorMenuQuarterTurns(_ToolbarEdge edge) {
   }
 }
 
-IconData _toolbarCollapseIcon(_ToolbarEdge edge, bool isCollapsed) {
+IconData _toolbarCollapseIcon(_ToolbarEdge edge, bool isCollapsed,
+    {bool horizontalGrowth = false}) {
+  // A barra do TGDesk abre para o lado, então a seta aponta para o lado: para
+  // a direita quando ela vai abrir, para a esquerda quando vai fechar. As
+  // setas de cima e de baixo do RustDesk descreviam uma barra que crescia em
+  // altura, o que aqui deixou de ser verdade.
+  if (horizontalGrowth) {
+    return isCollapsed ? Icons.chevron_right : Icons.chevron_left;
+  }
   switch (edge) {
     case _ToolbarEdge.top:
       return isCollapsed ? Icons.expand_more : Icons.expand_less;
@@ -750,12 +758,21 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
       // para os dois lados — na prática, para a esquerda, porque a alça fica
       // na ponta. Fixando a borda que encosta na alça, abrir só acrescenta
       // botões à direita e a alça não sai do lugar.
+      //
+      // Estes três são lidos AQUI, no corpo do Obx.
+      //
+      // Ler dentro do LayoutBuilder não registra dependência nenhuma: aquele
+      // callback roda no layout, muito depois de o Obx ter fechado a conta de
+      // quem ele observa. Foi assim que a barra parou de se mover — arrastar
+      // mudava a fração e nada era reconstruído.
+      final fraction = _fraction.value;
+      final handleWidth = _handleSize.value?.width ?? 0;
+      final barWidth = _toolbarSize.value?.width ?? handleWidth;
+
       final toolbar = widget.tgdeskMode && isHorizontal
           ? LayoutBuilder(builder: (context, constraints) {
               final maxWidth = constraints.maxWidth;
-              final handleWidth = _handleSize.value?.width ?? 0;
-              final barWidth = _toolbarSize.value?.width ?? handleWidth;
-              var left = _fraction.value * (maxWidth - handleWidth);
+              var left = fraction * (maxWidth - handleWidth);
               if (barWidth > 0 && left + barWidth > maxWidth) {
                 left = maxWidth - barWidth;
               }
@@ -821,39 +838,46 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
   }
 
   Widget _buildDraggableCollapse(
-      BuildContext context, _ToolbarEdge edge, bool isHorizontal) {
+      BuildContext context, _ToolbarEdge edge, bool isHorizontal,
+      {_HandleSection section = _HandleSection.whole}) {
     return Obx(() {
       if (collapse.isFalse && _dragging.isFalse) {
         triggerAutoHide();
       }
       final borderRadius = _collapseHandleBorderRadius(edge);
+      // A chave que mede a âncora fica na cabeça da alça, que é a borda
+      // esquerda da barra — a seta anda conforme a barra abre e não serve de
+      // referência para nada.
+      final measured = section != _HandleSection.collapseOnly;
       return Offstage(
         offstage: _dragging.isTrue,
         child: KeyedSubtree(
-          key: _handleKey,
+          key: measured ? _handleKey : null,
           child: Material(
-          elevation: _ToolbarTheme.elevation,
-          shadowColor: MyTheme.color(context).shadow,
-          borderRadius: borderRadius,
-          child: _DraggableShowHide(
-            id: widget.id,
-            ffi: widget.ffi,
-            sessionId: widget.ffi.sessionId,
-            dragging: _dragging,
-            fraction: _fraction,
-            edge: _edge,
-            previewEdge: _previewEdge,
-            previewFraction: _previewFraction,
-            toolbarSize: _toolbarSize,
-            markDragEpoch: _markToolbarDragEpoch,
-            syncDockingOptionsAfterDragIfNeeded:
-                _syncDockingOptionsAfterDragIfNeeded,
-            isHorizontal: isHorizontal,
-            multiEdgeEnabled: _multiEdgeEnabled.value,
-            toolbarState: widget.state,
-            setFullscreen: _setFullscreen,
-            setMinimize: _minimize,
+            elevation: _ToolbarTheme.elevation,
+            shadowColor: MyTheme.color(context).shadow,
             borderRadius: borderRadius,
+            child: _DraggableShowHide(
+              id: widget.id,
+              ffi: widget.ffi,
+              sessionId: widget.ffi.sessionId,
+              dragging: _dragging,
+              fraction: _fraction,
+              edge: _edge,
+              previewEdge: _previewEdge,
+              previewFraction: _previewFraction,
+              toolbarSize: _toolbarSize,
+              markDragEpoch: _markToolbarDragEpoch,
+              syncDockingOptionsAfterDragIfNeeded:
+                  _syncDockingOptionsAfterDragIfNeeded,
+              isHorizontal: isHorizontal,
+              multiEdgeEnabled: _multiEdgeEnabled.value,
+              toolbarState: widget.state,
+              setFullscreen: _setFullscreen,
+              setMinimize: _minimize,
+              borderRadius: borderRadius,
+              section: section,
+              horizontalGrowth: widget.tgdeskMode && isHorizontal,
             ),
           ),
         ),
@@ -970,10 +994,11 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
                 direction: innerAxis,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  // A alça abre a fileira: ela é o ponto fixo, e os botões
-                  // aparecem à direita dela.
+                  // Cabeça da alça — arrastar, tela cheia, minimizar. É o
+                  // ponto fixo da barra, e os botões nascem à direita dela.
                   if (inlineHandle) ...[
-                    _buildDraggableCollapse(context, edge, isHorizontal),
+                    _buildDraggableCollapse(context, edge, isHorizontal,
+                        section: _HandleSection.head),
                     spacer,
                   ] else
                     spacer,
@@ -994,6 +1019,12 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
                     )
                   else
                     ...toolbarItems,
+                  // E a seta fecha a fileira, depois do que ela abre.
+                  if (inlineHandle) ...[
+                    spacer,
+                    _buildDraggableCollapse(context, edge, isHorizontal,
+                        section: _HandleSection.collapseOnly),
+                  ],
                   spacer,
                 ],
               ),
@@ -3264,6 +3295,13 @@ class RdoMenuButton<T> extends StatelessWidget {
   }
 }
 
+/// Qual parte da alça montar.
+///
+/// O RustDesk monta tudo junto ([whole]). O TGDesk parte em duas para os
+/// botões que abrem caberem no meio: a cabeça arrastável de um lado, a seta do
+/// outro.
+enum _HandleSection { whole, head, collapseOnly }
+
 class _DraggableShowHide extends StatefulWidget {
   final String id;
   final FFI ffi;
@@ -3286,9 +3324,16 @@ class _DraggableShowHide extends StatefulWidget {
 
   final Function(bool) setFullscreen;
   final Function() setMinimize;
+  final _HandleSection section;
+
+  /// A barra cresce para o lado (TGDesk) em vez de para baixo, e a seta
+  /// precisa dizer isso.
+  final bool horizontalGrowth;
 
   const _DraggableShowHide({
     Key? key,
+    this.section = _HandleSection.whole,
+    this.horizontalGrowth = false,
     required this.id,
     required this.ffi,
     required this.sessionId,
@@ -3542,77 +3587,89 @@ class _DraggableShowHideState extends State<_DraggableShowHide> {
     }
 
     final axis = widget.isHorizontal ? Axis.horizontal : Axis.vertical;
-    final child = Flex(
-      direction: axis,
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        _buildDraggable(context),
-        Obx(() => collapse.isTrue
-            ? _MinimizedMonitorSwitchButton(id: widget.id, ffi: widget.ffi)
-            : const Offstage()),
-        Obx(() => buttonWrapper(
-              () {
-                widget.setFullscreen(!isFullscreen.value);
-              },
-              Tooltip(
-                message: translate(
-                    isFullscreen.isTrue ? 'Exit Fullscreen' : 'Fullscreen'),
-                child: Icon(
-                  isFullscreen.isTrue
-                      ? Icons.fullscreen_exit
-                      : Icons.fullscreen,
-                  size: iconSize,
-                ),
-              ),
-            )),
-        if (!isMacOS && !isWebDesktop)
-          Obx(() => Offstage(
-                offstage: isFullscreen.isFalse,
-                child: buttonWrapper(
-                  widget.setMinimize,
-                  Tooltip(
-                    message: translate('Minimize'),
-                    child: Icon(
-                      Icons.remove,
-                      size: iconSize,
-                    ),
-                  ),
-                ),
-              )),
-        buttonWrapper(
-          () => setState(() {
-            widget.toolbarState.switchCollapse(widget.sessionId);
-          }),
-          Obx((() => Tooltip(
-                message: translate(
-                    collapse.isFalse ? 'Hide Toolbar' : 'Show Toolbar'),
-                child: Icon(
-                  _toolbarCollapseIcon(widget.edge.value, collapse.isTrue),
-                  size: iconSize,
-                ),
-              ))),
-        ),
-        if (isWebDesktop)
-          Obx(() {
-            if (collapse.isFalse) {
-              return Offstage();
-            } else {
-              return buttonWrapper(
-                () => closeConnection(id: widget.id),
-                Tooltip(
-                  message: translate('Close'),
-                  child: Icon(
-                    Icons.close,
-                    size: iconSize,
-                    color: _ToolbarTheme.redColor,
-                  ),
-                ),
-                hoverColor: _ToolbarTheme.redColor,
-              ).paddingOnly(left: iconSize / 2);
-            }
-          })
-      ],
+    // A seta é servida à parte para o TGDesk poder colocá-la depois dos botões
+    // que ela abre — arrastar, tela cheia e minimizar continuam na cabeça da
+    // barra, e a seta fecha a fileira.
+    final collapseButton = buttonWrapper(
+      () => setState(() {
+        widget.toolbarState.switchCollapse(widget.sessionId);
+      }),
+      Obx((() => Tooltip(
+            message:
+                translate(collapse.isFalse ? 'Hide Toolbar' : 'Show Toolbar'),
+            child: Icon(
+              _toolbarCollapseIcon(widget.edge.value, collapse.isTrue,
+                  horizontalGrowth: widget.horizontalGrowth),
+              size: iconSize,
+            ),
+          ))),
     );
+    // A seta sozinha continua descendo pelo mesmo invólucro lá embaixo: é dele
+    // que vêm o fundo, a borda e a altura de 20px. Devolvê-la aqui direto a
+    // deixava sem nada disso, destoando da cabeça da alça ao lado.
+    final child = widget.section == _HandleSection.collapseOnly
+        ? collapseButton
+        : Flex(
+            direction: axis,
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _buildDraggable(context),
+              Obx(() => collapse.isTrue
+                  ? _MinimizedMonitorSwitchButton(
+                      id: widget.id, ffi: widget.ffi)
+                  : const Offstage()),
+              Obx(() => buttonWrapper(
+                    () {
+                      widget.setFullscreen(!isFullscreen.value);
+                    },
+                    Tooltip(
+                      message: translate(isFullscreen.isTrue
+                          ? 'Exit Fullscreen'
+                          : 'Fullscreen'),
+                      child: Icon(
+                        isFullscreen.isTrue
+                            ? Icons.fullscreen_exit
+                            : Icons.fullscreen,
+                        size: iconSize,
+                      ),
+                    ),
+                  )),
+              if (!isMacOS && !isWebDesktop)
+                Obx(() => Offstage(
+                      offstage: isFullscreen.isFalse,
+                      child: buttonWrapper(
+                        widget.setMinimize,
+                        Tooltip(
+                          message: translate('Minimize'),
+                          child: Icon(
+                            Icons.remove,
+                            size: iconSize,
+                          ),
+                        ),
+                      ),
+                    )),
+              if (widget.section == _HandleSection.whole) collapseButton,
+              if (isWebDesktop)
+                Obx(() {
+                  if (collapse.isFalse) {
+                    return Offstage();
+                  } else {
+                    return buttonWrapper(
+                      () => closeConnection(id: widget.id),
+                      Tooltip(
+                        message: translate('Close'),
+                        child: Icon(
+                          Icons.close,
+                          size: iconSize,
+                          color: _ToolbarTheme.redColor,
+                        ),
+                      ),
+                      hoverColor: _ToolbarTheme.redColor,
+                    ).paddingOnly(left: iconSize / 2);
+                  }
+                })
+            ],
+          );
     return TextButtonTheme(
       data: TextButtonThemeData(style: buttonStyle),
       child: Container(

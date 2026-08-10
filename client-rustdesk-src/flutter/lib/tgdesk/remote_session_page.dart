@@ -263,11 +263,20 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
       await Future<void>.delayed(const Duration(milliseconds: 700));
       if (!mounted) return;
       final sessionId = _sessionId;
+      // Copiar e colar e transferência de arquivos nascem LIGADOS.
+      //
+      // Levar um arquivo até a máquina do cliente e colar um texto no chamado
+      // é o feijão com arroz do atendimento; começar com os dois desligados
+      // fazia o técnico ter de ligá-los toda vez, sem que houvesse decisão
+      // nenhuma a tomar ali. Quem quiser desligar tem o botão e o atalho.
+      //
+      // O estado é imposto aqui, e não restaurado ao sair: o que vale é o que
+      // a sessão decide ao abrir, não o que ficou guardado da anterior.
       final clipboardDisabled = bind.sessionGetToggleOptionSync(
         sessionId: sessionId,
         arg: 'disable-clipboard',
       );
-      if (!clipboardDisabled) {
+      if (clipboardDisabled) {
         await bind.sessionToggleOption(
           sessionId: sessionId,
           value: 'disable-clipboard',
@@ -277,12 +286,15 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
         sessionId: sessionId,
         arg: kOptionEnableFileCopyPaste,
       );
-      if (fileTransferEnabled) {
+      if (!fileTransferEnabled) {
         await bind.sessionToggleOption(
           sessionId: sessionId,
           value: kOptionEnableFileCopyPaste,
         );
       }
+      if (!mounted) return;
+      _clipboardOn.value = true;
+      _fileTransferOn.value = true;
     });
   }
 
@@ -300,18 +312,10 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage> {
     if (_inputBlocked.isTrue) {
       bind.sessionToggleOption(sessionId: _sessionId, value: 'unblock-input');
     }
-    if (_clipboardOn.isTrue) {
-      bind.sessionToggleOption(
-        sessionId: _sessionId,
-        value: 'disable-clipboard',
-      );
-    }
-    if (_fileTransferOn.isTrue) {
-      bind.sessionToggleOption(
-        sessionId: _sessionId,
-        value: kOptionEnableFileCopyPaste,
-      );
-    }
+    // Copiar e colar e arquivos não são mais desfeitos aqui. Ficam ligados,
+    // que é como a próxima sessão vai querê-los de qualquer forma — e a
+    // próxima impõe o estado ao abrir, então desligar na saída era só trabalho
+    // para ser refeito.
     _sendAnnotation(const {'t': 'ClearDrawing'});
     // Zera o recuo só quando esta era a última sessão. Com outras abertas,
     // quem continua na tela remede no próximo quadro e o valor volta — mas
