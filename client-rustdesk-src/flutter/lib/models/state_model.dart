@@ -131,20 +131,27 @@ class StateGlobal {
         _tgdeskHubWasMaximized = await windowManager.isMaximized();
       }
       await windowManager.setFullScreen(requested);
-      // A faixa preta no topo da tela cheia nasce aqui, no window_manager.
+      // E de novo. Não é gagueira: é a mesma transição repetida com o estado
+      // já correto.
       //
-      // SetFullScreen só marca a janela como "em tela cheia" DEPOIS de já ter
-      // pedido o SetWindowPos com SWP_FRAMECHANGED. O WM_NCCALCSIZE que esse
-      // pedido dispara ainda vê a janela como apenas maximizada e reserva os
-      // 8px de borda superior que existem para a janela maximizada não ficar
-      // cortada. Nenhum outro WM_NCCALCSIZE chega depois, então esse recuo
-      // fica — e o desktop remoto aparece deslocado para baixo.
+      // O window_manager só marca a janela como "em tela cheia" na ÚLTIMA
+      // linha de SetFullScreen — depois de já ter mexido na moldura. Tudo que
+      // ele calcula durante a primeira passagem usa o estado anterior:
       //
-      // Reaplicar o estilo da barra de título força um novo cálculo do quadro,
-      // agora com a janela já marcada como tela cheia: a área do cliente passa
-      // a ser o monitor inteiro. Não é enfeite; é o segundo cálculo que falta.
+      // - ao entrar, o WM_NCCALCSIZE ainda vê uma janela apenas maximizada e
+      //   reserva os 8px de borda superior. É a faixa preta no topo.
+      // - ao sair, ele redimensiona a view do Flutter pelo GetClientRect ainda
+      //   calculado como tela cheia, sem os 8px. A view fica maior que a
+      //   janela e o desktop remoto vaza para fora dela.
+      //
+      // A segunda chamada refaz o mesmo SetWindowPos com o estado já gravado,
+      // e aí as duas contas saem certas. Ela também traz o WM_SIZE que faltava:
+      // reaplicar só o estilo da barra de título não servia, porque aquele
+      // SetWindowPos vai com SWP_NOSIZE e o Windows não emite WM_SIZE — a
+      // moldura ficava certa e o conteúdo continuava do tamanho velho, que é
+      // onde eu tinha parado antes.
       if (isWindows) {
-        await windowManager.setTitleBarStyle(TitleBarStyle.hidden);
+        await windowManager.setFullScreen(requested);
       }
       if (!requested && _tgdeskHubWasMaximized) {
         // setFullScreen restores the previous window bounds itself; keep the

@@ -486,6 +486,11 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
   // (collapsed handle vs expanded toolbar). Updated after every layout pass.
   final _toolbarSize = Rxn<Size>();
   final _toolbarKey = GlobalKey(debugLabel: 'remote_toolbar_root');
+  // A alça é o ponto fixo da barra do TGDesk: é por ela que se calcula onde a
+  // barra começa, para que abrir os botões cresça para a direita em vez de
+  // arrastar a alça para longe de onde o técnico a deixou.
+  final _handleKey = GlobalKey(debugLabel: 'remote_toolbar_handle');
+  final _handleSize = Rxn<Size>();
   // When false (default), the toolbar stays on the top edge and the drag
   // handle just slides it horizontally — preserving long-standing UX while
   // still fixing the bug where dragging only moved the handle. When true,
@@ -684,6 +689,10 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
   }
 
   _debouncerHideProc(int v) {
+    // No TGDesk a barra fica aberta até alguém fechá-la. Recolher sozinha
+    // depois de cinco segundos tirava da tela justamente o que o técnico tinha
+    // acabado de abrir para usar.
+    if (widget.tgdeskMode) return;
     if (!pin && collapse.isFalse && _isCursorOverImage && _dragging.isFalse) {
       collapse.value = true;
     }
@@ -720,17 +729,52 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
           final s = ro.size;
           if (_toolbarSize.value != s) _toolbarSize.value = s;
         }
+        final handleRo = _handleKey.currentContext?.findRenderObject();
+        if (handleRo is RenderBox && handleRo.hasSize) {
+          final s = handleRo.size;
+          if (_handleSize.value != s) _handleSize.value = s;
+        }
       });
 
-      final toolbar = Align(
-        alignment: _alignmentForEdge(edge, _fraction.value),
-        child: KeyedSubtree(
-          key: _toolbarKey,
-          child: collapse.isFalse
-              ? _buildToolbar(context, edge, isHorizontal)
-              : _buildDraggableCollapse(context, edge, isHorizontal),
-        ),
+      final content = KeyedSubtree(
+        key: _toolbarKey,
+        child: collapse.isFalse
+            ? _buildToolbar(context, edge, isHorizontal)
+            : _buildDraggableCollapse(context, edge, isHorizontal),
       );
+
+      // A barra do TGDesk é ancorada pela alça, não pelo próprio centro.
+      //
+      // O Align centra o que recebe na fração guardada: ao expandir, a barra
+      // ficava mais larga e o centro continuava no lugar, então ela crescia
+      // para os dois lados — na prática, para a esquerda, porque a alça fica
+      // na ponta. Fixando a borda que encosta na alça, abrir só acrescenta
+      // botões à direita e a alça não sai do lugar.
+      final toolbar = widget.tgdeskMode && isHorizontal
+          ? LayoutBuilder(builder: (context, constraints) {
+              final maxWidth = constraints.maxWidth;
+              final handleWidth = _handleSize.value?.width ?? 0;
+              final barWidth = _toolbarSize.value?.width ?? handleWidth;
+              var left = _fraction.value * (maxWidth - handleWidth);
+              if (barWidth > 0 && left + barWidth > maxWidth) {
+                left = maxWidth - barWidth;
+              }
+              if (!left.isFinite || left < 0) left = 0;
+              return Stack(
+                children: [
+                  Positioned(
+                    left: left,
+                    top: edge == _ToolbarEdge.top ? 0 : null,
+                    bottom: edge == _ToolbarEdge.bottom ? 0 : null,
+                    child: content,
+                  ),
+                ],
+              );
+            })
+          : Align(
+              alignment: _alignmentForEdge(edge, _fraction.value),
+              child: content,
+            );
 
       // Always return the Stack — even when not dragging — so the toolbar's
       // position in the Element tree stays stable. Wrapping/unwrapping it
@@ -785,7 +829,9 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
       final borderRadius = _collapseHandleBorderRadius(edge);
       return Offstage(
         offstage: _dragging.isTrue,
-        child: Material(
+        child: KeyedSubtree(
+          key: _handleKey,
+          child: Material(
           elevation: _ToolbarTheme.elevation,
           shadowColor: MyTheme.color(context).shadow,
           borderRadius: borderRadius,
@@ -808,6 +854,7 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
             setFullscreen: _setFullscreen,
             setMinimize: _minimize,
             borderRadius: borderRadius,
+            ),
           ),
         ),
       );
@@ -923,12 +970,30 @@ class _RemoteToolbarState extends State<RemoteToolbar> {
                 direction: innerAxis,
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  spacer,
-                  ...toolbarItems,
+                  // A alça abre a fileira: ela é o ponto fixo, e os botões
+                  // aparecem à direita dela.
                   if (inlineHandle) ...[
-                    spacer,
                     _buildDraggableCollapse(context, edge, isHorizontal),
-                  ],
+                    spacer,
+                  ] else
+                    spacer,
+                  if (inlineHandle)
+                    // Os ícones do RustDesk têm 32px, contra os 20 da alça —
+                    // ao lado dela pareciam enormes. Encolher a fileira
+                    // inteira de uma vez mantém as proporções internas e faz a
+                    // barra aberta ter a mesma altura da recolhida.
+                    SizedBox(
+                      height: _ToolbarTheme.height,
+                      child: FittedBox(
+                        fit: BoxFit.scaleDown,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: toolbarItems,
+                        ),
+                      ),
+                    )
+                  else
+                    ...toolbarItems,
                   spacer,
                 ],
               ),

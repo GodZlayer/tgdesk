@@ -754,7 +754,13 @@ fn start_grab_loop() {
             #[cfg(all(feature = "flutter", target_os = "windows"))]
             {
                 if let Some(vk) = tgdesk_shortcut_vk(key) {
-                    let (ctrl, shift, _, _) =
+                    // A tupla é (alt, ctrl, shift, command) — e este trecho a
+                    // lia como (ctrl, shift, ...), testando na prática
+                    // "Alt+Ctrl". Era por isso que, com a captura ligada, os
+                    // comandos do TGDesk sumiam: com o grabber ativo ESTE é o
+                    // único caminho que vê a tecla, e a condição nunca era
+                    // verdadeira.
+                    let (_alt, ctrl, shift, _command) =
                         client::get_modifiers_state(false, false, false, false);
                     if is_press && ctrl && shift {
                         // Keep the chord out of the remote peer and notify the
