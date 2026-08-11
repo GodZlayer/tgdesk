@@ -288,39 +288,6 @@ Win32Window::MessageHandler(HWND hwnd,
 
       return 0;
     }
-    // A faixa preta no topo em tela cheia.
-    //
-    // O window_manager entra em tela cheia MAXIMIZANDO a janela e só depois
-    // tirando o WS_OVERLAPPEDWINDOW, e no mesmo SetWindowPos a leva para o
-    // retângulo exato do monitor. Enquanto o Windows ainda a considera
-    // maximizada, ele recua a área de cliente pela borda de redimensionamento
-    // — uns 8px no topo. Como a barra de título é desenhada por nós
-    // (TitleBarStyle.hidden), ninguém pinta essa faixa: ela fica preta.
-    //
-    // Contornar isso repetindo a transição, como se fazia, depende da ordem em
-    // que as mensagens chegam, e por isso voltava a falhar. Aqui a resposta
-    // vem da própria mensagem: se o retângulo PROPOSTO cobre exatamente um
-    // monitor, isto é tela cheia por definição, e a área de cliente é a janela
-    // inteira. Nenhum estado externo é consultado, então não há corrida.
-    //
-    // Janela apenas maximizada não entra aqui: o retângulo dela é MAIOR que o
-    // do monitor, justamente pela borda.
-    case WM_NCCALCSIZE: {
-      if (wparam == TRUE) {
-        auto* params = reinterpret_cast<NCCALCSIZE_PARAMS*>(lparam);
-        RECT proposed = params->rgrc[0];
-        MONITORINFO monitor = {};
-        monitor.cbSize = sizeof(monitor);
-        if (GetMonitorInfo(MonitorFromRect(&proposed, MONITOR_DEFAULTTONEAREST),
-                           &monitor) &&
-            EqualRect(&proposed, &monitor.rcMonitor)) {
-          // Sem tocar em rgrc[0]: área de cliente = retângulo da janela.
-          return 0;
-        }
-      }
-      break;
-    }
-
     case WM_SIZE: {
       RECT rect = GetClientArea();
       if (child_content_ != nullptr) {
