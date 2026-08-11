@@ -44,6 +44,10 @@ const tgdeskActionClipboard = 'clipboard';
 const tgdeskActionFileTransfer = 'file_transfer';
 const tgdeskActionMicrophone = 'microphone';
 const tgdeskActionRemoteAudio = 'remote_audio';
+/// Prefixo dos acordes de tela: 'display_1' a 'display_10'. O sufixo é a
+/// posição na lista de telas do cliente, contando de 1, e o Ctrl+Shift+0 é a
+/// décima. Espelha keyboard.rs::TGDESK_SHORTCUTS.
+const tgdeskActionDisplayPrefix = 'display_';
 
 class RemoteSessionEntry {
   const RemoteSessionEntry({
@@ -565,8 +569,33 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage>
         _toggleRemoteAudio();
         break;
       default:
+        if (action.startsWith(tgdeskActionDisplayPrefix)) {
+          return _switchDisplay(action);
+        }
         return false;
     }
+    return true;
+  }
+
+  /// Mostra a tela de número `action` do cliente, contando de 1.
+  ///
+  /// A lista do `PeerInfo` traz telas físicas e virtuais na mesma ordem em que
+  /// o cliente as reporta, então o atalho alcança as duas sem precisar
+  /// distingui-las. Pedir uma tela que não existe não faz nada — quem tem dois
+  /// monitores aperta o 5 e continua vendo o que via, em vez de ficar com a
+  /// sessão em branco.
+  bool _switchDisplay(String action) {
+    final ffi = _ffi;
+    if (ffi == null) return false;
+    final number = int.tryParse(
+      action.substring(tgdeskActionDisplayPrefix.length),
+    );
+    if (number == null || number < 1) return false;
+    final pi = ffi.ffiModel.pi;
+    final index = number - 1;
+    if (index >= pi.displays.length) return true;
+    if (index == pi.currentDisplay) return true;
+    openMonitorInTheSameTab(index, ffi, pi);
     return true;
   }
 
@@ -581,6 +610,16 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage>
     LogicalKeyboardKey.keyF: tgdeskActionFileTransfer,
     LogicalKeyboardKey.keyM: tgdeskActionMicrophone,
     LogicalKeyboardKey.keyA: tgdeskActionRemoteAudio,
+    LogicalKeyboardKey.digit1: '${tgdeskActionDisplayPrefix}1',
+    LogicalKeyboardKey.digit2: '${tgdeskActionDisplayPrefix}2',
+    LogicalKeyboardKey.digit3: '${tgdeskActionDisplayPrefix}3',
+    LogicalKeyboardKey.digit4: '${tgdeskActionDisplayPrefix}4',
+    LogicalKeyboardKey.digit5: '${tgdeskActionDisplayPrefix}5',
+    LogicalKeyboardKey.digit6: '${tgdeskActionDisplayPrefix}6',
+    LogicalKeyboardKey.digit7: '${tgdeskActionDisplayPrefix}7',
+    LogicalKeyboardKey.digit8: '${tgdeskActionDisplayPrefix}8',
+    LogicalKeyboardKey.digit9: '${tgdeskActionDisplayPrefix}9',
+    LogicalKeyboardKey.digit0: '${tgdeskActionDisplayPrefix}10',
   };
 
   bool _handleGlobalKeyEvent(KeyEvent event) {

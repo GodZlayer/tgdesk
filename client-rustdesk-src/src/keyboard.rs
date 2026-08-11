@@ -60,6 +60,19 @@ pub const TGDESK_SHORTCUTS: &[(i32, &str)] = &[
     (0x46, "file_transfer"), // F — transferência de arquivos
     (0x4D, "microphone"),    // M — meu microfone sai nas caixas do cliente
     (0x41, "remote_audio"),  // A — escutar ou não o som do PC do cliente
+    // 1 a 9 e o 0 como décima: qual tela do cliente estou vendo. A lista de
+    // telas do cliente já traz físicas e virtuais misturadas, na ordem em que
+    // ele as reporta, então os dois tipos entram aqui sem distinção.
+    (0x31, "display_1"),
+    (0x32, "display_2"),
+    (0x33, "display_3"),
+    (0x34, "display_4"),
+    (0x35, "display_5"),
+    (0x36, "display_6"),
+    (0x37, "display_7"),
+    (0x38, "display_8"),
+    (0x39, "display_9"),
+    (0x30, "display_10"),
 ];
 
 #[cfg(all(feature = "flutter", target_os = "windows"))]
@@ -106,6 +119,11 @@ fn tgdesk_now_millis() -> u64 {
 static TGDESK_RAW_CTRL_DOWN: AtomicBool = AtomicBool::new(false);
 #[cfg(all(feature = "flutter", target_os = "windows"))]
 static TGDESK_RAW_SHIFT_DOWN: AtomicBool = AtomicBool::new(false);
+
+// O bit de cada acorde mora num u32, então a tabela não passa de 32 entradas.
+// Sem esta guarda, a 33ª faria `1u32 << index` estourar em silêncio.
+#[cfg(all(feature = "flutter", target_os = "windows"))]
+const _: () = assert!(TGDESK_SHORTCUTS.len() <= 32);
 
 #[cfg(all(feature = "flutter", target_os = "windows"))]
 #[inline]

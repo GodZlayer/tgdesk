@@ -696,7 +696,9 @@ extern "C"
 
     // Ctrl+Shift+<tecla>. Espelha keyboard.rs::TGDESK_SHORTCUTS; o Rust é quem
     // traduz cada código no nome que o Dart recebe.
-    static const int tgdesk_shortcut_keys[] = {'I', 'B', 'D', 'C', 'F', 'M', 'A'};
+    static const int tgdesk_shortcut_keys[] = {'I', 'B', 'D', 'C', 'F', 'M', 'A',
+                                               '1', '2', '3', '4', '5', '6',
+                                               '7', '8', '9', '0'};
 
     // Quais acordes este computador guarda para si.
     //
@@ -704,7 +706,8 @@ extern "C"
     // ele é a porta de saída, e precisa existir justamente quando todo o resto
     // está indo embora. Os outros seguem para o cliente como qualquer tecla —
     // quem está operando a máquina de lá pode precisar deles lá. Nesse estado,
-    // microfone e som se acionam pelo botão do toolbar.
+    // microfone e som se acionam pelo botão do toolbar, e a troca de tela pelo
+    // seletor de monitores.
     //
     // Sem os atalhos sendo enviados, todos são daqui.
     static bool is_tgdesk_shortcut_key(int vkCode, bool sending_to_remote)
