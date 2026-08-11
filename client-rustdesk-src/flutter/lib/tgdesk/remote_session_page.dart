@@ -493,7 +493,14 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage>
     if (isWindows) {
       bind.hostStopSystemKeyPropagate(stopped: capture);
     }
-    _ffi?.inputModel.enterOrLeave(capture);
+    // Entrar na sessão não depende da captura. Quem decide o destino dos
+    // acordes de sistema é o setInputSource acima; `enterOrLeave` diz outra
+    // coisa — se o ponteiro está sobre a tela remota. Amarrado à captura, ele
+    // zerava `_pointerInsideImage` e deixava de marcar a sessão atual, e com
+    // isso teclado e mouse morriam INTEIROS enquanto os atalhos estavam
+    // liberados: nem digitar, nem clicar, nem Ctrl+C. Só o Alt+Tab e afins
+    // ficam neste computador nesse modo; todo o resto continua indo.
+    _ffi?.inputModel.enterOrLeave(true);
   }
 
   void _toggleSystemKeys() {
@@ -520,9 +527,10 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage>
   /// "sessão atual" que o núcleo usa para rotear mouse e teclado: a tela
   /// remota continuava desenhando e não respondia a nada.
   ///
-  /// Era por isso que ligar a captura ressuscitava a entrada — ela chama este
-  /// mesmo enterOrLeave por outro caminho. Consertar o sintoma pelo atalho
-  /// seria consertar pelo lugar errado.
+  /// Era por isso que ligar a captura ressuscitava a entrada — ela chamava
+  /// este mesmo enterOrLeave por outro caminho. Consertar o sintoma pelo
+  /// atalho seria consertar pelo lugar errado; hoje a captura não governa mais
+  /// a entrada, e este é o caminho que devolve a sessão ao voltar à janela.
   @override
   void onWindowFocus() {
     super.onWindowFocus();
