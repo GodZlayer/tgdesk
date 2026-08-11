@@ -14,8 +14,11 @@
 
 #include <windows.h>
 
+#include <cstdio>
 #include <optional>
 #include <memory>
+
+#include "tgdesk_log.h"
 
 #include "win32_desktop.h"
 
@@ -144,8 +147,33 @@ FlutterWindow::MessageHandler(HWND hwnd, UINT const message,
         GetMonitorInfo(MonitorFromRect(&proposed, MONITOR_DEFAULTTONEAREST),
                        &monitor) &&
         EqualRect(&proposed, &monitor.rcMonitor);
-    const bool no_frame = (GetWindowLong(hwnd, GWL_STYLE) & WS_CAPTION) == 0;
-    if (covers_monitor || no_frame) {
+    const LONG style = GetWindowLong(hwnd, GWL_STYLE);
+    const bool no_frame = (style & WS_CAPTION) == 0;
+    const bool handled = covers_monitor || no_frame;
+
+    if (TgdeskLogEnabled()) {
+      WINDOWPLACEMENT placement = {};
+      placement.length = sizeof(placement);
+      GetWindowPlacement(hwnd, &placement);
+      char line[512];
+      std::snprintf(
+          line, sizeof(line),
+          "NCCALCSIZE proposto=(%ld,%ld,%ld,%ld) monitor=(%ld,%ld,%ld,%ld) "
+          "trabalho=(%ld,%ld,%ld,%ld) estilo=0x%08lX caption=%d "
+          "showCmd=%lu cobre_monitor=%d sem_moldura=%d -> %s",
+          proposed.left, proposed.top, proposed.right, proposed.bottom,
+          monitor.rcMonitor.left, monitor.rcMonitor.top,
+          monitor.rcMonitor.right, monitor.rcMonitor.bottom,
+          monitor.rcWork.left, monitor.rcWork.top, monitor.rcWork.right,
+          monitor.rcWork.bottom, static_cast<unsigned long>(style),
+          (style & WS_CAPTION) != 0 ? 1 : 0,
+          static_cast<unsigned long>(placement.showCmd), covers_monitor ? 1 : 0,
+          no_frame ? 1 : 0,
+          handled ? "NOSSO (cliente = janela inteira)" : "repassado ao plugin");
+      TgdeskLog("wnd", line);
+    }
+
+    if (handled) {
       // Sem tocar em rgrc[0]: área de cliente = retângulo da janela.
       return 0;
     }

@@ -5,9 +5,12 @@
 
 #include "resource.h"
 
+#include <cstdio>
 #include <cstdlib> // for getenv and _putenv
 #include <cstring> // for strcmp
 #include <string> // for std::wstring
+
+#include "tgdesk_log.h"
 
 namespace {
 
@@ -316,6 +319,36 @@ Win32Window::MessageHandler(HWND hwnd,
     // No `return`: DefWindowProc still needs this message to generate the
     // WM_SIZE and WM_MOVE that other code depends on.
     case WM_WINDOWPOSCHANGED: {
+      // O par que resolve "a faixa é da moldura ou do desenho?": aqui saem o
+      // retângulo da JANELA e o da ÁREA DE CLIENTE já finais. Se os dois
+      // baterem e a faixa continuar, ela não é da moldura — é de quem desenha
+      // dentro, e a busca muda de arquivo.
+      if (TgdeskLogEnabled()) {
+        RECT window_rect = {};
+        GetWindowRect(hwnd, &window_rect);
+        RECT client = GetClientArea();
+        // GetClientArea devolve o retângulo em coordenadas de CLIENTE
+        // (0,0,w,h). O recuo real da moldura só aparece levando a origem do
+        // cliente para coordenadas de tela e comparando com a janela — é este
+        // número, e não o retângulo cru, que diz se sobraram 8px no topo.
+        POINT client_origin = {0, 0};
+        ClientToScreen(hwnd, &client_origin);
+        RECT child = {};
+        if (child_content_ != nullptr) {
+          GetWindowRect(child_content_, &child);
+        }
+        char line[512];
+        std::snprintf(
+            line, sizeof(line),
+            "POSCHANGED janela=(%ld,%ld,%ld,%ld) cliente=%ldx%ld "
+            "view=(%ld,%ld,%ld,%ld) recuo_topo=%ld recuo_esq=%ld",
+            window_rect.left, window_rect.top, window_rect.right,
+            window_rect.bottom, client.right - client.left,
+            client.bottom - client.top, child.left, child.top, child.right,
+            child.bottom, client_origin.y - window_rect.top,
+            client_origin.x - window_rect.left);
+        TgdeskLog("wnd", line);
+      }
       if (child_content_ != nullptr) {
         RECT rect = GetClientArea();
         // Only touch the child when it is actually out of date. This message

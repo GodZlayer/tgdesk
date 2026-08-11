@@ -8,6 +8,7 @@ import 'package:window_manager/window_manager.dart';
 
 import '../consts.dart';
 import './platform_model.dart';
+import 'package:flutter_hbb/tgdesk/diag_log.dart';
 
 enum SvcStatus { notReady, connecting, ready }
 
@@ -100,6 +101,11 @@ class StateGlobal {
   setMinimized(bool v) => _isMinimized = v;
 
   setFullscreen(bool v, {bool procWnd = true}) {
+    DiagLog.write(
+        'fullscreen',
+        'pedido=$v atual=${_fullscreen.value} procWnd=$procWnd '
+        'windowId=$_windowId maximizada=${isMaximized.value}'
+        '${_fullscreen.value == v ? ' -> ignorado (ja esta assim)' : ''}');
     if (_fullscreen.value == v) return;
 
     // The Hub keeps the same canvas ancestry while the native window enters

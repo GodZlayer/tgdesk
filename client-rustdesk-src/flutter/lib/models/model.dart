@@ -45,6 +45,7 @@ import '../utils/image.dart' as img;
 import '../common/widgets/dialog.dart';
 import 'input_model.dart';
 import 'platform_model.dart';
+import 'package:flutter_hbb/tgdesk/diag_log.dart';
 import 'package:flutter_hbb/utils/scale.dart';
 
 import 'package:flutter_hbb/generated_bridge.dart'
@@ -2287,6 +2288,13 @@ class CanvasModel with ChangeNotifier {
     if (_tgdeskEmbeddedViewportSize == size && _size == size) {
       return;
     }
+    DiagLog.write(
+        'canvas',
+        'viewport do Hub = ${DiagLog.n(size.width)}x${DiagLog.n(size.height)} '
+        '(anterior ${DiagLog.n(_tgdeskEmbeddedViewportSize?.width)}x'
+        '${DiagLog.n(_tgdeskEmbeddedViewportSize?.height)}) '
+        'fullscreen=${stateGlobal.fullscreen.value} '
+        'tabBar=${DiagLog.n(stateGlobal.tabBarHeight)}');
     _tgdeskEmbeddedViewportSize = size;
 
     // LayoutBuilder knows the real rectangle occupied by the Hub (after the
@@ -2438,6 +2446,17 @@ class CanvasModel with ChangeNotifier {
     if (styleChanged) {
       _resetScroll();
     }
+    // O par que fecha o diagnóstico da faixa preta: se a área de desenho for
+    // menor que a janela, ou a origem não for zero, a faixa é daqui — e não da
+    // moldura, que o log do runner mede do outro lado.
+    DiagLog.write(
+        'canvas',
+        'viewStyle=${viewStyle.style} canvas=${DiagLog.n(size.width)}x'
+        '${DiagLog.n(size.height)} display=${DiagLog.n(displayWidth)}x'
+        '${DiagLog.n(displayHeight)} escala=${DiagLog.n(viewStyle.scale)} '
+        'origem=(${DiagLog.n(_x)},${DiagLog.n(_y)}) '
+        'fullscreen=${stateGlobal.fullscreen.value} '
+        'geometriaMudou=$displayGeometryChanged');
     _lastViewStyle = viewStyle;
     _scale = viewStyle.scale;
 
