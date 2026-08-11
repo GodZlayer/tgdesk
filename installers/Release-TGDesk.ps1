@@ -350,7 +350,24 @@ try {
 
 Write-Step 'Validando anuncio de update'
 $manifestUrl = 'http://127.0.0.1:8090/api/v1/client/modules?version=0.0.0'
-$manifestResponse = Invoke-RestMethod -Uri $manifestUrl -TimeoutSec 20
+# O deploy acabou de recriar o api-core. Cobrar resposta imediata reprova
+# release boa por atraso de subida, e foi o que aconteceu na 1.2.47: o
+# servidor respondeu certo segundos depois do gate desistir. Insistir por ate
+# ~2 min distingue "ainda subindo" de "subiu errado", que e o que importa aqui.
+$manifestResponse = $null
+$deadline = (Get-Date).AddSeconds(120)
+while ($true) {
+    try {
+        $manifestResponse = Invoke-RestMethod -Uri $manifestUrl -TimeoutSec 20
+        break
+    } catch {
+        if ((Get-Date) -ge $deadline) {
+            throw "Servidor nao respondeu em $manifestUrl apos 120s: $($_.Exception.Message)"
+        }
+        Write-Host 'Servidor ainda subindo; nova tentativa em 5s...'
+        Start-Sleep -Seconds 5
+    }
+}
 if ([string]$manifestResponse.version -ne $Version) {
     throw "Servidor anunciou versao $($manifestResponse.version), esperado $Version."
 }

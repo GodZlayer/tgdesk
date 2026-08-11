@@ -280,6 +280,14 @@ fn activate_client(exclude_pid: u32) -> ResultType<IAudioClient> {
             &handler,
         )
     };
+    // The blob above points at `params`, which lives on this stack frame, so the
+    // variant must never be cleared: `PROPVARIANT`'s `Drop` calls
+    // `PropVariantClear`, and for `VT_BLOB` that hands `pBlobData` to
+    // `CoTaskMemFree` — freeing stack memory and taking the process down with it.
+    // Windows copies the activation parameters during the call above, so from
+    // here on the blob has no purpose. Forgetting it must happen before any
+    // early return below, including the error paths.
+    std::mem::forget(variant);
     let operation = match operation {
         Ok(operation) => operation,
         Err(err) => bail!("process loopback is unavailable: {}", err),
