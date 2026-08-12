@@ -27,9 +27,55 @@ pub use server::*;
 pub enum CustomEvent {
     Cursor(Cursor),
     Stroke(StrokeSegment),
+    Shape(Shape),
+    /// Desfaz o último item desenhado — o traço inteiro, não o segmento solto.
+    UndoDrawing,
     ClearDrawing,
     Clear,
     Exit,
+}
+
+/// Um item do desenho, na ordem em que foi pintado.
+///
+/// Traços e formas moram na MESMA lista de propósito: a ordem entre eles é o
+/// que o técnico vê, e separá-los em duas listas faria uma forma criada depois
+/// aparecer por baixo de um traço criado antes.
+#[derive(Debug, Clone)]
+pub enum DrawItem {
+    Stroke(StrokeSegment),
+    Shape(Shape),
+}
+
+impl DrawItem {
+    /// A que unidade de desfazer este item pertence.
+    pub fn group(&self) -> u32 {
+        match self {
+            DrawItem::Stroke(s) => s.group,
+            DrawItem::Shape(s) => s.group,
+        }
+    }
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone, Copy, PartialEq)]
+pub enum ShapeKind {
+    Rect,
+    Ellipse,
+    Line,
+    Arrow,
+}
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
+pub struct Shape {
+    pub kind: ShapeKind,
+    /// Cantos opostos, normalizados no desktop capturado (0.0 .. 1.0).
+    pub x0: f32,
+    pub y0: f32,
+    pub x1: f32,
+    pub y1: f32,
+    pub argb: u32,
+    pub width: f32,
+    #[serde(default)]
+    pub group: u32,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -52,4 +98,8 @@ pub struct StrokeSegment {
     pub argb: u32,
     pub width: f32,
     pub erase: bool,
+    /// Todos os segmentos de um mesmo arrasto compartilham este número, e é
+    /// por ele que o desfazer remove o traço INTEIRO em vez de um pedacinho.
+    #[serde(default)]
+    pub group: u32,
 }

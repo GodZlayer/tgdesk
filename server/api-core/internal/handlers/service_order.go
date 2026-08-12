@@ -121,7 +121,7 @@ func (s *Server) FinishServiceOrder(w http.ResponseWriter, r *http.Request, tick
 		LEFT JOIN part_catalog p ON p.id=i.part_id
 		WHERE o.ticket_id=$1`, ticketID).Scan(&itensComNotaObrigatoria, &notasFiscais)
 	if itensComNotaObrigatoria > 0 && notasFiscais == 0 {
-		writeErrCode(w, http.StatusConflict, "nota_fiscal_pecas_obrigatoria", "anexe a foto da nota fiscal das peÃ§as antes de finalizar a OS")
+		writeErrCode(w, http.StatusConflict, "nota_fiscal_pecas_obrigatoria", "anexe a foto da nota fiscal das peças antes de finalizar a OS")
 		return
 	}
 	_, _ = s.Pool.Exec(r.Context(), `

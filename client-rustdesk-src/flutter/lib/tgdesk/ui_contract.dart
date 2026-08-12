@@ -138,8 +138,8 @@ class TgdeskDiagnosticPolicy {
   static const loadTimeout = Duration(seconds: 20);
 
   static String loadErrorMessage(Object error) => error is TimeoutException
-      ? 'O diagnÃ³stico demorou demais para responder. Verifique a conexÃ£o e tente novamente.'
-      : 'NÃ£o foi possÃ­vel carregar os diagnÃ³sticos. Tente novamente.';
+      ? 'O diagnóstico demorou demais para responder. Verifique a conexão e tente novamente.'
+      : 'Não foi possível carregar os diagnósticos. Tente novamente.';
 
   static const forbiddenStorageTests = {
     'badblocks-write',

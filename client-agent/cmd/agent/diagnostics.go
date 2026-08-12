@@ -219,15 +219,15 @@ func executeDiagnostic(ctx context.Context, test string, progress func(int, stri
 	case "process_pressure":
 		return commandDiagnostic(ctx, progress, 35, "Analisando processos", "powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "Get-Process | Sort-Object CPU -Descending | Select-Object -First 30 Name,Id,CPU,WorkingSet64,PrivateMemorySize64,Handles | ConvertTo-Json")
 	case "process_gpu_pressure":
-		return commandDiagnostic(ctx, progress, 25, "Correlacionando processos com GPU e memÃ³ria",
+		return commandDiagnostic(ctx, progress, 25, "Correlacionando processos com GPU e memória",
 			"powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
 			"$ErrorActionPreference='SilentlyContinue'; $p=Get-Process | Select-Object Name,Id,CPU,WorkingSet64,PrivateMemorySize64,StartTime; $gpu=@(Get-Counter '\\GPU Engine(*)\\Utilization Percentage' -SampleInterval 1 -MaxSamples 8).CounterSamples | Where-Object CookedValue -gt 0.5 | Select-Object InstanceName,CookedValue; $suspects=$p | Where-Object { $_.Name -match 'obs|camera|teams|chrome|edge|firefox|discord|anydesk|rustdesk|tgdesk' } | Sort-Object CPU -Descending; [pscustomobject]@{TopCpu=($p|Sort-Object CPU -Descending|Select-Object -First 25);TopMemory=($p|Sort-Object WorkingSet64 -Descending|Select-Object -First 25);GpuEngines=$gpu;KnownHeavyProcesses=$suspects} | ConvertTo-Json -Depth 6; exit 0")
 	case "reboot_lag_history":
-		return commandDiagnostic(ctx, progress, 20, "Lendo histÃ³rico de reinÃ­cios, travamentos e desligamentos",
+		return commandDiagnostic(ctx, progress, 20, "Lendo histórico de reinícios, travamentos e desligamentos",
 			"powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
 			"$ErrorActionPreference='SilentlyContinue'; $since=(Get-Date).AddDays(-14); $boot=(Get-CimInstance Win32_OperatingSystem).LastBootUpTime; $events=Get-WinEvent -FilterHashtable @{LogName='System';Id=41,1001,1074,6005,6006,6008,7031,7034;StartTime=$since} -MaxEvents 250 | Select-Object TimeCreated,Id,ProviderName,LevelDisplayName,Message; $perf=Get-WinEvent -FilterHashtable @{LogName='Microsoft-Windows-Diagnostics-Performance/Operational';Id=100,101,102,103,200,201,202,203;StartTime=$since} -MaxEvents 250 | Select-Object TimeCreated,Id,ProviderName,LevelDisplayName,Message; [pscustomobject]@{LastBoot=$boot;SystemEvents=$events;PerformanceEvents=$perf;RebootPending=(Test-Path 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WindowsUpdate\\Auto Update\\RebootRequired')} | ConvertTo-Json -Depth 6; exit 0")
 	case "resource_pressure_series":
-		return commandDiagnostic(ctx, progress, 10, "Amostrando CPU, memÃ³ria, disco e GPU por 60 segundos",
+		return commandDiagnostic(ctx, progress, 10, "Amostrando CPU, memória, disco e GPU por 60 segundos",
 			"powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
 			"$ErrorActionPreference='SilentlyContinue'; $samples=@(); for($i=0;$i -lt 30;$i++){ $cpu=(Get-Counter '\\Processor(_Total)\\% Processor Time').CounterSamples.CookedValue; $mem=(Get-Counter '\\Memory\\Available MBytes').CounterSamples.CookedValue; $disk=(Get-Counter '\\PhysicalDisk(_Total)\\% Disk Time').CounterSamples.CookedValue; $gpu=(@(Get-Counter '\\GPU Engine(*)\\Utilization Percentage').CounterSamples | Measure-Object CookedValue -Sum).Sum; $top=Get-Process | Sort-Object CPU -Descending | Select-Object -First 5 Name,Id,CPU,WorkingSet64; $samples += [pscustomobject]@{At=(Get-Date);CpuPercent=[math]::Round($cpu,2);AvailableMemoryMb=[math]::Round($mem,0);DiskBusyPercent=[math]::Round($disk,2);GpuEngineSum=[math]::Round($gpu,2);TopCpu=$top}; Start-Sleep -Seconds 2 }; $samples | ConvertTo-Json -Depth 5; exit 0")
 	default:

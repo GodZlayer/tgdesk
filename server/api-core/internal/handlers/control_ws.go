@@ -126,6 +126,11 @@ func (s *Server) DeviceControlWS(w http.ResponseWriter, r *http.Request) {
 		}
 	}()
 
+	// Relógio externo da detecção de trava (§6). Vive pela conexão inteira:
+	// quem mede o congelamento tem que ser quem não congela junto.
+	stall := s.newStallWatcher(r.Context(), deviceID)
+	defer stall.encerrar()
+
 	for {
 		_ = conn.SetReadDeadline(time.Now().Add(45 * time.Second))
 		var msg controlMessage
@@ -164,6 +169,21 @@ func (s *Server) DeviceControlWS(w http.ResponseWriter, r *http.Request) {
 				"status": rec.Code, "payload": payload}) != nil {
 				return
 			}
+		case "hb":
+			// Batida de alta frequência (2 Hz, §6). Deliberadamente NÃO é o
+			// mesmo caso do "heartbeat": aquele consulta e escreve no banco,
+			// publica presença e decide atualização — a 2 Hz por dispositivo
+			// isso seria carga, não medição.
+			//
+			// Aqui só se marca o instante em memória. O que persiste é o
+			// BURACO entre batidas, que é raro e é o dado que interessa.
+			stall.tick()
+
+		case "stall_context":
+			// Despejo do ring buffer do agente, DEPOIS do evento. É contexto,
+			// nunca relógio: quem diz quanto durou continua sendo o servidor.
+			stall.receberContexto(msg.Payload)
+
 		case "heartbeat":
 			var capabilities presence.Capabilities
 			_ = json.Unmarshal(msg.Payload, &capabilities)

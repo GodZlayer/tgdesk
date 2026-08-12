@@ -1,7 +1,7 @@
 use super::{
     server::{Ripple, EVENT_PROXY},
     win_linux::{create_font_face, draw_text},
-    Cursor, CustomEvent, StrokeSegment,
+    Cursor, CustomEvent, DrawItem, Shape, ShapeKind,
 };
 use hbb_common::{anyhow::anyhow, log, ResultType};
 use softbuffer::{Context, Surface};
@@ -14,8 +14,68 @@ use tao::{
     window::WindowBuilder,
 };
 use tiny_skia::{
-    BlendMode, Color, FillRule, LineCap, Paint, PathBuilder, PixmapMut, Stroke, Transform,
+    BlendMode, Color, FillRule, LineCap, Paint, Path, PathBuilder, PixmapMut, Rect, Stroke,
+    Transform,
 };
+
+/// O caminho de uma forma, em pixels do desktop capturado.
+///
+/// Os dois pontos são cantos OPOSTOS e chegam na ordem em que o técnico
+/// arrastou, que pode ser da direita para a esquerda ou de baixo para cima —
+/// daí o min/max antes de montar o retângulo. A seta é a única que se importa
+/// com a ordem: ela aponta para onde o arrasto terminou.
+fn build_shape_path(shape: &Shape, canvas_w: f32, canvas_h: f32) -> Option<Path> {
+    let x0 = shape.x0.clamp(0.0, 1.0) * canvas_w;
+    let y0 = shape.y0.clamp(0.0, 1.0) * canvas_h;
+    let x1 = shape.x1.clamp(0.0, 1.0) * canvas_w;
+    let y1 = shape.y1.clamp(0.0, 1.0) * canvas_h;
+
+    let mut pb = PathBuilder::new();
+    match shape.kind {
+        ShapeKind::Rect => {
+            let (l, t) = (x0.min(x1), y0.min(y1));
+            let (r, b) = (x0.max(x1), y0.max(y1));
+            pb.move_to(l, t);
+            pb.line_to(r, t);
+            pb.line_to(r, b);
+            pb.line_to(l, b);
+            pb.close();
+        }
+        ShapeKind::Ellipse => {
+            // `Rect::from_ltrb` recusa retângulo vazio, e um clique sem
+            // arrasto produz exatamente isso. Sem a guarda, a forma sumiria
+            // silenciosamente em vez de virar um ponto.
+            let rect = Rect::from_ltrb(x0.min(x1), y0.min(y1), x0.max(x1), y0.max(y1))?;
+            pb.push_oval(rect);
+        }
+        ShapeKind::Line => {
+            pb.move_to(x0, y0);
+            pb.line_to(x1, y1);
+        }
+        ShapeKind::Arrow => {
+            pb.move_to(x0, y0);
+            pb.line_to(x1, y1);
+            let dx = x1 - x0;
+            let dy = y1 - y0;
+            let len = (dx * dx + dy * dy).sqrt();
+            if len > 1.0 {
+                // A farpa acompanha a espessura do traço, senão a seta fica
+                // com ponta de alfinete quando o pincel está grosso.
+                let barb = (shape.width * 4.0).clamp(10.0, len * 0.5);
+                let (ux, uy) = (dx / len, dy / len);
+                let angle = 0.5f32;
+                let (sin, cos) = angle.sin_cos();
+                for sign in [1.0f32, -1.0] {
+                    let rx = ux * cos + uy * (sin * sign);
+                    let ry = uy * cos - ux * (sin * sign);
+                    pb.move_to(x1, y1);
+                    pb.line_to(x1 - rx * barb, y1 - ry * barb);
+                }
+            }
+        }
+    }
+    pb.finish()
+}
 
 pub(super) fn create_event_loop() -> ResultType<()> {
     let face = match create_font_face() {
@@ -73,7 +133,7 @@ pub(super) fn create_event_loop() -> ResultType<()> {
 
     let mut ripples: Vec<Ripple> = Vec::new();
     let mut last_cursors: HashMap<String, Cursor> = HashMap::new();
-    let mut drawings: HashMap<String, Vec<StrokeSegment>> = HashMap::new();
+    let mut drawings: HashMap<String, Vec<DrawItem>> = HashMap::new();
     let mut resized = final_size.is_none();
 
     event_loop.run(move |event, _, control_flow| {
@@ -126,27 +186,40 @@ pub(super) fn create_event_loop() -> ResultType<()> {
                 };
                 pixmap.fill(Color::TRANSPARENT);
 
-                for segments in drawings.values() {
-                    for segment in segments {
-                        let mut path = PathBuilder::new();
-                        path.move_to(
-                            segment.x0.clamp(0.0, 1.0) * width.get() as f32,
-                            segment.y0.clamp(0.0, 1.0) * height.get() as f32,
-                        );
-                        path.line_to(
-                            segment.x1.clamp(0.0, 1.0) * width.get() as f32,
-                            segment.y1.clamp(0.0, 1.0) * height.get() as f32,
-                        );
-                        if let Some(path) = path.finish() {
-                            let rgba = super::argb_to_rgba(segment.argb);
+                let canvas_w = width.get() as f32;
+                let canvas_h = height.get() as f32;
+                for items in drawings.values() {
+                    for item in items {
+                        let (path, argb, line_width, erase) = match item {
+                            DrawItem::Stroke(segment) => {
+                                let mut pb = PathBuilder::new();
+                                pb.move_to(
+                                    segment.x0.clamp(0.0, 1.0) * canvas_w,
+                                    segment.y0.clamp(0.0, 1.0) * canvas_h,
+                                );
+                                pb.line_to(
+                                    segment.x1.clamp(0.0, 1.0) * canvas_w,
+                                    segment.y1.clamp(0.0, 1.0) * canvas_h,
+                                );
+                                (pb.finish(), segment.argb, segment.width, segment.erase)
+                            }
+                            DrawItem::Shape(shape) => (
+                                build_shape_path(shape, canvas_w, canvas_h),
+                                shape.argb,
+                                shape.width,
+                                false,
+                            ),
+                        };
+                        if let Some(path) = path {
+                            let rgba = super::argb_to_rgba(argb);
                             let mut paint = Paint::default();
                             paint.set_color_rgba8(rgba.2, rgba.1, rgba.0, rgba.3);
                             paint.anti_alias = true;
-                            if segment.erase {
+                            if erase {
                                 paint.blend_mode = BlendMode::Clear;
                             }
                             let mut stroke = Stroke::default();
-                            stroke.width = segment.width.clamp(1.0, 60.0);
+                            stroke.width = line_width.clamp(1.0, 60.0);
                             stroke.line_cap = LineCap::Round;
                             pixmap.stroke_path(&path, &paint, &stroke, Transform::identity(), None);
                         }
@@ -250,11 +323,31 @@ pub(super) fn create_event_loop() -> ResultType<()> {
                     last_cursors.insert(k, cursor);
                 }
                 CustomEvent::Stroke(segment) => {
-                    let segments = drawings.entry(k).or_default();
-                    if segments.len() >= 20_000 {
-                        segments.drain(..5_000);
+                    let items = drawings.entry(k).or_default();
+                    if items.len() >= 20_000 {
+                        items.drain(..5_000);
                     }
-                    segments.push(segment);
+                    items.push(DrawItem::Stroke(segment));
+                }
+                CustomEvent::Shape(shape) => {
+                    let items = drawings.entry(k).or_default();
+                    if items.len() >= 20_000 {
+                        items.drain(..5_000);
+                    }
+                    items.push(DrawItem::Shape(shape));
+                }
+                CustomEvent::UndoDrawing => {
+                    // Remove o último GRUPO, não o último item: um traço à mão
+                    // livre chega como dezenas de segmentos, e tirar um só
+                    // pareceria que o desfazer não fez nada.
+                    if let Some(items) = drawings.get_mut(&k) {
+                        if let Some(last) = items.last().map(|i| i.group()) {
+                            items.retain(|i| i.group() != last);
+                        }
+                        if items.is_empty() {
+                            drawings.remove(&k);
+                        }
+                    }
                 }
                 CustomEvent::ClearDrawing => {
                     drawings.remove(&k);

@@ -126,14 +126,14 @@ func applyTechnicianCredentialBind(cfg *agentConfig) {
 	}
 	status, err := postTechnicianSelfBind(cfg)
 	if err != nil {
-		log.Printf("auto-vinculaÃ§Ã£o tÃ©cnica adiada: %v", err)
+		log.Printf("auto-vinculação técnica adiada: %v", err)
 		return
 	}
 	if status == http.StatusOK || status == http.StatusConflict {
-		log.Printf("auto-vinculaÃ§Ã£o tÃ©cnica conferida (status %d)", status)
+		log.Printf("auto-vinculação técnica conferida (status %d)", status)
 		return
 	}
-	log.Printf("auto-vinculaÃ§Ã£o tÃ©cnica recusada (status %d)", status)
+	log.Printf("auto-vinculação técnica recusada (status %d)", status)
 }
 
 func postTechnicianSelfBind(cfg *agentConfig) (int, error) {

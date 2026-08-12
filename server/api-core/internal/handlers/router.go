@@ -282,6 +282,14 @@ func NewRouter(s *Server) http.Handler {
 		s.RemoveOsItem(w, r, r.PathValue("id"), r.PathValue("itemId"))
 	}))))
 
+	// O laco RAT x suposicao (S19.4): a realidade do tecnico contra o que a
+	// rede achou antes. E a unica fonte de calibracao medida em campo.
+	mux.Handle("POST /api/v1/rat", private(auth(http.HandlerFunc(s.RegistrarRAT))))
+	mux.Handle("POST /api/v1/rat/{id}/avaliar", private(auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		s.AvaliarRAT(w, r, r.PathValue("id"))
+	}))))
+	mux.Handle("GET /api/v1/diagnostico/calibracao", private(auth(http.HandlerFunc(s.CalibracaoDeCampo))))
+
 	mux.Handle("GET /api/v1/devices/{id}/diagnostics", private(auth(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		s.ListDiagnostics(w, r, r.PathValue("id"))
 	}))))

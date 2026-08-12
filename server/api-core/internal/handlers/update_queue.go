@@ -18,8 +18,8 @@ import (
 const (
 	// Acima disto a fila é considerada grande e o download passa a ser
 	// limitado. O número veio do parque de referência do produto.
-	largeQueueThreshold = 30
-	throttledKbps       = 2048
+	largeQueueThreshold  = 30
+	throttledKbps        = 2048
 	maxConcurrentUpdates = 2
 	// Uma entrada em andamento tempo demais é um cliente que caiu no meio.
 	// Sem isto a fila inteira ficaria parada esperando alguém que não volta.

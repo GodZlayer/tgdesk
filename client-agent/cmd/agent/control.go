@@ -174,6 +174,15 @@ func runDeviceControlLoop(cfg *agentConfig, remoteReady bool) error {
 	heartbeatTick := time.NewTicker(5 * time.Second)
 	telemetryTick := time.NewTicker(30 * time.Second)
 	remoteRetryTick := time.NewTicker(15 * time.Second)
+	// Batida de alta frequência (2 Hz, §6). É separada do heartbeat de 5s de
+	// propósito: aquele carrega estado, versão e capacidades, e escreve no
+	// banco do servidor. Este é só um pulso — o que interessa dele é o BURACO
+	// quando ele para de chegar.
+	pulseTick := time.NewTicker(500 * time.Millisecond)
+	defer pulseTick.Stop()
+	// Vive no processo, não na conexão: a trava costuma derrubar o canal, e um
+	// buffer que morresse junto perderia o contexto do evento.
+	ringTrava := ringBufferDeTrava()
 	defer heartbeatTick.Stop()
 	defer telemetryTick.Stop()
 	defer remoteRetryTick.Stop()
@@ -309,6 +318,24 @@ func runDeviceControlLoop(cfg *agentConfig, remoteReady bool) error {
 			}); err != nil {
 				return err
 			}
+		case <-pulseTick.C:
+			// O pulso não carrega payload: qualquer campo aqui seria custo a
+			// 2 Hz sem mudar nada do que o servidor precisa saber.
+			if err := conn.WriteJSON(deviceControlMessage{Type: "hb"}); err != nil {
+				return err
+			}
+			// Se o relógio local saltou, houve congelamento — e o contexto do
+			// que acontecia em volta sobe DEPOIS do evento, nunca durante.
+			// Durante, a máquina estava travada; é essa a razão de o despejo
+			// ser posterior.
+			if pendente := ringTrava.despejar(); pendente != nil {
+				if err := conn.WriteJSON(deviceControlMessage{
+					Type: "stall_context", Payload: pendente,
+				}); err != nil {
+					return err
+				}
+			}
+
 		case <-heartbeatTick.C:
 			if err := sendHeartbeat(); err != nil {
 				return err

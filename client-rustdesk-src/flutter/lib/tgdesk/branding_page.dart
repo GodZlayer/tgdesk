@@ -30,7 +30,6 @@ class _BrandingPageState extends State<BrandingPage> {
   bool _removeFavicon = false;
   Uint8List? _logo;
   Uint8List? _favicon;
-  Uint8List? _faviconPreview;
   MemoryImage? _faviconPreviewImage;
   String? _error;
 
@@ -84,7 +83,6 @@ class _BrandingPageState extends State<BrandingPage> {
   }
 
   void _setFaviconPreview(Uint8List? bytes) {
-    _faviconPreview = bytes;
     _faviconPreviewImage = bytes == null ? null : MemoryImage(bytes);
   }
 
@@ -262,7 +260,7 @@ class _BrandingPageState extends State<BrandingPage> {
                   width: 180,
                   height: 110,
                   decoration: BoxDecoration(
-                    color: const Color(0xff091522),
+                    color: TgdeskSurfaces.background,
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(
                         color: Theme.of(context).colorScheme.outline),
@@ -434,7 +432,7 @@ class _BrandingPageState extends State<BrandingPage> {
             width: size,
             height: size,
             decoration: BoxDecoration(
-              color: const Color(0xff091522),
+              color: TgdeskSurfaces.background,
               borderRadius: BorderRadius.circular(size > 24 ? 10 : 4),
               border: Border.all(color: Theme.of(context).colorScheme.outline),
             ),
@@ -693,7 +691,7 @@ class _ImageCropDialogState extends State<_ImageCropDialog> {
                     Container(
                       padding: const EdgeInsets.all(12),
                       decoration: BoxDecoration(
-                        color: const Color(0xff091522),
+                        color: TgdeskSurfaces.background,
                         borderRadius: BorderRadius.circular(10),
                       ),
                       child: _isFavicon

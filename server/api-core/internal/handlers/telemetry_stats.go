@@ -330,9 +330,6 @@ func (s *Server) persistedHealth(ctx context.Context, deviceID string) map[strin
 	}
 }
 
-
-
-
 // tendencia compara o curto prazo com o longo para dizer se a situação está
 // melhorando, estável ou piorando.
 func tendencia(curto, longo janelaMetrica) string {

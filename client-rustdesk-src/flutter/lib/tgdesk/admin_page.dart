@@ -1290,18 +1290,7 @@ int _total(List<Map<String, dynamic>> sections) => sections.fold<int>(0,
     (sum, section) => sum + ((section['total_events'] as num?)?.toInt() ?? 0));
 
 Color _domainColor(String key) {
-  const colors = <String, Color>{
-    'connections': Color(0xFF2563EB),
-    'bindings': Color(0xFF7C3AED),
-    'financial': Color(0xFF059669),
-    'service_orders': Color(0xFFF97316),
-    'diagnostics': Color(0xFFDC2626),
-    'territory': Color(0xFF0891B2),
-    'catalog': Color(0xFF4B5563),
-    'security': Color(0xFFB91C1C),
-    'system': Color(0xFF64748B),
-  };
-  return colors[key] ?? Colors.blueGrey;
+  return TgdeskDomainColors.of(key);
 }
 
 IconData _severityIcon(String severity) {
@@ -1387,7 +1376,6 @@ class _LinkedEditorState extends State<_LinkedEditor> {
     final subnetworks = _list('subnetworks');
     final devices = _list('devices');
     final technicians = _list('technicians');
-    final links = _list('links');
     final quotas = (_quotas?['organizations'] as List? ?? const [])
         .whereType<Map>()
         .map((item) => Map<String, dynamic>.from(item))
@@ -1631,7 +1619,7 @@ class _OperationalMap extends StatelessWidget {
       'subnetwork',
       'device'
     ];
-    final total = nodes.length == 0 ? 1 : nodes.length;
+    final total = nodes.isEmpty ? 1 : nodes.length;
     return SizedBox(
       height: 300,
       child: LayoutBuilder(
@@ -1702,120 +1690,6 @@ class _OperationalMap extends StatelessWidget {
                   ),
                 ],
               )),
-    );
-  }
-}
-
-class _MetricCard extends StatelessWidget {
-  const _MetricCard({required this.label, required this.value});
-
-  final String label;
-  final int value;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      width: 170,
-      child: Card(
-        child: Padding(
-          padding: const EdgeInsets.all(14),
-          child:
-              Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text(label),
-            const SizedBox(height: 6),
-            Text('$value',
-                style: Theme.of(context)
-                    .textTheme
-                    .headlineSmall
-                    ?.copyWith(fontWeight: FontWeight.w800)),
-          ]),
-        ),
-      ),
-    );
-  }
-}
-
-class _LinkedGraphCard extends StatelessWidget {
-  const _LinkedGraphCard(
-      {required this.nodes, required this.links, required this.onTap});
-  final List<Map<String, dynamic>> nodes;
-  final List<Map<String, dynamic>> links;
-  final ValueChanged<Map<String, dynamic>> onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final byKind = <String, int>{};
-    for (final node in nodes) {
-      final kind = node['kind']?.toString() ?? 'unknown';
-      byKind[kind] = (byKind[kind] ?? 0) + 1;
-    }
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('Mapa operacional',
-              style: Theme.of(context)
-                  .textTheme
-                  .titleMedium
-                  ?.copyWith(fontWeight: FontWeight.w800)),
-          const SizedBox(height: 12),
-          SizedBox(
-              height: 280,
-              child: CustomPaint(
-                  painter: _LinkedMapPainter(byKind),
-                  child: Center(
-                      child: Text(
-                          '${nodes.length}\nnós\n${links.length} vínculos',
-                          textAlign: TextAlign.center)))),
-          const SizedBox(height: 12),
-          for (final entry in byKind.entries)
-            ListTile(
-              dense: true,
-              leading:
-                  Icon(_linkedIcon(entry.key), color: _linkedColor(entry.key)),
-              title: Text(_linkedKindLabel(entry.key)),
-              trailing: Text('${entry.value}'),
-            ),
-        ]),
-      ),
-    );
-  }
-}
-
-class _LinkedListCard extends StatelessWidget {
-  const _LinkedListCard(
-      {required this.nodes, required this.links, required this.onTap});
-  final List<Map<String, dynamic>> nodes;
-  final List<Map<String, dynamic>> links;
-  final ValueChanged<Map<String, dynamic>> onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.all(16),
-        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-          Text('Todos os vinculados',
-              style: Theme.of(context)
-                  .textTheme
-                  .titleMedium
-                  ?.copyWith(fontWeight: FontWeight.w800)),
-          const SizedBox(height: 8),
-          for (final node in nodes.take(220))
-            ListTile(
-              onTap: () => onTap(node),
-              leading: Icon(_linkedIcon(node['kind']?.toString() ?? ''),
-                  color: _linkedColor(node['kind']?.toString() ?? '')),
-              title: Text(_nodeTitle(node)),
-              subtitle: Text(_nodeSubtitle(node, links)),
-              trailing: const Icon(Icons.chevron_right),
-            ),
-          if (nodes.isEmpty)
-            const Padding(
-                padding: EdgeInsets.all(24),
-                child: Text('Nenhum vinculado encontrado.')),
-        ]),
-      ),
     );
   }
 }
@@ -2037,44 +1911,6 @@ bool _nodeIsSuspended(Map<String, dynamic> node) {
   return status == 'suspensa' || state == 'suspenso';
 }
 
-class _LinkedMapPainter extends CustomPainter {
-  _LinkedMapPainter(this.byKind);
-  final Map<String, int> byKind;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final total = byKind.values.fold<int>(0, (a, b) => a + b);
-    final center = size.center(Offset.zero);
-    final radius = size.shortestSide * 0.36;
-    final paint = Paint()..style = PaintingStyle.fill;
-    var index = 0;
-    for (final entry in byKind.entries) {
-      final angle =
-          byKind.length <= 1 ? 0.0 : 6.28318530718 * index / byKind.length;
-      final distance =
-          total == 0 ? 0.0 : radius * (0.55 + 0.45 * entry.value / total);
-      final offset = center +
-          Offset(distance * math.cos(angle), distance * math.sin(angle));
-      paint.color = _linkedColor(entry.key).withOpacity(0.24);
-      canvas.drawCircle(
-          offset, 30 + entry.value.clamp(0, 60).toDouble(), paint);
-      paint.color = _linkedColor(entry.key);
-      canvas.drawCircle(offset, 9, paint);
-      paint.color = Colors.grey.withOpacity(0.35);
-      paint.strokeWidth = 2;
-      canvas.drawLine(center, offset, paint..style = PaintingStyle.stroke);
-      paint.style = PaintingStyle.fill;
-      index++;
-    }
-    paint.color = Colors.black.withOpacity(0.08);
-    canvas.drawCircle(center, 54, paint);
-  }
-
-  @override
-  bool shouldRepaint(covariant _LinkedMapPainter oldDelegate) =>
-      oldDelegate.byKind != byKind;
-}
-
 String _nodeTitle(Map<String, dynamic> node) {
   return (node['name'] ??
           node['display_name'] ??
@@ -2083,16 +1919,6 @@ String _nodeTitle(Map<String, dynamic> node) {
           node['id'] ??
           'Vinculado')
       .toString();
-}
-
-String _nodeSubtitle(
-    Map<String, dynamic> node, List<Map<String, dynamic>> links) {
-  final id = node['id']?.toString();
-  final related = links
-      .where((link) =>
-          link['from_id']?.toString() == id || link['to_id']?.toString() == id)
-      .length;
-  return '${_linkedKindLabel(node['kind']?.toString() ?? '')} · vínculos: $related · status: ${node['status'] ?? node['state'] ?? '-'}';
 }
 
 String _linkedKindLabel(String kind) {

@@ -32,4 +32,3 @@ func writeJSON(w http.ResponseWriter, status int, v any) {
 func writeErrCode(w http.ResponseWriter, status int, code, msg string) {
 	writeJSON(w, status, map[string]string{"error": msg, "code": code})
 }
-

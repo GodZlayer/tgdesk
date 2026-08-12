@@ -283,7 +283,15 @@ pub mod rustdesk_idd {
     }
 
     pub fn reset_all() -> ResultType<()> {
-        if super::is_virtual_display_supported() {
+        // A condição estava invertida: saía cedo justamente QUANDO o display
+        // virtual é suportado, e a limpeza só rodaria onde não há o que
+        // limpar. Mesmo defeito de família do caminho amyuni — tela virtual
+        // que nunca é removida.
+        //
+        // Este ramo está dormente enquanto IDD_IMPL for amyuni, então a
+        // correção não muda nada hoje. Fica certa para o dia em que alguém
+        // trocar a implementação e não descobrir isso do jeito difícil.
+        if !super::is_virtual_display_supported() {
             return Ok(());
         }
 
@@ -686,6 +694,18 @@ pub mod amyuni_idd {
             }
         } else {
             // Ignore the message if trying to plug out all virtual displays.
+            //
+            // `VIRTUAL_DISPLAY_COUNT` vive na memória DESTE processo, e as telas
+            // virtuais sobrevivem a ele: basta o serviço reiniciar — uma
+            // atualização, uma queda — para o contador voltar a zero com as
+            // telas ainda plugadas. Daí em diante a conta abaixo pedia zero
+            // remoções e as telas ficavam para sempre, sessão após sessão.
+            //
+            // Na saída, quem manda é a contagem MEDIDA. Ela já estava aqui,
+            // calculada e ignorada.
+            if amyuni_count > plug_in_count {
+                plug_in_count = amyuni_count;
+            }
         }
 
         let all_count = windows::get_device_names(None).len();

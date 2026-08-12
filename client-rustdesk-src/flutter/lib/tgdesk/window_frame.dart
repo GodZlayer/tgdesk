@@ -94,7 +94,7 @@ class TgdeskWindowScaffold extends StatefulWidget {
   /// nada para clicar.
   final TgdeskUpdateStatus? updateStatus;
 
-  /// Solicita uma atualizaÃ§Ã£o pelo canal WebSocket, quando a janela principal
+  /// Solicita uma atualização pelo canal WebSocket, quando a janela principal
   /// estiver ligada ao agente local.
   final Future<void> Function()? onForceUpdate;
 

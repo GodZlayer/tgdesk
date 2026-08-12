@@ -203,7 +203,7 @@ func resolveWireGuardEndpoint(endpoint string) ([28]byte, error) {
 	var raw [28]byte
 	host, portText, err := net.SplitHostPort(endpoint)
 	if err != nil {
-		return raw, fmt.Errorf("endpoint invÃ¡lido %q: %w", endpoint, err)
+		return raw, fmt.Errorf("endpoint inválido %q: %w", endpoint, err)
 	}
 	port, err := net.LookupPort("udp", portText)
 	if err != nil {
@@ -221,7 +221,7 @@ func resolveWireGuardEndpoint(endpoint string) ([28]byte, error) {
 			return raw, nil
 		}
 	}
-	return raw, fmt.Errorf("endpoint %q nÃ£o possui endereÃ§o IPv4", endpoint)
+	return raw, fmt.Errorf("endpoint %q não possui endereço IPv4", endpoint)
 }
 
 func startWireGuardNT(name string, guid windows.GUID, privateKey, peerPublicKey wgKey, endpoint string) error {

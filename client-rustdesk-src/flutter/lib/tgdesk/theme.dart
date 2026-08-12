@@ -22,6 +22,57 @@ class TgdeskColors {
 
   /// Alerta ou ação administrativa de atenção.
   static const warning = Colors.orange;
+
+  /// A cor da marca — o azul que pinta o que está selecionado, o ícone do
+  /// aviso e o botão em foco.
+  ///
+  /// Estava escrita à mão em quatro pontos da tela de sessão, sempre a mesma.
+  /// É a primeira candidata a virar editável quando a marca puder ter paleta:
+  /// trocar só ela já muda a cara do produto.
+  static const primary = Color(0xff35a7ff);
+}
+
+/// As cores dos domínios do painel administrativo.
+///
+/// Isto NÃO é paleta de marca, e a diferença importa: aqui o que vale é uma
+/// cor ser distinguível da vizinha, não ser bonita ou combinar com o logo.
+/// Deixar a marca pintar estas nove faria duas ficarem parecidas e o gráfico
+/// deixaria de ser legível. Se um dia forem editáveis, é como conjunto.
+class TgdeskDomainColors {
+  TgdeskDomainColors._();
+
+  static const Map<String, Color> byKey = {
+    'connections': Color(0xff2563eb),
+    'bindings': Color(0xff7c3aed),
+    'financial': Color(0xff059669),
+    'service_orders': Color(0xfff97316),
+    'diagnostics': Color(0xffdc2626),
+    'territory': Color(0xff0891b2),
+    'catalog': Color(0xff4b5563),
+    'security': Color(0xffb91c1c),
+    'system': Color(0xff64748b),
+  };
+
+  static const fallback = Colors.blueGrey;
+
+  static Color of(String key) => byKey[key] ?? fallback;
+}
+
+/// A tinta da anotação — as cores que o técnico escolhe para desenhar.
+///
+/// Também não é paleta de marca. São canetas: precisam saltar sobre a tela do
+/// cliente, qualquer que seja ela. Se a marca as pintasse, um técnico com marca
+/// azul ficaria sem caneta azul visível sobre um fundo azul.
+class TgdeskAnnotationPalette {
+  TgdeskAnnotationPalette._();
+
+  static const colors = <Color>[
+    Color(0xffff3b30),
+    Color(0xffffcc00),
+    Color(0xff34c759),
+    Color(0xff32ade6),
+    Color(0xffffffff),
+  ];
 }
 
 /// Gravidade — o mesmo verde, amarelo e vermelho em toda tela.

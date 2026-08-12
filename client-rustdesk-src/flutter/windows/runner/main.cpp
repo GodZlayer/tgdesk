@@ -306,8 +306,24 @@ int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
     return EXIT_FAILURE;
   }
   // Remove possible trailing whitespace from command line arguments
+  //
+  // O `+ 1` não é detalhe: find_last_not_of devolve o ÍNDICE do último
+  // caractere que se quer MANTER, e erase(pos) apaga a partir de pos. Sem ele,
+  // todo argumento perdia a própria última letra — `--option` virava `--optio`,
+  // `--cm` virava `--c`, `10.70.0.1` virava `10.70.0.`.
+  //
+  // O estrago não era no log. Este vetor ainda é usado depois em três lugares:
+  // a segunda checagem da lista branca (que decide se uma segunda instância
+  // pode existir), a detecção da página `--cm`, e os argumentos entregues ao
+  // Dart. Com `--option` truncado, toda escrita de opção pelo agente caía no
+  // ramo de "já existe janela, trazer para frente": a opção era descartada e a
+  // janela pulava para a frente do usuário. O debug-launch.log ficava com
+  // centenas de "Found existing window, bringing to foreground." seguidas.
+  //
+  // npos + 1 == 0, então argumento só de espaços continua virando string
+  // vazia, que é o comportamento desejado.
   for (auto& argument : command_line_arguments) {
-    argument.erase(argument.find_last_not_of(" \n\r\t"));
+    argument.erase(argument.find_last_not_of(" \n\r\t") + 1);
   }
 
   DebugLaunchLog("About to call rustdesk_core_main");

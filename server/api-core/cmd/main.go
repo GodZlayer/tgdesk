@@ -72,6 +72,15 @@ func main() {
 	s := &handlers.Server{Pool: pool, RDB: rdb, Cfg: cfg, Hub: hub, Authorizer: auth.NewAuthorizer(pool)}
 	s.StartIPReclaimer(ctx)
 	s.StartSessionIsolationReconciler(ctx)
+
+	// Carrega os cabeçotes da rede do banco (§3, §14.1). Falhar aqui NÃO é
+	// fatal: sem modelo, a camada de regra responde sozinha, que é o
+	// comportamento correto de §14.4 — nenhuma faixa é estado degradado, e um
+	// servidor fora do ar seria muito pior que um servidor sem rede.
+	if err := s.RecarregarModelos(ctx); err != nil {
+		log.Printf("diagnóstico: nenhum modelo carregado (%v) — a camada de regra responde", err)
+	}
+
 	router := handlers.NewRouter(s)
 
 	log.Printf("api-core ouvindo em %s", cfg.ListenAddr)

@@ -1,4 +1,5 @@
 ﻿import 'dart:convert';
+import 'dart:math' as math;
 import 'dart:async';
 
 import 'package:window_manager/window_manager.dart';
@@ -15,8 +16,10 @@ import 'package:flutter_hbb/models/model.dart';
 import 'package:flutter_hbb/models/state_model.dart';
 import 'package:bot_toast/bot_toast.dart';
 import 'package:get/get.dart';
+import 'package:flex_color_picker/flex_color_picker.dart';
 
 import 'diagnostics_dialog.dart';
+import 'theme.dart';
 import 'window_frame.dart';
 
 const _annotationPrefix = '__TGDESK_ANNOTATION__:';
@@ -219,7 +222,14 @@ class TgdeskRemoteSessionPage extends StatefulWidget {
 class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage>
     with WindowListener {
   final _focusNode = FocusNode();
-  final List<_DrawingSegment> _segments = [];
+  final List<_DrawItem> _segments = [];
+  /// Cada arrasto ganha um número; o desfazer remove o grupo inteiro.
+  int _drawGroup = 0;
+  /// A forma em construção, enquanto o botão está pressionado. Ela é pintada
+  /// localmente para o técnico mirar, e só vira item — e só chega ao cliente —
+  /// quando o arrasto termina. Mandar cada quadro do arrasto encheria o canal
+  /// de formas descartadas.
+  _DrawingShape? _pendingShape;
   late final RxBool _inputBlocked;
   // Observáveis, e não campos comuns, porque agora os botões do toolbar
   // flutuante mostram o estado de cada comando. O toolbar é construído dentro
@@ -233,7 +243,29 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage>
   final RxBool _microphoneOn = false.obs;
   // O som do PC do cliente começa LIGADO — é o motivo de estar na sessão.
   final RxBool _remoteAudioOn = true.obs;
-  bool _eraser = false;
+  _DrawTool _tool = _DrawTool.pen;
+  bool get _eraser => _tool == _DrawTool.eraser;
+  bool get _highlighter => _tool == _DrawTool.highlighter;
+  bool get _freehand =>
+      _tool == _DrawTool.pen ||
+      _tool == _DrawTool.highlighter ||
+      _tool == _DrawTool.eraser;
+
+  /// Marca-texto é a mesma linha da caneta, com alfa baixo e bem mais grossa —
+  /// nada de novo no protocolo, porque o alfa já viaja dentro do argb. Por isso
+  /// o cliente o desenha certo sem uma linha de código a mais lá.
+  static const _highlighterAlpha = 0x55;
+  static const _highlighterWidthFactor = 3.5;
+
+  Color get _drawColor => _highlighter
+      ? _color.withAlpha(_highlighterAlpha)
+      : _color;
+
+  double get _drawWidth {
+    if (_eraser) return _strokeWidth * 3;
+    if (_highlighter) return _strokeWidth * _highlighterWidthFactor;
+    return _strokeWidth;
+  }
   // Começa DESLIGADO, e só o botão do toolbar ou o Ctrl+Shift+I ligam.
   //
   // Antes a captura subia sozinha quando a janela ganhava o foco: bastava
@@ -252,9 +284,9 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage>
   @override
   void initState() {
     super.initState();
-    // DesktopRemoteScreen fazia esta inicializaÃ§Ã£o antes de criar a aba
-    // nativa. O caminho embutido monta RemotePage diretamente, entÃ£o o estado
-    // global de entrada precisa ser preparado aqui uma vez por sessÃ£o.
+    // DesktopRemoteScreen fazia esta inicialização antes de criar a aba
+    // nativa. O caminho embutido monta RemotePage diretamente, então o estado
+    // global de entrada precisa ser preparado aqui uma vez por sessão.
     bind.mainInitInputSource();
     stateGlobal.getInputSource(force: true);
     // A sessão nasce sem grabber. É esta linha que devolve o Alt+Tab: com a
@@ -266,9 +298,9 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage>
     // Focus.onKeyEvent do shell receber a tecla. O handler global garante que
     // os atalhos continuem funcionando como no Parsec, mas só para a aba ativa.
     HardwareKeyboard.instance.addHandler(_handleGlobalKeyEvent);
-    // Este estado Ã© lido pelo shell antes de o filho RemotePage entrar na
-    // Ã¡rvore. Sem registrar os estados compartilhados neste ponto, o GetX
-    // lanÃ§a "Instance not found" no primeiro frame e o Hub fica cinza.
+    // Este estado é lido pelo shell antes de o filho RemotePage entrar na
+    // árvore. Sem registrar os estados compartilhados neste ponto, o GetX
+    // lança "Instance not found" no primeiro frame e o Hub fica cinza.
     initSharedStates(widget.remoteId);
     _inputBlocked = BlockInputState.find(widget.remoteId);
     RemoteSessionsManager.instance
@@ -370,7 +402,7 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage>
       icon: willBlock
           ? Icons.keyboard_hide_outlined
           : Icons.keyboard_alt_outlined,
-      color: willBlock ? const Color(0xffffb020) : const Color(0xff35a7ff),
+      color: willBlock ? TgdeskSeverityColors.warning : TgdeskColors.primary,
     );
   }
 
@@ -385,7 +417,7 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage>
   void _notify(
     String text, {
     IconData icon = Icons.info_outline,
-    Color color = const Color(0xff35a7ff),
+    Color color = TgdeskColors.primary,
   }) {
     BotToast.showCustomText(
       duration: const Duration(seconds: 3),
@@ -400,10 +432,8 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage>
     _lastPoint = null;
     _drawingOn.toggle();
     _focusNode.requestFocus();
-    _notify(
-      _drawingOn.isTrue ? 'Anotação ativada' : 'Anotação encerrada',
-      icon: _drawingOn.isTrue ? Icons.draw_outlined : Icons.edit_off_outlined,
-    );
+    // Sem aviso: a barra de anotação aparece e some na tela, o que diz a
+    // mesma coisa de forma mais direta do que uma mensagem no rodapé.
   }
 
   void _toggleClipboard() {
@@ -412,14 +442,8 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage>
       value: 'disable-clipboard',
     );
     _clipboardOn.toggle();
-    _notify(
-      _clipboardOn.isTrue
-          ? 'Copiar e colar ativado'
-          : 'Copiar e colar desativado',
-      icon: _clipboardOn.isTrue
-          ? Icons.content_paste_go_outlined
-          : Icons.content_paste_off_outlined,
-    );
+    // Sem aviso: o botão da barra muda de cor, e ligar ou desligar isto não
+    // muda nada do lado do cliente.
   }
 
   void _toggleFileTransfer() {
@@ -428,14 +452,7 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage>
       value: kOptionEnableFileCopyPaste,
     );
     _fileTransferOn.toggle();
-    _notify(
-      _fileTransferOn.isTrue
-          ? 'Transferência de arquivos ativada'
-          : 'Transferência de arquivos desativada',
-      icon: _fileTransferOn.isTrue
-          ? Icons.file_copy_outlined
-          : Icons.folder_off_outlined,
-    );
+    // Sem aviso, mesma razão do copiar e colar: o botão já mostra.
   }
 
   /// Manda o meu microfone para as caixas do cliente, ou para de mandar.
@@ -467,14 +484,8 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage>
       value: 'disable-audio',
     );
     _remoteAudioOn.toggle();
-    _notify(
-      _remoteAudioOn.isTrue
-          ? 'Escutando o som do cliente'
-          : 'Som do cliente silenciado aqui',
-      icon: _remoteAudioOn.isTrue
-          ? Icons.volume_up_outlined
-          : Icons.volume_off_outlined,
-    );
+    // Sem aviso: o botão mostra, e silenciar o som aqui não altera nada na
+    // máquina do cliente. O microfone é outra história e continua avisando.
   }
 
   /// Liga e desliga o grabber, que é o que realmente decide quem fica com o
@@ -655,18 +666,52 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage>
 
   void _startStroke(DragStartDetails details, Size size) {
     _lastPoint = details.localPosition;
+    // Um arrasto, um grupo. O número sobe aqui e não muda até soltar.
+    _drawGroup++;
+    if (!_freehand) {
+      final origin = Offset(
+        details.localPosition.dx / size.width,
+        details.localPosition.dy / size.height,
+      );
+      setState(() {
+        _pendingShape = _DrawingShape(
+          tool: _tool,
+          start: origin,
+          end: origin,
+          color: _drawColor,
+          width: _drawWidth,
+          group: _drawGroup,
+        );
+      });
+    }
   }
 
   void _continueStroke(DragUpdateDetails details, Size size) {
-    final previous = _lastPoint;
     final current = details.localPosition;
+    if (!_freehand) {
+      final pending = _pendingShape;
+      if (pending == null) return;
+      setState(() {
+        _pendingShape = _DrawingShape(
+          tool: pending.tool,
+          start: pending.start,
+          end: Offset(current.dx / size.width, current.dy / size.height),
+          color: pending.color,
+          width: pending.width,
+          group: pending.group,
+        );
+      });
+      return;
+    }
+    final previous = _lastPoint;
     if (previous == null || (current - previous).distance < 1.2) return;
     final segment = _DrawingSegment(
       start: Offset(previous.dx / size.width, previous.dy / size.height),
       end: Offset(current.dx / size.width, current.dy / size.height),
-      color: _color,
-      width: _eraser ? _strokeWidth * 3 : _strokeWidth,
+      color: _drawColor,
+      width: _drawWidth,
       erase: _eraser,
+      group: _drawGroup,
     );
     setState(() => _segments.add(segment));
     _lastPoint = current;
@@ -680,8 +725,68 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage>
         'argb': segment.color.value,
         'width': segment.width,
         'erase': segment.erase,
+        'group': segment.group,
       }
     });
+  }
+
+  /// Fim do arrasto. A forma em construção vira item e segue para o cliente.
+  void _endStroke() {
+    _lastPoint = null;
+    final shape = _pendingShape;
+    if (shape == null) return;
+    setState(() {
+      _pendingShape = null;
+      // Clique sem arrastar não vira forma: seria um ponto invisível que só
+      // atrapalharia o desfazer depois.
+      if ((shape.end - shape.start).distance > 0.002) {
+        _segments.add(shape);
+      }
+    });
+    if ((shape.end - shape.start).distance <= 0.002) return;
+    _sendAnnotation({
+      't': 'Shape',
+      'c': {
+        'kind': shape.kindName,
+        'x0': shape.start.dx,
+        'y0': shape.start.dy,
+        'x1': shape.end.dx,
+        'y1': shape.end.dy,
+        'argb': shape.color.value,
+        'width': shape.width,
+        'group': shape.group,
+      }
+    });
+  }
+
+  /// Abre a roda de cores. Mesmo diálogo já usado nas etiquetas do catálogo,
+  /// para o técnico não aprender dois seletores diferentes no mesmo programa.
+  Future<void> _pickColor() async {
+    final chosen = await showColorPickerDialog(
+      context,
+      _color,
+      pickersEnabled: const {
+        ColorPickerType.accent: false,
+        ColorPickerType.wheel: true,
+      },
+      actionButtons: const ColorPickerActionButtons(
+        dialogOkButtonLabel: 'OK',
+        dialogCancelButtonLabel: 'Cancelar',
+      ),
+      showColorCode: true,
+    );
+    // O alfa do marca-texto é aplicado na hora de desenhar, então aqui a cor
+    // é guardada sempre opaca: trocar de ferramenta não deve levar junto a
+    // transparência da anterior.
+    if (mounted) setState(() => _color = chosen.withAlpha(0xff));
+  }
+
+  /// Desfaz o último item — o traço inteiro, ou a forma inteira.
+  void _undoDrawing() {
+    if (_segments.isEmpty) return;
+    final last = _segments.last.group;
+    setState(() => _segments.removeWhere((item) => item.group == last));
+    _sendAnnotation(const {'t': 'UndoDrawing'});
   }
 
   KeyEventResult _handleKey(FocusNode node, KeyEvent event) =>
@@ -707,6 +812,13 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage>
             ? KeyEventResult.handled
             : KeyEventResult.ignored;
       }
+    }
+    if (_drawingOn.isTrue &&
+        keys.isControlPressed &&
+        !keys.isShiftPressed &&
+        event.logicalKey == LogicalKeyboardKey.keyZ) {
+      _undoDrawing();
+      return KeyEventResult.handled;
     }
     if (_drawingOn.isTrue && event.logicalKey == LogicalKeyboardKey.escape) {
       _toggleDrawing();
@@ -878,9 +990,10 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage>
                             _startStroke(event, constraints.biggest),
                         onPanUpdate: (event) =>
                             _continueStroke(event, constraints.biggest),
-                        onPanEnd: (_) => _lastPoint = null,
+                        onPanEnd: (_) => _endStroke(),
                         child: CustomPaint(
-                          painter: _AnnotationPainter(_segments),
+                          painter:
+                              _AnnotationPainter(_segments, _pendingShape),
                         ),
                       ),
                     ),
@@ -901,7 +1014,7 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage>
         right: 0,
         child: Center(
           child: Material(
-            color: const Color(0xff111820).withOpacity(.97),
+            color: TgdeskSurfaces.panel.withOpacity(.97),
             elevation: 8,
             borderRadius: BorderRadius.circular(10),
             child: Padding(
@@ -911,36 +1024,78 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage>
                   padding: EdgeInsets.symmetric(horizontal: 8),
                   child: Text('Anotação'),
                 ),
-                IconButton(
+                _ToolButton(
                   tooltip: 'Caneta',
-                  onPressed: () => setState(() => _eraser = false),
-                  color: !_eraser ? const Color(0xff35a7ff) : null,
-                  icon: const Icon(Icons.edit_outlined),
+                  icon: Icons.edit_outlined,
+                  tool: _DrawTool.pen,
+                  current: _tool,
+                  onTap: (t) => setState(() => _tool = t),
+                ),
+                _ToolButton(
+                  tooltip: 'Marca-texto',
+                  icon: Icons.brush_outlined,
+                  tool: _DrawTool.highlighter,
+                  current: _tool,
+                  onTap: (t) => setState(() => _tool = t),
+                ),
+                _ToolButton(
+                  tooltip: 'Borracha',
+                  icon: Icons.auto_fix_normal_outlined,
+                  tool: _DrawTool.eraser,
+                  current: _tool,
+                  onTap: (t) => setState(() => _tool = t),
+                ),
+                _ToolButton(
+                  tooltip: 'Retângulo',
+                  icon: Icons.crop_square,
+                  tool: _DrawTool.rect,
+                  current: _tool,
+                  onTap: (t) => setState(() => _tool = t),
+                ),
+                _ToolButton(
+                  tooltip: 'Elipse',
+                  icon: Icons.circle_outlined,
+                  tool: _DrawTool.ellipse,
+                  current: _tool,
+                  onTap: (t) => setState(() => _tool = t),
+                ),
+                _ToolButton(
+                  tooltip: 'Linha',
+                  icon: Icons.horizontal_rule,
+                  tool: _DrawTool.line,
+                  current: _tool,
+                  onTap: (t) => setState(() => _tool = t),
+                ),
+                _ToolButton(
+                  tooltip: 'Seta',
+                  icon: Icons.north_east,
+                  tool: _DrawTool.arrow,
+                  current: _tool,
+                  onTap: (t) => setState(() => _tool = t),
                 ),
                 IconButton(
-                  tooltip: 'Borracha',
-                  onPressed: () => setState(() => _eraser = true),
-                  color: _eraser ? const Color(0xff35a7ff) : null,
-                  icon: const Icon(Icons.auto_fix_normal_outlined),
+                  tooltip: 'Desfazer (Ctrl+Z)',
+                  onPressed: _segments.isEmpty ? null : _undoDrawing,
+                  icon: const Icon(Icons.undo),
                 ),
                 if (!_eraser)
-                  ...[
-                    const Color(0xffff3b30),
-                    const Color(0xffffcc00),
-                    const Color(0xff34c759),
-                    const Color(0xff32ade6),
-                    const Color(0xffffffff),
-                  ].map((color) => _ColorButton(
+                  ...TgdeskAnnotationPalette.colors.map((color) => _ColorButton(
                         color: color,
                         selected: color.value == _color.value,
                         onTap: () => setState(() => _color = color),
                       )),
+                if (!_eraser)
+                  IconButton(
+                    tooltip: 'Escolher outra cor',
+                    onPressed: _pickColor,
+                    icon: Icon(Icons.colorize, color: _color),
+                  ),
                 SizedBox(
                   width: 115,
                   child: Slider(
                     value: _strokeWidth,
-                    min: 2,
-                    max: 18,
+                    min: 1,
+                    max: 40,
                     onChanged: (value) => setState(() => _strokeWidth = value),
                   ),
                 ),
@@ -961,14 +1116,30 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage>
       );
 }
 
-class _DrawingSegment {
+/// O que se pode desenhar. A caneta e a borracha pintam traço livre; o resto
+/// vira uma forma só, criada de canto a canto.
+enum _DrawTool { pen, highlighter, eraser, rect, ellipse, line, arrow }
+
+/// Um item do desenho. Traço e forma moram na MESMA lista, na ordem em que
+/// foram pintados — que é a ordem em que o cliente os vê.
+abstract class _DrawItem {
+  const _DrawItem(this.group);
+
+  /// Une tudo que veio de um mesmo arrasto. O desfazer age por grupo: um traço
+  /// à mão livre são dezenas de segmentos, e tirar um só pareceria que o
+  /// comando não fez nada.
+  final int group;
+}
+
+class _DrawingSegment extends _DrawItem {
   const _DrawingSegment({
     required this.start,
     required this.end,
     required this.color,
     required this.width,
     required this.erase,
-  });
+    required int group,
+  }) : super(group);
 
   final Offset start;
   final Offset end;
@@ -977,29 +1148,138 @@ class _DrawingSegment {
   final bool erase;
 }
 
+class _DrawingShape extends _DrawItem {
+  const _DrawingShape({
+    required this.tool,
+    required this.start,
+    required this.end,
+    required this.color,
+    required this.width,
+    required int group,
+  }) : super(group);
+
+  final _DrawTool tool;
+  final Offset start;
+  final Offset end;
+  final Color color;
+  final double width;
+
+  /// O nome que o Rust espera em ShapeKind. Os dois lados têm de concordar.
+  String get kindName {
+    switch (tool) {
+      case _DrawTool.rect:
+        return 'Rect';
+      case _DrawTool.ellipse:
+        return 'Ellipse';
+      case _DrawTool.line:
+        return 'Line';
+      default:
+        return 'Arrow';
+    }
+  }
+}
+
 class _AnnotationPainter extends CustomPainter {
-  const _AnnotationPainter(this.segments);
-  final List<_DrawingSegment> segments;
+  const _AnnotationPainter(this.items, this.pending);
+  final List<_DrawItem> items;
+
+  /// A forma que está sendo arrastada agora. Ela é desenhada por último, por
+  /// cima de tudo, e não faz parte da lista até o arrasto terminar.
+  final _DrawingShape? pending;
 
   @override
   void paint(Canvas canvas, Size size) {
     canvas.saveLayer(Offset.zero & size, Paint());
-    for (final segment in segments) {
-      canvas.drawLine(
-        Offset(segment.start.dx * size.width, segment.start.dy * size.height),
-        Offset(segment.end.dx * size.width, segment.end.dy * size.height),
-        Paint()
-          ..color = segment.color
-          ..strokeWidth = segment.width
-          ..strokeCap = StrokeCap.round
-          ..blendMode = segment.erase ? BlendMode.clear : BlendMode.srcOver,
-      );
+    for (final item in items) {
+      _paintItem(canvas, size, item);
+    }
+    final preview = pending;
+    if (preview != null) {
+      _paintItem(canvas, size, preview);
     }
     canvas.restore();
   }
 
+  void _paintItem(Canvas canvas, Size size, _DrawItem item) {
+    if (item is _DrawingSegment) {
+      canvas.drawLine(
+        Offset(item.start.dx * size.width, item.start.dy * size.height),
+        Offset(item.end.dx * size.width, item.end.dy * size.height),
+        Paint()
+          ..color = item.color
+          ..strokeWidth = item.width
+          ..strokeCap = StrokeCap.round
+          ..blendMode = item.erase ? BlendMode.clear : BlendMode.srcOver,
+      );
+      return;
+    }
+    if (item is! _DrawingShape) return;
+    final a = Offset(item.start.dx * size.width, item.start.dy * size.height);
+    final b = Offset(item.end.dx * size.width, item.end.dy * size.height);
+    final paint = Paint()
+      ..color = item.color
+      ..strokeWidth = item.width
+      ..strokeCap = StrokeCap.round
+      ..style = PaintingStyle.stroke;
+    switch (item.tool) {
+      case _DrawTool.rect:
+        canvas.drawRect(Rect.fromPoints(a, b), paint);
+        break;
+      case _DrawTool.ellipse:
+        canvas.drawOval(Rect.fromPoints(a, b), paint);
+        break;
+      case _DrawTool.line:
+        canvas.drawLine(a, b, paint);
+        break;
+      default:
+        canvas.drawLine(a, b, paint);
+        // A farpa acompanha a espessura, senão a seta some com o pincel
+        // grosso. Espelha build_shape_path, em whiteboard/windows.rs.
+        final delta = b - a;
+        final len = delta.distance;
+        if (len <= 1.0) break;
+        final barb = (item.width * 4.0).clamp(10.0, len * 0.5);
+        final ux = delta.dx / len;
+        final uy = delta.dy / len;
+        const angle = 0.5;
+        final sin = math.sin(angle);
+        final cos = math.cos(angle);
+        for (final sign in const [1.0, -1.0]) {
+          final rx = ux * cos + uy * (sin * sign);
+          final ry = uy * cos - ux * (sin * sign);
+          canvas.drawLine(b, Offset(b.dx - rx * barb, b.dy - ry * barb), paint);
+        }
+    }
+  }
+
   @override
   bool shouldRepaint(covariant _AnnotationPainter oldDelegate) => true;
+}
+
+class _ToolButton extends StatelessWidget {
+  const _ToolButton({
+    required this.tooltip,
+    required this.icon,
+    required this.tool,
+    required this.current,
+    required this.onTap,
+  });
+
+  final String tooltip;
+  final IconData icon;
+  final _DrawTool tool;
+  final _DrawTool current;
+  final void Function(_DrawTool) onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return IconButton(
+      tooltip: tooltip,
+      onPressed: () => onTap(tool),
+      color: current == tool ? TgdeskColors.primary : null,
+      icon: Icon(icon),
+    );
+  }
 }
 
 /// Os comandos com atalho saíram do menu e viraram botão; o que sobra aqui não
@@ -1036,7 +1316,7 @@ class _ColorButton extends StatelessWidget {
             color: color,
             shape: BoxShape.circle,
             border: Border.all(
-                color: selected ? const Color(0xff35a7ff) : Colors.black,
+                color: selected ? TgdeskColors.primary : Colors.black,
                 width: selected ? 3 : 1),
           ),
         ),
@@ -1057,7 +1337,7 @@ class _StatusChip extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) => Material(
-        color: const Color(0xff111820).withOpacity(.96),
+        color: TgdeskSurfaces.panel.withOpacity(.96),
         elevation: 6,
         borderRadius: BorderRadius.circular(24),
         child: Padding(

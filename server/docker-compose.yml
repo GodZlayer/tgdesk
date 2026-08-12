@@ -100,6 +100,13 @@ services:
       - api-core
       - relay
 
+  # A rede neural NAO tem container proprio: vive dentro do api-core, em
+  # internal/diagnostico. Regra do projeto — um container por projeto. A
+  # fronteira de S3 continua valendo e fica ate mais forte: a rede nao tem rota
+  # propria, nao abre canal e nao conhece cliente. Os pesos moram em
+  # `model_version` no Postgres, entao nao existe volume de modelo para
+  # sincronizar, versionar ou perder.
+
 volumes:
   tgdesk_pg_data:
     name: server_tgdesk_pg_data
