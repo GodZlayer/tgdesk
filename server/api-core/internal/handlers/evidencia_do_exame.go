@@ -129,46 +129,54 @@ func evidenciaSuperficieDeDisco(bruto json.RawMessage) []EvidenciaDoDossie {
 			continue
 		}
 
-		var soma, pior float64
-		lentas := 0
+		// MEDIANA e p99, não média.
+		//
+		// A média é exatamente o que apaga o sinal mais importante deste teste.
+		// Medido no parque: um NVMe com mediana de 2,15 s por região — vazão
+		// saudável — e p99 de 9,53 s, com 12 regiões de 240 acima de 5 s. Na
+		// média ele parece ótimo; na cauda ele PARA.
+		//
+		// E parar é o sintoma que o usuário relata: "trava alguns segundos e
+		// volta". Um disco uniformemente lento e um disco que engasga pedem
+		// condutas opostas — trocar a peça contra liberar espaço para o
+		// controlador respirar — então precisam ser evidências diferentes.
+		duracoes := make([]float64, 0, len(d.Regions))
 		for _, reg := range d.Regions {
-			soma += reg.DurationMs
-			if reg.DurationMs > pior {
-				pior = reg.DurationMs
-			}
-			// 500 ms para ler 8 MB é ordens de grandeza acima de qualquer
-			// disco sadio, inclusive mecânico.
-			if reg.DurationMs > 500 {
-				lentas++
-			}
+			duracoes = append(duracoes, reg.DurationMs)
 		}
-		media := soma / float64(len(d.Regions))
+		sort.Float64s(duracoes)
+		mediana := percentil(duracoes, 0.50)
+		p99 := percentil(duracoes, 0.99)
 
-		// Região lenta ISOLADA é setor em vias de falhar — o disco ainda
-		// responde, mas aquele pedaço não. É defeito, não lentidão.
-		if lentas > 0 && lentas <= len(d.Regions)/10 {
-			v := float64(lentas)
+		// ENGASGO: a cauda é muito pior que o típico. A razão importa mais que
+		// o valor absoluto, porque disco rápido e disco lento têm medianas
+		// muito diferentes e o mesmo engasgo relativo incomoda igual.
+		if mediana > 0 && p99/mediana >= 3 {
+			v := p99 / 1000
 			ev = append(ev, EvidenciaDoDossie{
-				Sinal: "erro_io_log",
+				Sinal: "trava_confirmada",
 				Literal: fmt.Sprintf(
-					"%s: %d região(ões) isolada(s) demoraram mais de 500 ms (pior: %.0f ms) — o restante do disco responde normalmente",
-					d.Model, lentas, pior),
+					"%s: leitura típica de %.1f s por região, mas 1%% das regiões levou %.1f s — o disco para e volta, não é lento por igual",
+					d.Model, mediana/1000, p99/1000),
 				Valor: &v,
 			})
 			continue
 		}
 
-		// Todas lentas por igual: a peça é sã e devagar. Conduta é upgrade,
+		// LENTO POR IGUAL: a peça é sã e devagar. Conduta é upgrade planejado,
 		// não troca urgente — e confundir os dois assusta o cliente à toa.
-		if media > 100 {
-			v := media
-			ev = append(ev, EvidenciaDoDossie{
-				Sinal: "latencia_disco",
-				Literal: fmt.Sprintf(
-					"%s: leitura de superfície com média de %.0f ms por região, sem erros — lento de forma uniforme",
-					d.Model, media),
-				Valor: &v,
-			})
+		if mediana > 0 {
+			mbps := float64(d.Regions[0].Bytes) / 1024 / 1024 / (mediana / 1000)
+			if mbps > 0 && mbps < 100 {
+				v := mbps
+				ev = append(ev, EvidenciaDoDossie{
+					Sinal: "latencia_disco",
+					Literal: fmt.Sprintf(
+						"%s: %.0f MB/s de leitura sequencial, uniforme e sem erros",
+						d.Model, mbps),
+					Valor: &v,
+				})
+			}
 		}
 	}
 	return ev
@@ -456,6 +464,18 @@ func evidenciaBateria(bruto json.RawMessage) []EvidenciaDoDossie {
 		Literal: fmt.Sprintf("bateria com %.0f%% da capacidade de projeto", saude),
 		Valor:   &saude,
 	}}
+}
+
+// percentil sobre uma fatia JÁ ORDENADA.
+//
+// Interpolação seria precisão falsa: com 240 amostras o índice inteiro já
+// descreve a cauda, e o número que importa é a ordem de grandeza da pausa.
+func percentil(ordenado []float64, p float64) float64 {
+	if len(ordenado) == 0 {
+		return 0
+	}
+	i := int(float64(len(ordenado)-1) * p)
+	return ordenado[i]
 }
 
 // trecho corta uma mensagem de log para caber na tela sem virar parágrafo.

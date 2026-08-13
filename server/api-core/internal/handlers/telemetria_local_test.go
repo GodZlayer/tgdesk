@@ -54,3 +54,24 @@ func TestRotuloSemMedidaNaoViraExemplo(t *testing.T) {
 		t.Fatal("exemplo com vetor vazio precisa ser recusado")
 	}
 }
+
+// A média é o que apaga o sinal mais importante da varredura de superfície.
+//
+// Medido no parque: NVMe com mediana de 2,15 s por região — vazão saudável — e
+// p99 de 9,53 s, com 12 regiões de 240 acima de 5 s. Na média ele parece ótimo;
+// na cauda ele PARA. E parar é o sintoma que o usuário relata: "trava alguns
+// segundos e volta".
+//
+// Disco uniformemente lento e disco que engasga pedem condutas opostas — trocar
+// a peça contra liberar espaço para o controlador respirar.
+func TestVarreduraSeparaEngasgoDeLentidaoUniforme(t *testing.T) {
+	fonte := lerFonte(t, "evidencia_do_exame.go")
+	if !contemTodos(fonte, []string{"percentil(duracoes, 0.99)", "p99/mediana >= 3"}) {
+		t.Fatal("a varredura precisa olhar a CAUDA: média esconde engasgo")
+	}
+	// Engasgo é trava, não lentidão — os dois sinais alimentam status
+	// diferentes, e trocá-los levaria à conduta errada.
+	if !contemTodos(fonte, []string{`Sinal: "trava_confirmada"`}) {
+		t.Fatal("engasgo de disco precisa virar evidência de TRAVA, não de lentidão")
+	}
+}
