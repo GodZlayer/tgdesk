@@ -504,7 +504,13 @@ func storageSurfaceRead(ctx context.Context, progress func(int, string)) (map[st
 				file.Close()
 				return map[string]any{"disks": resultDisks, "bytes_read": readTotal}, io.ErrNoProgress
 			}
-			if diskRead-regionStart >= regionSize || diskRead >= disk.Size {
+			// Com amostragem, CADA leitura é uma região: são 240 pontos
+			// espalhados pelo disco, e é a distribuição deles que carrega o
+			// diagnóstico. A condição antiga esperava acumular `regionSize`
+			// bytes LIDOS — o que só fazia sentido na varredura contígua e,
+			// amostrando, nunca era atingida: o teste devolvia 2 regiões em
+			// vez de 240, e 2 pontos não têm cauda para medir.
+			if regionBytes > 0 {
 				flushRegion()
 			}
 		}

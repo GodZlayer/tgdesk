@@ -42,3 +42,25 @@ func TestVarreduraAmostraNaoLeODiscoInteiro(t *testing.T) {
 			"todo seek cai fora do alinhamento de setor e a leitura falha")
 	}
 }
+
+// Com amostragem, CADA leitura é uma região. A condicao antiga esperava
+// acumular bytes lidos suficientes para fechar uma regiao — o que so fazia
+// sentido na varredura contigua. Amostrando, ela nunca era atingida e o teste
+// devolvia 2 regioes em vez de 240.
+//
+// Duas regioes nao tem cauda: e a cauda (p99 contra mediana) que separa disco
+// que PARA de disco lento, e sem ela o diagnostico perde justamente o sinal
+// que o usuario relata.
+func TestCadaAmostraEUmaRegiao(t *testing.T) {
+	fonte, err := os.ReadFile("diagnostics.go")
+	if err != nil {
+		t.Fatalf("não foi possível ler diagnostics.go: %v", err)
+	}
+	if regexp.MustCompile(`diskRead-regionStart >= regionSize`).Match(fonte) {
+		t.Error("a condição de fechar região voltou a ser a da varredura contígua: " +
+			"amostrando, ela nunca é atingida e sobram 2 regiões")
+	}
+	if !regexp.MustCompile(`if regionBytes > 0 \{\n\s+flushRegion\(\)`).Match(fonte) {
+		t.Error("cada amostra precisa fechar sua própria região")
+	}
+}
