@@ -194,6 +194,9 @@ func runDeviceControlLoop(cfg *agentConfig, remoteReady bool) error {
 	// Canal com folga de 1: a coleta entrega e segue, sem esperar o laço.
 	telemetriaPronta := make(chan HardwareSnapshot, 1)
 	coletando := false
+	// Falhas seguidas na verificação de registro. Uma reconexão isolada é
+	// normal; o contador existe para não reconfigurar por oscilação de rede.
+	falhasDeRegistro := 0
 
 	// Telemetria local: coleta barata e frequente, entrega oportunista.
 	//
@@ -392,6 +395,34 @@ func runDeviceControlLoop(cfg *agentConfig, remoteReady bool) error {
 			}
 			writeCurrentStatus()
 		case <-remoteRetryTick.C:
+			// VERIFICAR, não prometer.
+			//
+			// `remote_ready` era marcado quando a configuração local dava certo
+			// — o que responde "consigo alcançar o servidor?", não "estou
+			// registrado?". No parque houve máquina com remote_ready=true,
+			// túnel de pé, respondendo a ping, e inacessível: a conexão com o
+			// rendezvous trocava de porta a cada 45 s, em ciclo.
+			//
+			// Agora, enquanto o programa estiver ativo, o acesso remoto é
+			// conferido e reparado. É essa a garantia.
+			if remoteReady && cfg.RendezvousHost != "" {
+				viva, err := ConexaoEstabelecidaCom(cfg.RendezvousHost, 21116)
+				if err == nil && !viva {
+					falhasDeRegistro++
+					if falhasDeRegistro >= falhasAteReparar {
+						// Deixou de estar registrado. Dizer a verdade primeiro
+						// — a tela precisa parar de prometer acesso que não
+						// existe — e só então tentar consertar.
+						remoteReady = false
+						remoteError = "registro no rendezvous caiu; refazendo a configuração"
+						falhasDeRegistro = 0
+						writeCurrentStatus()
+						_ = sendHeartbeat()
+					}
+				} else if err == nil {
+					falhasDeRegistro = 0
+				}
+			}
 			if !remoteReady {
 				if err := setupRemoteAccess(cfg); err != nil {
 					remoteError = err.Error()

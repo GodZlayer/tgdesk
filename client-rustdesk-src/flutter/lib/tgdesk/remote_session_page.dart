@@ -1163,6 +1163,23 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage>
                     onChanged: (value) => setState(() => _strokeWidth = value),
                   ),
                 ),
+                // Só aparece com o marca-texto na mão: é a única ferramenta em
+                // que a transparência é o ponto. Nas outras o traço tem de ser
+                // opaco, e um controle apagado ali só ocuparia a barra.
+                if (_highlighter)
+                  SizedBox(
+                    width: 115,
+                    child: Slider(
+                      value: _highlighterOpacity,
+                      min: .1,
+                      max: 1,
+                      divisions: 18,
+                      label:
+                          '${(_highlighterOpacity * 100).round()}% de opacidade',
+                      onChanged: (value) =>
+                          setState(() => _highlighterOpacity = value),
+                    ),
+                  ),
                 IconButton(
                   tooltip: 'Apagar todas as anotações',
                   onPressed: _clearDrawing,
@@ -1392,7 +1409,7 @@ class _AnnotationPainter extends CustomPainter {
         final delta = b - a;
         final len = delta.distance;
         if (len <= 1.0) break;
-        final barb = (item.width * 4.0).clamp(10.0, len * 0.5);
+        final barb = (width * 4.0).clamp(10.0, len * 0.5);
         final ux = delta.dx / len;
         final uy = delta.dy / len;
         const angle = 0.5;
