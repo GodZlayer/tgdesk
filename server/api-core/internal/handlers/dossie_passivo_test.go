@@ -45,7 +45,11 @@ func TestCampoAusenteNaoViraZero(t *testing.T) {
 
 func TestDiscoCheioNaoEDiscoDegradado(t *testing.T) {
 	// A diferença muda a conduta inteira: um se troca, o outro se limpa.
-	ev := sinaisDoHardware([]byte(`{"storage":[{"model":"X","smart_status":"Healthy","used_pct":97}]}`))
+	// O volume C: é necessário na fixture: só o disco do SISTEMA conta como
+	// cheio, porque é onde o Windows pagina. Um pendrive a 97% não trava
+	// máquina nenhuma.
+	ev := sinaisDoHardware([]byte(`{"storage":[{"model":"X","smart_status":"Healthy",
+	  "used_pct":97,"volumes":[{"label":"C:"}]}]}`))
 	for _, e := range ev {
 		if e.Sinal == "smart_geral" || e.Sinal == "smart_desgaste" {
 			t.Fatalf("ocupação alta foi lida como falha de disco: %+v", e)

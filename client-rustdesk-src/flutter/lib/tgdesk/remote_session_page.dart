@@ -1032,19 +1032,34 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage>
               return Stack(
                 fit: StackFit.expand,
                 children: [
+                  // O desenho segue a IMAGEM remota, não o retângulo do widget:
+                  // por isso ele se refaz a cada mudança do canvas (zoom,
+                  // rolagem, troca de monitor), que é quem move a imagem
+                  // dentro da área. Sem escutar o canvas, o traço ficaria
+                  // parado onde foi feito enquanto a tela por baixo andava.
                   Positioned.fill(
-                    child: LayoutBuilder(
-                      builder: (context, constraints) => GestureDetector(
-                        behavior: HitTestBehavior.opaque,
-                        onPanStart: (event) =>
-                            _startStroke(event, constraints.biggest),
-                        onPanUpdate: (event) =>
-                            _continueStroke(event, constraints.biggest),
-                        onPanEnd: (_) => _endStroke(),
-                        child: CustomPaint(
-                          painter: _AnnotationPainter(_segments, _pendingShape),
-                        ),
-                      ),
+                    child: AnimatedBuilder(
+                      animation: Listenable.merge([
+                        _ffi?.canvasModel,
+                        _ffi?.ffiModel,
+                      ]),
+                      builder: (context, _) {
+                        final space = _DrawSpace.of(_ffi);
+                        return GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onPanStart: space == null
+                              ? null
+                              : (event) => _startStroke(event, space),
+                          onPanUpdate: space == null
+                              ? null
+                              : (event) => _continueStroke(event, space),
+                          onPanEnd: space == null ? null : (_) => _endStroke(),
+                          child: CustomPaint(
+                            painter: _AnnotationPainter(
+                                _segments, _pendingShape, space),
+                          ),
+                        );
+                      },
                     ),
                   ),
                   _drawingToolbar(),
@@ -1228,9 +1243,96 @@ class _DrawingShape extends _DrawItem {
   }
 }
 
+/// A régua do desenho: como um ponto do widget vira fração da tela do CLIENTE,
+/// e como ele volta.
+///
+/// O que viaja no canal é fração da área que a janela de anotação cobre lá —
+/// todos os monitores do cliente, é assim que `whiteboard/windows.rs` desfaz a
+/// conta. Antes o técnico normalizava pelo tamanho do widget, que só bate com
+/// aquela área quando os dois têm exatamente a mesma proporção e a imagem
+/// ocupa o widget inteiro. Em qualquer outro caso — tarja preta em volta,
+/// zoom, rolagem, janela de outro formato — o traço chegava deslocado e
+/// redimensionado no cliente.
+class _DrawSpace {
+  const _DrawSpace({
+    required this.remote,
+    required this.visible,
+    required this.scale,
+    required this.adjust,
+  });
+
+  /// A tela do cliente inteira, em pixels dela.
+  final Rect remote;
+
+  /// O pedaço dessa tela que está aparecendo no widget, nas mesmas unidades.
+  final Rect visible;
+
+  /// Pixels do widget por pixel da tela do cliente.
+  final double scale;
+
+  /// Recuo vertical do canvas (teclado/ajuda), já embutido no mapa do ponteiro.
+  final double adjust;
+
+  static _DrawSpace? of(FFI? ffi) {
+    if (ffi == null) return null;
+    final remote = ffi.ffiModel.globalDisplaysRect();
+    if (remote == null || remote.width <= 0 || remote.height <= 0) return null;
+    final scale = ffi.canvasModel.scale;
+    if (scale <= 0) return null;
+    return _DrawSpace(
+      remote: remote,
+      visible: ffi.cursorModel.getVisibleRect(),
+      scale: scale,
+      adjust: ffi.canvasModel.getAdjustY(),
+    );
+  }
+
+  /// Ponto do widget → fração da tela do cliente. Mesma conta que o mapa do
+  /// ponteiro faz (`CursorModel._getNewPos`), para desenho e cursor caírem no
+  /// mesmo lugar.
+  Offset toNorm(Offset local) {
+    final x = local.dx / scale + visible.left;
+    final y = (local.dy - adjust) / scale + visible.top;
+    return Offset(
+      ((x - remote.left) / remote.width).clamp(0.0, 1.0),
+      ((y - remote.top) / remote.height).clamp(0.0, 1.0),
+    );
+  }
+
+  /// O caminho de volta, para o técnico ver o traço colado na imagem.
+  Offset toLocal(Offset norm) {
+    final x = remote.left + norm.dx * remote.width;
+    final y = remote.top + norm.dy * remote.height;
+    return Offset(
+      (x - visible.left) * scale,
+      (y - visible.top) * scale + adjust,
+    );
+  }
+
+  /// A espessura também muda de régua: o técnico escolhe em pixels do que ele
+  /// vê, o cliente pinta em pixels da tela dele.
+  double toRemoteWidth(double local) => local / scale;
+  double toLocalWidth(double remote) => remote * scale;
+
+  @override
+  bool operator ==(Object other) =>
+      other is _DrawSpace &&
+      other.remote == remote &&
+      other.visible == visible &&
+      other.scale == scale &&
+      other.adjust == adjust;
+
+  @override
+  int get hashCode => Object.hash(remote, visible, scale, adjust);
+}
+
 class _AnnotationPainter extends CustomPainter {
-  const _AnnotationPainter(this.items, this.pending);
+  const _AnnotationPainter(this.items, this.pending, this.space);
   final List<_DrawItem> items;
+
+  /// Sem régua não há onde pintar: a sessão ainda não entregou a geometria da
+  /// tela remota. Pintar pelo tamanho do widget aqui seria repetir o erro.
+  final _DrawSpace? space;
 
   /// A forma que está sendo arrastada agora. Ela é desenhada por último, por
   /// cima de tudo, e não faz parte da lista até o arrasto terminar.
