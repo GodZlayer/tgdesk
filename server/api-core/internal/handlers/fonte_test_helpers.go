@@ -27,3 +27,5 @@ func contemTodos(fonte string, trechos []string) bool {
 	}
 	return true
 }
+
+func indiceDe(fonte, trecho string) int { return strings.Index(fonte, trecho) }

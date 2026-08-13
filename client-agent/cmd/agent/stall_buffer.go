@@ -42,6 +42,17 @@ type amostraDeContexto struct {
 
 // contextoPendente é o despejo pronto para subir no próximo ciclo do canal.
 type contextoPendente struct {
+	// Autoteste: prova que o CANAL funciona, sem afirmar que houve trava.
+	//
+	// A transmissão do contexto só é exercitada quando há congelamento — ou
+	// seja, o caminho crítico do detector ficaria sem prova até o dia em que
+	// precisa funcionar, que é o pior dia para descobrir que não funciona.
+	// Aqui ele é exercitado na conexão, quando não custa nada.
+	//
+	// O servidor trata esta mensagem à parte: carimba que o canal está de pé e
+	// NUNCA cria evento de trava com ela.
+	Autoteste bool `json:"autoteste,omitempty"`
+
 	DuracaoMs     int64               `json:"duracao_ms"`
 	RelogioSaltou bool                `json:"relogio_saltou"`
 	Buffer        []amostraDeContexto `json:"buffer"`
@@ -206,4 +217,28 @@ func (r *ringBufferTrava) instantaneoLocked() []amostraDeContexto {
 	saida = append(saida, r.amostras[r.proximo:]...)
 	saida = append(saida, r.amostras[:r.proximo]...)
 	return saida
+}
+
+// contextoDeAutoteste monta o despejo que prova o canal na conexão.
+//
+// Leva uma amostra real do buffer, não um payload vazio: se a serialização do
+// contexto quebrar, é aqui que se descobre — e não durante o congelamento que
+// a gente passou meses esperando registrar.
+func (r *ringBufferTrava) contextoDeAutoteste() *contextoPendente {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+
+	// Reaproveita o mesmo instantâneo que uma trava real usaria: se a
+	// serialização do contexto quebrar, é aqui que se descobre — e não durante
+	// o congelamento que a gente passou meses esperando registrar.
+	todas := r.instantaneoLocked()
+	if n := len(todas); n > 5 {
+		todas = todas[n-5:]
+	}
+	return &contextoPendente{
+		Autoteste:     true,
+		DuracaoMs:     0,
+		RelogioSaltou: false,
+		Buffer:        todas,
+	}
 }

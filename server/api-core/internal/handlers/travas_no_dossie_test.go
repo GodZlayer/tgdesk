@@ -37,3 +37,29 @@ func TestCongelamentoBreveTemStatusProprio(t *testing.T) {
 		t.Error("congelamento breve e trava longa precisam de status distintos")
 	}
 }
+
+// O autoteste prova o canal e NADA MAIS. Se ele virar evento de trava, cada
+// conexão fabrica um congelamento — que é a mesma família de erro dos 2.275
+// eventos falsos, só que pior, porque estes seriam classificados como travas
+// CONFIRMADAS e entrariam no diagnóstico.
+func TestAutotesteNuncaViraTrava(t *testing.T) {
+	fonte := lerFonte(t, "stall_watch.go")
+
+	if !contemTodos(fonte, []string{
+		"if ctxTrava.Autoteste {",
+		"stall_canal_verificado_em = now()",
+	}) {
+		t.Fatal("o autoteste precisa carimbar o canal em vez de criar evento")
+	}
+
+	// O `return` logo depois do carimbo é o que garante que ele não segue para
+	// a classificação. Sem ele, o autoteste cairia em origemDaTrava().
+	i := indiceDe(fonte, "if ctxTrava.Autoteste {")
+	j := indiceDe(fonte, "origemDaTrava(ctxTrava.RelogioSaltou)")
+	if i < 0 || j < 0 || i > j {
+		t.Fatal("estrutura inesperada: não dá para afirmar que o autoteste sai antes da classificação")
+	}
+	if !contemTodos(fonte[i:j], []string{"return"}) {
+		t.Fatal("o autoteste não retorna antes da classificação: ele viraria trava")
+	}
+}

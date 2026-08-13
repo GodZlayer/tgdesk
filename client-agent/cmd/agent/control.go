@@ -183,6 +183,14 @@ func runDeviceControlLoop(cfg *agentConfig, remoteReady bool) error {
 	// Vive no processo, não na conexão: a trava costuma derrubar o canal, e um
 	// buffer que morresse junto perderia o contexto do evento.
 	ringTrava := ringBufferDeTrava()
+	// Autoteste do canal de contexto de trava, uma vez por conexão.
+	//
+	// A transmissão do `stall_context` só acontece depois de um congelamento —
+	// então, sem isto, o caminho crítico do detector ficaria sem prova até o dia
+	// em que precisa funcionar. Exercitá-lo na conexão custa uma mensagem e
+	// transforma "deve funcionar" em "funcionou às 07:52".
+	autotesteCanal := time.NewTimer(8 * time.Second)
+	defer autotesteCanal.Stop()
 	// Canal com folga de 1: a coleta entrega e segue, sem esperar o laço.
 	telemetriaPronta := make(chan HardwareSnapshot, 1)
 	coletando := false
@@ -321,6 +329,15 @@ func runDeviceControlLoop(cfg *agentConfig, remoteReady bool) error {
 			}); err != nil {
 				return err
 			}
+		case <-autotesteCanal.C:
+			// Marcado como autoteste: o servidor carimba que o canal está de pé
+			// e NUNCA cria evento de trava com esta mensagem.
+			if err := conn.WriteJSON(deviceControlMessage{
+				Type: "stall_context", Payload: ringTrava.contextoDeAutoteste(),
+			}); err != nil {
+				return err
+			}
+
 		case <-pulseTick.C:
 			// O pulso não carrega payload: qualquer campo aqui seria custo a
 			// 2 Hz sem mudar nada do que o servidor precisa saber.

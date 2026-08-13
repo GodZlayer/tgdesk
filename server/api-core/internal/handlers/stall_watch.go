@@ -200,6 +200,11 @@ type contextoDeTrava struct {
 	// normal durante o buraco, foi REDE, não trava — sem essa distinção toda
 	// queda de link viraria falso positivo de travamento.
 	RelogioSaltou bool `json:"relogio_saltou"`
+	// Autoteste: prova que o canal transmite, sem afirmar que houve trava.
+	// Chega na conexão, quando não custa nada — porque o caminho real só é
+	// exercitado durante um congelamento, e um caminho sem prova é um caminho
+	// que provavelmente não funciona no dia em que precisa.
+	Autoteste bool `json:"autoteste"`
 	// Recorte de alta resolução do que acontecia em volta.
 	Buffer json.RawMessage `json:"buffer,omitempty"`
 }
@@ -209,6 +214,18 @@ type contextoDeTrava struct {
 func (w *stallWatcher) receberContexto(payload json.RawMessage) {
 	var ctxTrava contextoDeTrava
 	if json.Unmarshal(payload, &ctxTrava) != nil {
+		return
+	}
+
+	// Autoteste NUNCA vira evento de trava. Ele prova o canal e sai.
+	//
+	// Confundir os dois seria fabricar um congelamento a cada conexão — o
+	// mesmo erro que produziu 2.275 travas falsas quando a coleta de
+	// telemetria era medida como travamento.
+	if ctxTrava.Autoteste {
+		_, _ = w.s.Pool.Exec(context.Background(),
+			`UPDATE devices SET stall_canal_verificado_em = now() WHERE id = $1`,
+			w.deviceID)
 		return
 	}
 
