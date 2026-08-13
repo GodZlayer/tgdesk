@@ -77,13 +77,14 @@ func main() {
 
 	statuses, priors := corpus.DerivarOntologia(casos, *minimo)
 
-	// Os status que o corpus NÃO consegue popular entram declarados.
+	// O CATÁLOGO manda no conjunto; o corpus manda na frequência.
 	//
 	// O fórum não distingue engasgo curto de degradação sustentada — lá tudo é
-	// "slow" — então a derivação por frequência devolveria conjunto vazio para
-	// os dois, e status sem causa candidata abstém sempre. Seria um jeito
-	// elegante de nunca responder sobre o sintoma mais comum do parque.
-	statuses, priors = corpus.ComCausasDeclaradas(statuses, priors)
+	// "slow" — e as classes dele são fracas: amostrando, as mensagens causais
+	// são majoritariamente instruções, não diagnósticos. Então o conjunto de
+	// causas sai da matriz da taxonomia, e do corpus vem só a frequência, onde
+	// ele de fato mediu alguma coisa.
+	statuses, priors = corpus.ComTaxonomia(statuses, priors)
 
 	fmt.Printf("casos resolvidos lidos: %d\n", len(casos))
 	fmt.Printf("status negativos derivados: %d\n\n", len(statuses))

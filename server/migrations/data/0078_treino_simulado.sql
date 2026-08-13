@@ -3,7 +3,7 @@ BEGIN;
 DELETE FROM training_example WHERE origem='simulado_corpus';
 
 INSERT INTO training_example (origem, corpus_thread_id, status_codigo, causa_verdadeira, evidencias, tem_curva, particao)
-VALUES ('simulado_corpus','0044d1a9-9184-47e8-b28c-11b2e9ad46f7','lentidao_persistente','disco_degradado','{"erro_io_log":{"literal":"UDMA_CRC_Error_Count -OSRCK 200 200 000 - 0","valor":0},"smart_geral":{"literal":"Power_On_Hours -O--CK 087 087 000 - 11535","valor":11535},"smart_reallocated":{"literal":"Reallocated_Sector_Ct PO--CK 100 100 036 - 0","valor":0}}',false,'treino');
+VALUES ('simulado_corpus','0044d1a9-9184-47e8-b28c-11b2e9ad46f7','lentidao_profunda','disco_degradado','{"erro_io_log":{"literal":"UDMA_CRC_Error_Count -OSRCK 200 200 000 - 0","valor":0},"smart_geral":{"literal":"Power_On_Hours -O--CK 087 087 000 - 11535","valor":11535},"smart_reallocated":{"literal":"Reallocated_Sector_Ct PO--CK 100 100 036 - 0","valor":0}}',false,'treino');
 INSERT INTO training_example (origem, corpus_thread_id, status_codigo, causa_verdadeira, evidencias, tem_curva, particao)
 VALUES ('simulado_corpus','0db4e3ee-51c7-44d6-b144-91c30fb25d66','desligamento_inesperado','disco_degradado','{"erro_sistema_log":{"literal":"Log Name: System Source: Microsoft-Windows-Kernel-Power Date: 31/10/2011 4:29:53 PM Event ID: 41 Task Category: (63) Level: Critical","valor":41}}',false,'treino');
 INSERT INTO training_example (origem, corpus_thread_id, status_codigo, causa_verdadeira, evidencias, tem_curva, particao)
@@ -15,7 +15,7 @@ VALUES ('simulado_corpus','17f23bcf-82ed-43de-a0a4-a46f899b082f','desligamento_i
 INSERT INTO training_example (origem, corpus_thread_id, status_codigo, causa_verdadeira, evidencias, tem_curva, particao)
 VALUES ('simulado_corpus','28a40b12-6901-499b-a052-b4484da15e90','desligamento_inesperado','memoria_instavel','{"bugcheck":{"literal":"BugCheck 9C"}}',false,'treino');
 INSERT INTO training_example (origem, corpus_thread_id, status_codigo, causa_verdadeira, evidencias, tem_curva, particao)
-VALUES ('simulado_corpus','2a03f95a-b918-449f-899e-ac67ad938b2a','lentidao_persistente','disco_degradado','{"erro_io_log":{"literal":"Reported_Uncorrect 0x0032 100 100 000 Old_age Always - 0","valor":0}}',false,'validacao');
+VALUES ('simulado_corpus','2a03f95a-b918-449f-899e-ac67ad938b2a','lentidao_nao_caracterizada','disco_degradado','{"erro_io_log":{"literal":"Reported_Uncorrect 0x0032 100 100 000 Old_age Always - 0","valor":0}}',false,'validacao');
 INSERT INTO training_example (origem, corpus_thread_id, status_codigo, causa_verdadeira, evidencias, tem_curva, particao)
 VALUES ('simulado_corpus','3bc89687-4271-4537-ac10-616cff9ce1d6','erro_de_dispositivo','disco_degradado','{"temperatura":{"literal":"82 Celsius","valor":82}}',false,'validacao');
 INSERT INTO training_example (origem, corpus_thread_id, status_codigo, causa_verdadeira, evidencias, tem_curva, particao)
@@ -29,7 +29,7 @@ VALUES ('simulado_corpus','4fef3943-cdb5-428c-a908-442c11ceccfc','desligamento_i
 INSERT INTO training_example (origem, corpus_thread_id, status_codigo, causa_verdadeira, evidencias, tem_curva, particao)
 VALUES ('simulado_corpus','52f1da2e-2db1-4f8e-9753-4dd31481996a','erro_de_dispositivo','disco_degradado','{"temperatura":{"literal":"40 C","valor":40}}',false,'treino');
 INSERT INTO training_example (origem, corpus_thread_id, status_codigo, causa_verdadeira, evidencias, tem_curva, particao)
-VALUES ('simulado_corpus','53ec5808-77a3-4a32-bb0a-c1ff4fc9290e','lentidao_persistente','disco_degradado','{"bugcheck":{"literal":"Stop_Count 0x0032"},"erro_io_log":{"literal":"UDMA_CRC_Error_Count 0x0032 200 200 000 Old_age Always - 0","valor":0},"smart_geral":{"literal":"Power_On_Hours 0x0032 091 091 000 Old_age Always - 7047","valor":7047},"smart_pending":{"literal":"Current_Pending_Sector 0x0032 200 200 000 Old_age Always - 0","valor":0},"smart_reallocated":{"literal":"Reallocated_Sector_Ct 0x0033 200 200 140 Pre-fail Always - 0","valor":0}}',false,'treino');
+VALUES ('simulado_corpus','53ec5808-77a3-4a32-bb0a-c1ff4fc9290e','lentidao_nao_caracterizada','disco_degradado','{"bugcheck":{"literal":"Stop_Count 0x0032"},"erro_io_log":{"literal":"UDMA_CRC_Error_Count 0x0032 200 200 000 Old_age Always - 0","valor":0},"smart_geral":{"literal":"Power_On_Hours 0x0032 091 091 000 Old_age Always - 7047","valor":7047},"smart_pending":{"literal":"Current_Pending_Sector 0x0032 200 200 000 Old_age Always - 0","valor":0},"smart_reallocated":{"literal":"Reallocated_Sector_Ct 0x0033 200 200 140 Pre-fail Always - 0","valor":0}}',false,'treino');
 INSERT INTO training_example (origem, corpus_thread_id, status_codigo, causa_verdadeira, evidencias, tem_curva, particao)
 VALUES ('simulado_corpus','5cf39e2a-5268-4022-acdd-831be5ef479b','desligamento_inesperado','alimentacao_instavel','{"bugcheck":{"literal":"bugcheck was: 0x00000113"}}',false,'validacao');
 INSERT INTO training_example (origem, corpus_thread_id, status_codigo, causa_verdadeira, evidencias, tem_curva, particao)
@@ -43,7 +43,7 @@ VALUES ('simulado_corpus','6978ace2-f91d-42b4-ac0b-04df2c3cf9ec','desligamento_i
 INSERT INTO training_example (origem, corpus_thread_id, status_codigo, causa_verdadeira, evidencias, tem_curva, particao)
 VALUES ('simulado_corpus','6c08f8f6-7502-407c-a86f-3448ede184cf','desligamento_inesperado','software_conflitante','{"bugcheck":{"literal":"STOP 0x0000007F"}}',false,'treino');
 INSERT INTO training_example (origem, corpus_thread_id, status_codigo, causa_verdadeira, evidencias, tem_curva, particao)
-VALUES ('simulado_corpus','759a8722-75f2-4e2b-b578-2d7e02f322d4','lentidao_persistente','disco_degradado','{"bugcheck":{"literal":"Stop_Count 0x0032"},"erro_io_log":{"literal":"UDMA_CRC_Error_Count 0x003e 200 200 000 Old_age Always - 0","valor":0},"smart_geral":{"literal":"Power_On_Hours 0x0032 090 090 000 Old_age Always - 8967","valor":8967},"smart_pending":{"literal":"Current_Pending_Sector 0x0012 100 100 000 Old_age Always - 0","valor":0},"smart_reallocated":{"literal":"Reallocated_Sector_Ct 0x0033 051 051 036 Pre-fail Always - 2013","valor":2013}}',false,'treino');
+VALUES ('simulado_corpus','759a8722-75f2-4e2b-b578-2d7e02f322d4','lentidao_nao_caracterizada','disco_degradado','{"bugcheck":{"literal":"Stop_Count 0x0032"},"erro_io_log":{"literal":"UDMA_CRC_Error_Count 0x003e 200 200 000 Old_age Always - 0","valor":0},"smart_geral":{"literal":"Power_On_Hours 0x0032 090 090 000 Old_age Always - 8967","valor":8967},"smart_pending":{"literal":"Current_Pending_Sector 0x0012 100 100 000 Old_age Always - 0","valor":0},"smart_reallocated":{"literal":"Reallocated_Sector_Ct 0x0033 051 051 036 Pre-fail Always - 2013","valor":2013}}',false,'treino');
 INSERT INTO training_example (origem, corpus_thread_id, status_codigo, causa_verdadeira, evidencias, tem_curva, particao)
 VALUES ('simulado_corpus','7644378e-f7e6-4945-a452-4b423b630205','desligamento_inesperado','driver_incompativel','{"bugcheck":{"literal":"BUGCHECK_STR: 0x9F"}}',false,'validacao');
 INSERT INTO training_example (origem, corpus_thread_id, status_codigo, causa_verdadeira, evidencias, tem_curva, particao)
@@ -89,9 +89,9 @@ VALUES ('simulado_corpus','e1ac7444-6a07-4170-a318-355052f2232d','desligamento_i
 INSERT INTO training_example (origem, corpus_thread_id, status_codigo, causa_verdadeira, evidencias, tem_curva, particao)
 VALUES ('simulado_corpus','ebdc08d9-12b9-46b7-94db-9af358deb408','desligamento_inesperado','driver_incompativel','{"erro_sistema_log":{"literal":"Log Name: System Source: Microsoft-Windows-DriverFrameworks-UserMode Date: 28/11/2018 16:34:44 Event ID: 10111 Task Category: User-mode Driver problems. Level: Critical","valor":10111}}',false,'treino');
 INSERT INTO training_example (origem, corpus_thread_id, status_codigo, causa_verdadeira, evidencias, tem_curva, particao)
-VALUES ('simulado_corpus','f5cbfa55-95e4-4d96-b914-b738bb020394','desligamento_inesperado','driver_incompativel','{"bugcheck":{"literal":"BugCheck 9F"}}',false,'treino');
+VALUES ('simulado_corpus','f5cbfa55-95e4-4d96-b914-b738bb020394','lentidao_intermitente','driver_incompativel','{"bugcheck":{"literal":"BugCheck 9F"}}',false,'treino');
 INSERT INTO training_example (origem, corpus_thread_id, status_codigo, causa_verdadeira, evidencias, tem_curva, particao)
-VALUES ('simulado_corpus','f7365e31-d088-4e10-ab61-f4e098ff5854','lentidao_persistente','disco_degradado','{"erro_io_log":{"literal":"UDMA_CRC_Error_Count 0x0032 100 100 --- Old_age Always - 0","valor":0},"smart_geral":{"literal":"Power_On_Hours 0x0032 100 100 --- Old_age Always - 519","valor":519},"smart_reallocated":{"literal":"Reallocated_Sector_Ct 0x0032 100 100 --- Old_age Always - 0","valor":0}}',false,'validacao');
+VALUES ('simulado_corpus','f7365e31-d088-4e10-ab61-f4e098ff5854','lentidao_profunda','disco_degradado','{"erro_io_log":{"literal":"UDMA_CRC_Error_Count 0x0032 100 100 --- Old_age Always - 0","valor":0},"smart_geral":{"literal":"Power_On_Hours 0x0032 100 100 --- Old_age Always - 519","valor":519},"smart_reallocated":{"literal":"Reallocated_Sector_Ct 0x0032 100 100 --- Old_age Always - 0","valor":0}}',false,'validacao');
 INSERT INTO training_example (origem, corpus_thread_id, status_codigo, causa_verdadeira, evidencias, tem_curva, particao)
 VALUES ('simulado_corpus','fceb985f-c520-4139-82a6-1d71ed155ad4','corrupcao_de_dados','memoria_instavel','{"bugcheck":{"literal":"BSOD: 0x000000F4"}}',false,'validacao');
 INSERT INTO training_example (origem, corpus_thread_id, status_codigo, causa_verdadeira, evidencias, tem_curva, particao)

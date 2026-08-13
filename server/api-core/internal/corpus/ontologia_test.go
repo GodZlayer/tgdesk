@@ -12,12 +12,19 @@ func TestToda_CausaDeclarada_Existe(t *testing.T) {
 	for _, c := range CausasConhecidas() {
 		conhecidas[c] = true
 	}
-	for status, causas := range CausasDeclaradas {
-		for _, c := range causas {
+	for _, status := range StatusConhecidos() {
+		for _, c := range CausasDoStatus(status) {
 			if !conhecidas[c] {
-				t.Errorf("status %q declara a causa %q, que não existe no conjunto fechado",
+				t.Errorf("status %q admite a causa %q, que não existe no conjunto fechado",
 					status, c)
 			}
+		}
+	}
+	// Status sem causa candidata abstém sempre — é um jeito elegante de nunca
+	// responder, e não deveria existir no catálogo.
+	for _, status := range StatusConhecidos() {
+		if len(CausasDoStatus(status)) == 0 {
+			t.Errorf("status %q não tem causa candidata nenhuma", status)
 		}
 	}
 }

@@ -164,86 +164,12 @@ var classeParaCausa = map[string]string{
 //
 // Então causa se divide sempre que a AÇÃO se divide, e nunca só porque o nome
 // soa diferente.
-var descricaoDeCausa = map[string][2]string{
-	// --- disco: três causas, três condutas -------------------------------
-	"disco_cheio": {
-		"Disco sem espaço livre — o sistema não tem folga para paginação, cache e temporários.",
-		"O disco está quase cheio, e isso deixa tudo mais devagar.",
-	},
-	"disco_lento": {
-		"Disco funcional porém lento — latência de I/O alta com SMART saudável.",
-		"O disco funciona, mas é lento para o que você faz.",
-	},
-	"disco_degradado": {
-		"Disco degradado — superfície, controladora ou interface falhando.",
-		"O disco (onde ficam seus arquivos) está falhando.",
-	},
-
-	// --- memória: falta é diferente de defeito ---------------------------
-	"memoria_insuficiente": {
-		"Memória insuficiente para a carga — uso sustentado no teto, com paginação.",
-		"O computador tem menos memória do que precisa para o que você usa.",
-	},
-	"memoria_instavel": {
-		"Memória instável — erro de leitura/escrita em RAM sob carga.",
-		"A memória do computador está com defeito.",
-	},
-
-	// --- processamento: falta de capacidade é diferente de disputa -------
-	"cpu_insuficiente": {
-		"Processador insuficiente para a carga — uso sustentado no teto sem pico isolado.",
-		"O processador não dá conta do que você usa.",
-	},
-	"processo_em_segundo_plano": {
-		"Processo ou serviço em segundo plano consumindo recurso — varredura, indexação, atualização.",
-		"Um programa trabalhando escondido está consumindo o computador.",
-	},
-	"software_conflitante": {
-		"Software conflitante — programa ou serviço interferindo no funcionamento do sistema.",
-		"Um programa instalado está atrapalhando o sistema.",
-	},
-
-	// --- o resto, que já era específico o bastante -----------------------
-	"refrigeracao_insuficiente": {
-		"Refrigeração insuficiente — dissipação abaixo do necessário para a carga.",
-		"O computador está esquentando demais.",
-	},
-	"alimentacao_instavel": {
-		"Alimentação instável — fonte, bateria ou rede elétrica fora da faixa.",
-		"A energia que chega ao computador está oscilando.",
-	},
-	"driver_incompativel": {
-		"Driver incompatível ou defeituoso para o hardware presente.",
-		"Um programa de controle de peça está com defeito.",
-	},
-	"rede_instavel": {
-		"Rede instável — perda, latência ou saturação do enlace.",
-		"A conexão de rede está instável.",
-	},
-}
 
 // AcaoDaCausa é o que fazer. Existe separado da descrição porque é O MOTIVO de
 // a causa existir: se duas causas têm a mesma ação, elas são a mesma causa.
 //
 // Também é o que a tela mostra em "ação recomendada" (§10.5.2, campo 7) — e o
 // que torna possível checar, no futuro, se a ação tomada bateu com a sugerida.
-var acaoDaCausa = map[string]string{
-	"disco_cheio":               "liberar espaço; abaixo de 10% livre o sistema não tem folga para trabalhar",
-	"disco_lento":               "substituir por um disco mais rápido (SSD/NVMe); o atual não está com defeito",
-	"disco_degradado":           "fazer backup imediato e substituir o disco",
-	"memoria_insuficiente":      "aumentar a memória, ou reduzir o que roda simultaneamente",
-	"memoria_instavel":          "testar os pentes e substituir o defeituoso",
-	"cpu_insuficiente":          "reduzir a carga, ou trocar o equipamento para o uso pretendido",
-	"processo_em_segundo_plano": "identificar o processo e controlar horário ou remoção",
-	"software_conflitante":      "remover ou reconfigurar o programa que interfere",
-	"refrigeracao_insuficiente": "limpar e revisar a refrigeração",
-	"alimentacao_instavel":      "verificar fonte, bateria e rede elétrica",
-	"driver_incompativel":       "atualizar ou reverter o driver",
-	"rede_instavel":             "verificar enlace, cabo e saturação",
-}
-
-// AcaoDaCausa devolve a conduta recomendada.
-func AcaoDaCausa(causa string) string { return acaoDaCausa[causa] }
 
 // CausasDeclaradas cobre os status que o corpus NÃO consegue popular.
 //
@@ -261,25 +187,6 @@ func AcaoDaCausa(causa string) string { return acaoDaCausa[causa] }
 // A lista de cada um é curta de propósito. O ponto não é cobrir toda causa
 // concebível: é que as causas de um NÃO SÃO as do outro, porque a conduta que
 // elas geram é oposta — controlar um processo contra trocar uma peça.
-var CausasDeclaradas = map[string][]string{
-	// Engasgo: alguma coisa toma o recurso por segundos e devolve. A peça está
-	// sã; o que está errado é a disputa.
-	"lentidao_intermitente": {
-		"processo_em_segundo_plano", // varredura, indexação, atualização
-		"software_conflitante",      // programa que interfere no sistema
-		"refrigeracao_insuficiente", // throttle térmico curto, que passa ao esfriar
-		"driver_incompativel",       // driver que trava o pipeline por instantes
-	},
-	// Degradação sustentada: entra num estado ruim e fica. Aqui a peça costuma
-	// estar no limite ou falhando, e controlar processo não resolve.
-	"lentidao_profunda": {
-		"disco_lento",          // latência alta com SMART saudável — trocar por melhor
-		"disco_cheio",          // sem folga para paginação e temporários — limpar
-		"disco_degradado",      // I/O com retry — backup urgente e trocar
-		"memoria_insuficiente", // uso no teto com paginação — mais RAM
-		"cpu_insuficiente",     // uso sustentado sem pico isolado
-	},
-}
 
 // DiscriminadorDeStatus diz QUAL MEDIDA separa um status dos seus vizinhos.
 //
@@ -471,139 +378,145 @@ func maisFrequentes(m map[string]int, limite int) []string {
 	return out
 }
 
-// DescricaoDaCausa devolve (técnico, cliente). É a matéria-prima dos dois
-// níveis obrigatórios de `text_template` (§12.2).
+// DescricaoDaCausa devolve (técnico, cliente), lendo do catálogo.
 func DescricaoDaCausa(causa string) (string, string) {
-	d, ok := descricaoDeCausa[causa]
+	p, ok := ProblemaPorCodigo(causa)
 	if !ok {
 		return causa, causa
 	}
-	return d[0], d[1]
+	return p.Tecnico, p.Cliente
+}
+
+// AcaoDaCausa devolve a conduta. É o motivo de a causa existir: dois problemas
+// com a mesma conduta são o mesmo problema.
+func AcaoDaCausa(causa string) string {
+	p, _ := ProblemaPorCodigo(causa)
+	return p.Acao
 }
 
 // CausasConhecidas devolve o conjunto fechado inteiro, em ordem estável.
 func CausasConhecidas() []string {
-	out := make([]string, 0, len(descricaoDeCausa))
-	for c := range descricaoDeCausa {
-		out = append(out, c)
+	out := make([]string, 0, len(Catalogo))
+	for _, p := range Catalogo {
+		out = append(out, p.Codigo)
 	}
 	sort.Strings(out)
 	return out
 }
 
-// ComCausasDeclaradas acrescenta os status cujas causas vêm de observação de
-// campo em vez de frequência de corpus.
+// ComTaxonomia reconcilia a derivação do corpus com o CATÁLOGO.
 //
-// O prior desses status é UNIFORME, e é assim de propósito: declarar que uma
-// causa é candidata é conhecimento; declarar que ela é 40% provável seria
-// invenção. A distribuição só ganha forma quando houver caso interno fechado —
-// que é exatamente o que §13.4 diz sobre o prior externo, aplicado a um prior
-// que nem externo é.
-func ComCausasDeclaradas(
+// O corpus dá frequência; o catálogo dá o conjunto. Onde o corpus mediu, a
+// frequência dele vale — é dado, não opinião. Onde não mediu, entra uniforme,
+// que declara "é candidata" sem afirmar o quanto. Declarar 40% sem contar caso
+// nenhum seria invenção com cara de estatística.
+//
+// Todo status conhecido aparece, mesmo os que o corpus nunca tocou: o conjunto
+// de causas é derivado da matriz `Produz` do catálogo, não escrito à mão. Era
+// exatamente a duplicação de fonte que fazia `lentidao_intermitente` sair com
+// zero causas candidatas — um status que abstém sempre.
+func ComTaxonomia(
 	statuses []StatusDerivado, priors []ParStatusCausa,
 ) ([]StatusDerivado, []ParStatusCausa) {
 	indice := map[string]int{}
 	for i, st := range statuses {
 		indice[st.Codigo] = i
 	}
-
-	codigos := make([]string, 0, len(CausasDeclaradas))
-	for c := range CausasDeclaradas {
-		codigos = append(codigos, c)
-	}
-	sort.Strings(codigos)
-
-	for _, codigo := range codigos {
-		declaradas := CausasDeclaradas[codigo]
-		if len(declaradas) == 0 {
-			continue
-		}
-
-		// UNIR, nunca substituir nem pular.
-		//
-		// O corpus classifica ALGUNS casos nesses status — "stutter", "takes
-		// forever" casam com o vocabulário — mas poucos, e o conjunto que sai
-		// dali fica pequeno demais para ser o domínio do softmax. A primeira
-		// versão pulava o status quando o corpus já o tinha tocado, e o
-		// resultado foi `lentidao_intermitente` com ZERO causa candidata: um
-		// status que abstém sempre, o que é pior que não existir.
-		i, existe := indice[codigo]
-		if !existe {
-			statuses = append(statuses, StatusDerivado{
-				Codigo:    codigo,
-				Descricao: descricaoDeStatus[codigo],
-				Sinais:    []string{"uso_cpu", "uso_memoria", "processo_pesado", "forma_do_episodio"},
-				Testes:    []string{"resource_pressure_series"},
-			})
-			i = len(statuses) - 1
-			indice[codigo] = i
-		}
-
-		jaCandidata := map[string]bool{}
-		for _, c := range statuses[i].CausasCandidatas {
-			jaCandidata[c] = true
-		}
-		var novas []string
-		for _, c := range declaradas {
-			if !jaCandidata[c] {
-				statuses[i].CausasCandidatas = append(statuses[i].CausasCandidatas, c)
-				novas = append(novas, c)
-			}
-		}
-		sort.Strings(statuses[i].CausasCandidatas)
-
-		if d := DiscriminadorDeStatus[codigo]; d != "" {
-			statuses[i].Testes = append(statuses[i].Testes, d)
-		}
-
-		// Prior só para as causas ACRESCENTADAS, e uniforme entre elas. Onde o
-		// corpus tinha frequência, ela fica: dado medido não é substituído por
-		// declaração. Onde não tinha, o uniforme diz "é candidata" sem afirmar
-		// o quanto — declarar 40% seria invenção.
-		// Causa candidata NÃO pode continuar listada como lacuna. As duas listas
-		// dizem coisas opostas na tela — "posso responder isto" contra "isto não
-		// é separável à distância" — e um item nas duas é o tipo de contradição
-		// que faz o técnico parar de ler a tela inteira.
-		if len(novas) > 0 {
-			virouCandidata := map[string]bool{}
-			for _, c := range novas {
-				virouCandidata[c] = true
-			}
-			var restam []string
-			for _, l := range statuses[i].Limitacoes {
-				if !virouCandidata[l] {
-					restam = append(restam, l)
-				}
-			}
-			statuses[i].Limitacoes = restam
-		}
-
-		if len(novas) == 0 {
-			continue
-		}
-		uniforme := 1.0 / float64(len(statuses[i].CausasCandidatas))
-		for _, causa := range novas {
-			priors = append(priors, ParStatusCausa{
-				Status: codigo, Causa: causa, N: 0, Frequencia: uniforme,
-			})
-		}
-	}
-
-	// Renormalizar por status: prior é DISTRIBUIÇÃO, e tem que somar 1.
-	//
-	// Misturar frequência medida do corpus com uniforme declarado quebra a soma
-	// — e um vetor que soma 1,5 não é probabilidade, é peso disfarçado de
-	// probabilidade. O motor normaliza de novo antes de responder, mas gravar
-	// errado no banco tornaria `corpus_prior` inútil para qualquer outra
-	// leitura, inclusive a auditoria de "quanto disto ainda vem de fórum".
-	total := map[string]float64{}
+	// Frequência já medida pelo corpus, por par.
+	medido := map[string]float64{}
 	for _, p := range priors {
+		medido[p.Status+"|"+p.Causa] = p.Frequencia
+	}
+
+	var saidaPriors []ParStatusCausa
+	contagemCorpus := map[string]int{}
+	for _, p := range priors {
+		contagemCorpus[p.Status+"|"+p.Causa] = p.N
+	}
+
+	for _, status := range StatusConhecidos() {
+		causas := CausasDoStatus(status)
+		if len(causas) == 0 {
+			continue
+		}
+
+		i, existe := indice[status]
+		if !existe {
+			statuses = append(statuses, StatusDerivado{Codigo: status})
+			i = len(statuses) - 1
+			indice[status] = i
+		}
+		statuses[i].Descricao = descricaoDeStatus[status]
+		statuses[i].CausasCandidatas = causas
+		statuses[i].Sinais = SinaisDoStatus(status)
+		statuses[i].Limitacoes = LacunasDoStatus(status)
+		if len(statuses[i].Testes) == 0 {
+			statuses[i].Testes = []string{"all_tests"}
+		}
+
+		// Massa que o corpus já mediu para este status, e quantas causas ficaram
+		// sem medida. O restante é dividido igualmente entre elas.
+		massaMedida, semMedida := 0.0, 0
+		for _, c := range causas {
+			if f, ok := medido[status+"|"+c]; ok {
+				massaMedida += f
+			} else {
+				semMedida++
+			}
+		}
+		sobra := 1.0 - massaMedida
+		if sobra < 0 {
+			sobra = 0
+		}
+		uniforme := 0.0
+		if semMedida > 0 {
+			uniforme = sobra / float64(semMedida)
+		}
+
+		// Piso de prior. Uma causa candidata com prior ZERO nunca pode ser
+		// respondida, por mais evidência que apareça — o peso multiplica o
+		// prior, e qualquer coisa vezes zero é zero. Ela estaria no conjunto
+		// só de enfeite.
+		//
+		// Acontecia quando o corpus já tinha medido toda a massa do status:
+		// não sobrava nada para as causas que ele não viu, e elas entravam
+		// zeradas. O piso as mantém vivas sem afirmar frequência que ninguém
+		// mediu.
+		const pisoDePrior = 0.01
+
+		for _, c := range causas {
+			f, ok := medido[status+"|"+c]
+			if !ok {
+				f = uniforme
+			}
+			if f < pisoDePrior {
+				f = pisoDePrior
+			}
+			saidaPriors = append(saidaPriors, ParStatusCausa{
+				Status: status, Causa: c, N: contagemCorpus[status+"|"+c], Frequencia: f,
+			})
+		}
+	}
+
+	// Status que o corpus derivou mas que nenhum problema do catálogo produz
+	// não deveria existir: sem causa candidata ele abstém sempre.
+	var filtrados []StatusDerivado
+	for _, st := range statuses {
+		if len(st.CausasCandidatas) > 0 {
+			filtrados = append(filtrados, st)
+		}
+	}
+
+	// Renormaliza: prior é DISTRIBUIÇÃO, e um vetor que não soma 1 não é
+	// probabilidade, é peso disfarçado de probabilidade.
+	total := map[string]float64{}
+	for _, p := range saidaPriors {
 		total[p.Status] += p.Frequencia
 	}
-	for i := range priors {
-		if t := total[priors[i].Status]; t > 0 {
-			priors[i].Frequencia /= t
+	for i := range saidaPriors {
+		if t := total[saidaPriors[i].Status]; t > 0 {
+			saidaPriors[i].Frequencia /= t
 		}
 	}
-	return statuses, priors
+	return filtrados, saidaPriors
 }
