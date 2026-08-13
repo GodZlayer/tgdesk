@@ -115,6 +115,70 @@ Legenda: `[ ]` não iniciado · `[~]` em curso · `[x]` concluído e verificado 
 Ordem cronológica inversa (mais recente no topo). Cada entrada diz **o que
 mudou**, **em quais arquivos** e **o que ficou faltando**.
 
+### 2026-08-13 — LENTIDÃO É DOIS STATUS, e a medida que faltava
+
+Correção vinda de quem convive com as máquinas: *"'lentidão persistente' não é
+correto nem para Dani nem para Daniel — Daniel tem lentidões ocasionais
+rápidas, Dani tem momentos de lentidão profunda; o sentimento é diferente,
+quanto a causa e a solução também"*.
+
+Estava certo, e o corpus nunca daria isso: no fórum os dois casos se escrevem
+"slow". Um status só (`lentidao_persistente`) colapsava dois fenômenos com
+condutas OPOSTAS — controlar um processo contra trocar uma peça.
+
+**O histograma confirmou antes de eu mudar qualquer coisa:**
+
+| | amostras de CPU | acima de 95% | taxa | média |
+| --- | --- | --- | --- | --- |
+| Daniel | 97.025 | 422 | **2,17%** | 29% |
+| Dani | 66.692 | 31 | **0,19%** | 15% |
+
+Dez vezes mais pico no Daniel — e a lentidão **mais severa** é a da Dani. Não é
+intensidade, é FORMA.
+
+**O que isso revelou:** a lentidão da Dani não era explicada por NENHUM sinal
+coletado. CPU tranquila, memória tranquila. A métrica `storage` que existia era
+**ocupação** (94% cheio), não atividade. Disco cheio e disco lento são coisas
+diferentes, e só o primeiro estava sendo medido.
+
+**A medida nova** (`disk_activity` no agente, 1.2.53): `busy_pct`, `latency_ms`
+e `queue_length`, via CIM. Duas decisões que custaram tentativa errada:
+
+- **CIM, nunca `Get-Counter`.** Nome de contador é LOCALIZADO — o
+  `\PhysicalDisk(_Total)\% Idle Time` falhou nesta máquina em português, e
+  teria falhado calado justamente no parque.
+- **Latência pelo contador CRU, por diferença entre duas amostras.** O valor
+  "formatado" é inteiro em SEGUNDOS: latência de disco é sub-segundo, então
+  trunca para 0 sempre — uma medida que só parece medida.
+
+**O resultado, na primeira hora de coleta:**
+
+| | latência média | pico |
+| --- | --- | --- |
+| Arthur | 0,28 ms | 0,5 ms |
+| Daniel | 1,36 ms | 3,1 ms |
+| **Dani** | **9,89 ms** | **17,7 ms** |
+
+7× o Daniel, 35× o Arthur — com SMART `Healthy`. Não é disco falhando: é disco
+lento. E foi preciso adicionar a medida para ver.
+
+### Ação única: o menu de 32 testes saiu do produto
+
+Também pedido: *"o diagnóstico avançado ainda existir separadamente ao invés de
+existir como um teste completo"*. `diagnostics_dialog.dart` (1.254 linhas) foi
+**removido**, e os três pontos que o abriam — lista de dispositivos, sessão
+remota e chamado — passam a abrir a `DiagnosticoPage`, com **um botão**:
+"Executar teste completo". A composição interna é o `all_tests` que o agente já
+executava em ordem fixa. Escolher entre 32 caixas nunca foi decisão do técnico;
+era trabalho que o produto empurrava para ele.
+
+### relay e rendezvous
+
+Estavam `Exited (127)` desde antes deste trabalho. O `deploy.ps1` da release
+1.2.52 os recriou; ambos no namespace do `api-core`, respondendo em 21116/21117
+dentro da VPN.
+
+
 ### 2026-08-12 — a camada visível: dossiê passivo no canal e telas ligadas
 
 Pergunta do usuário: *"então ainda falta tudo que é visível?"* — e a resposta
