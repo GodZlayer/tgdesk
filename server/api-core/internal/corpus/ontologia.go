@@ -65,6 +65,22 @@ var vocabularioDeStatus = map[string][]string{
 	// O que separa os dois não é a INTENSIDADE, é a FORMA do episódio: pico
 	// curto e frequente que se resolve sozinho, contra degradação sustentada
 	// que não passa. Por isso o vocabulário abaixo insiste em duração.
+	// Congelamento BREVE e repetido: a máquina para por 1 a 5 s, fica inusável,
+	// e volta inteira. É o que o usuário chama de "travadinha".
+	//
+	// Não é lentidão — em lentidão tudo responde devagar; aqui NADA responde e
+	// depois volta como se nada tivesse acontecido. E não é `trava_sob_carga`,
+	// que é o congelamento longo: um costuma ser disputa que se resolve
+	// sozinha, o outro é esgotamento ou peça falhando. Condutas opostas.
+	//
+	// Quem mede é o relógio EXTERNO (§6): a máquina congelada não carimba a
+	// hora do próprio congelamento.
+	"congelamento_breve_repetido": {
+		"micro freeze", "micro-freeze", "brief freeze", "freezes for a second",
+		"freezes for a few seconds", "momentary freeze", "short hang",
+		"travadinha", "trava um segundo", "congela por segundos",
+		"congelamento breve", "para e volta",
+	},
 	"lentidao_intermitente": {
 		"stutter", "stuttering", "hitch", "hitches", "brief lag", "micro lag",
 		"momentary", "occasional slowdown", "intermittent",
@@ -114,15 +130,16 @@ var vocabularioDeStatus = map[string][]string{
 // Descrição de cada status, em uma frase. É o que aparece na tela antes de
 // qualquer probabilidade (§10.5.1, campo 1).
 var descricaoDeStatus = map[string]string{
-	"trava_sob_carga":            "O computador para de responder e volta sozinho, ou precisa ser reiniciado à força.",
-	"desligamento_inesperado":    "O computador desliga ou reinicia sem aviso, incluindo tela azul.",
-	"nao_inicializa":             "O computador não completa a inicialização do sistema.",
-	"lentidao_intermitente":      "O computador engasga por segundos e volta ao normal sozinho, várias vezes ao dia.",
-	"lentidao_profunda":          "O computador entra em períodos longos em que tudo fica lento, e não melhora sozinho.",
-	"lentidao_nao_caracterizada": "O computador está lento, e ainda não se sabe se são engasgos curtos ou períodos longos.",
-	"superaquecimento":           "O computador opera acima da faixa térmica segura.",
-	"corrupcao_de_dados":         "Arquivos ou estruturas do sistema de arquivos estão sendo corrompidos.",
-	"erro_de_dispositivo":        "O sistema operacional está reportando erro de acesso a um dispositivo.",
+	"trava_sob_carga":             "O computador para de responder e volta sozinho, ou precisa ser reiniciado à força.",
+	"desligamento_inesperado":     "O computador desliga ou reinicia sem aviso, incluindo tela azul.",
+	"nao_inicializa":              "O computador não completa a inicialização do sistema.",
+	"congelamento_breve_repetido": "O computador para totalmente por alguns segundos e volta sozinho, várias vezes.",
+	"lentidao_intermitente":       "O computador engasga por segundos e volta ao normal sozinho, várias vezes ao dia.",
+	"lentidao_profunda":           "O computador entra em períodos longos em que tudo fica lento, e não melhora sozinho.",
+	"lentidao_nao_caracterizada":  "O computador está lento, e ainda não se sabe se são engasgos curtos ou períodos longos.",
+	"superaquecimento":            "O computador opera acima da faixa térmica segura.",
+	"corrupcao_de_dados":          "Arquivos ou estruturas do sistema de arquivos estão sendo corrompidos.",
+	"erro_de_dispositivo":         "O sistema operacional está reportando erro de acesso a um dispositivo.",
 }
 
 // classe do corpus -> código de causa do conjunto fechado.
@@ -137,7 +154,7 @@ var classeParaCausa = map[string]string{
 	// cobre cheio, lento e falhando. Mapeia-se para a causa que o corpus
 	// realmente descreve na maioria dos casos (thread de fórum resolvida quase
 	// sempre termina em defeito, não em faxina), e as causas finas entram por
-	// declaração em `CausasDeclaradas`, com o discriminador que as separa.
+	// declaração no `Catalogo` de taxonomia.go, com o discriminador que as separa.
 	"disco":      "disco_degradado",
 	"memoria":    "memoria_instavel",
 	"termico":    "refrigeracao_insuficiente",
@@ -171,23 +188,6 @@ var classeParaCausa = map[string]string{
 // Também é o que a tela mostra em "ação recomendada" (§10.5.2, campo 7) — e o
 // que torna possível checar, no futuro, se a ação tomada bateu com a sugerida.
 
-// CausasDeclaradas cobre os status que o corpus NÃO consegue popular.
-//
-// A derivação tira causa candidata da frequência do corpus (§13.6). Isso não
-// funciona para os dois status de lentidão: o fórum não distingue engasgo de
-// degradação sustentada, então nenhum caso rotula um dos dois. Deixar a
-// derivação decidir produziria um conjunto vazio — e status sem causa
-// candidata abstém sempre, que seria um jeito elegante de nunca responder.
-//
-// Então a causa entra DECLARADA, com procedência de observação de campo em vez
-// de frequência de fórum. É a mesma regra de §14.4 vista de outro ângulo: o
-// prior externo só vale enquanto não houver coisa melhor, e conhecimento de
-// quem convive com as máquinas é coisa melhor.
-//
-// A lista de cada um é curta de propósito. O ponto não é cobrir toda causa
-// concebível: é que as causas de um NÃO SÃO as do outro, porque a conduta que
-// elas geram é oposta — controlar um processo contra trocar uma peça.
-
 // DiscriminadorDeStatus diz QUAL MEDIDA separa um status dos seus vizinhos.
 //
 // Existe porque a pergunta "o que testar primeiro?" (§10.5.1, campo 5) precisa
@@ -195,8 +195,13 @@ var classeParaCausa = map[string]string{
 // engasgo e degradação, o que falta não é mais um teste qualquer: é a medida
 // que tem a forma do episódio.
 var DiscriminadorDeStatus = map[string]string{
-	"lentidao_intermitente": "duracao_do_episodio",
-	"lentidao_profunda":     "duracao_do_episodio",
+	// O que separa as causas de um congelamento breve NÃO é uso de recurso —
+	// a máquina costuma estar folgada no instante. É a latência de tratamento
+	// de interrupção: DPC e ISR altos significam que alguém segurou o
+	// processador em IRQL alto, e é isso que congela vídeo e entrada juntos.
+	"congelamento_breve_repetido": "latencia_dpc_isr",
+	"lentidao_intermitente":       "duracao_do_episodio",
+	"lentidao_profunda":           "duracao_do_episodio",
 }
 
 // ClassificarStatus mapeia o relato do usuário para um status negativo.
