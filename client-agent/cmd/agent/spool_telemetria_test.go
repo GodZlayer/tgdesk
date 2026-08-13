@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestSpoolSobreviveSemConexao(t *testing.T) {
@@ -20,6 +21,26 @@ func TestSpoolSobreviveSemConexao(t *testing.T) {
 	}
 	if !strings.Contains(s.Estado(), "arquivo") {
 		t.Fatalf("estado inesperado: %s", s.Estado())
+	}
+}
+
+func TestJanelaCurtaParaEntregaRapida(t *testing.T) {
+	// O arquivo aberto não pode ser entregue, então a JANELA é o atraso
+	// máximo de uma máquina online. Com rotação horária, a primeira amostra
+	// esperava até 60 min — o oposto de "transferir quando a internet está
+	// funcionando".
+	a := janelaDeArquivo(time.Date(2026, 1, 1, 10, 3, 0, 0, time.UTC))
+	b := janelaDeArquivo(time.Date(2026, 1, 1, 10, 7, 0, 0, time.UTC))
+	if a == b {
+		t.Fatal("janela longa demais: o dado demora a sair do disco")
+	}
+	if janelaDeArquivo(time.Date(2026, 1, 1, 10, 1, 0, 0, time.UTC)) != a {
+		t.Fatal("a janela precisa agrupar: um arquivo por amostra seria custo de inode puro")
+	}
+	// Ordem alfabética tem que ser ordem cronológica, senão a poda apaga o
+	// arquivo errado.
+	if !(a < b) {
+		t.Fatal("nome de janela não é ordenável cronologicamente")
 	}
 }
 

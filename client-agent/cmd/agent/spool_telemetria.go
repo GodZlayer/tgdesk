@@ -25,9 +25,15 @@ import (
 //
 // Três decisões que definem o custo, e o custo é o requisito:
 //
-//  1. ARQUIVO POR HORA, append-only. Escrever é seek para o fim e uma linha;
-//     não há leitura, índice, nem reescrita. Rotacionar por hora dá granulidade
-//     de expurgo sem precisar varrer conteúdo.
+//  1. ARQUIVO POR JANELA DE 5 MIN, append-only. Escrever é seek para o fim e
+//     uma linha; não há leitura, índice, nem reescrita.
+//
+//     A janela é curta por um motivo que custou uma versão para aparecer: o
+//     arquivo ABERTO não pode ser entregue (leríamos linha pela metade e o
+//     apagaríamos enquanto ainda escrevemos nele). Com rotação horária, uma
+//     máquina online esperava até 60 min para entregar a primeira amostra — o
+//     oposto de "transferir quando a internet está funcionando". Com 5 min, o
+//     atraso máximo é 5 min, e continua sem contabilidade de offset.
 //  2. TETO EM DISCO. Acima do limite, o arquivo MAIS ANTIGO é apagado. O agente
 //     nunca é o motivo de um disco encher — que seria o cúmulo, num produto que
 //     diagnostica disco cheio.
@@ -97,8 +103,16 @@ func (s *spoolTelemetria) Gravar(tipo string, dados any) {
 	s.podarLocked()
 }
 
+// janelaDeArquivo devolve o nome do arquivo da janela corrente.
+//
+// Truncar para múltiplos de 5 min mantém o nome ordenável alfabeticamente, que
+// é o que faz `sort.Strings` ser ordem cronológica sem parsear data.
+func janelaDeArquivo(t time.Time) string {
+	return t.UTC().Truncate(5 * time.Minute).Format("2006-01-02T15-04")
+}
+
 func (s *spoolTelemetria) abrirDaHoraLocked() error {
-	hora := time.Now().UTC().Format("2006-01-02T15")
+	hora := janelaDeArquivo(time.Now())
 	if s.arquivo != nil && s.horaAtual == hora {
 		return nil
 	}
@@ -166,9 +180,9 @@ func (s *spoolTelemetria) LotePendente() (lote []amostraLocal, origem string, co
 
 	arquivos, _ := s.listarLocked()
 	for _, caminho := range arquivos {
-		// O arquivo da hora corrente ainda está aberto para escrita. Entregar
-		// dele agora arriscaria ler uma linha pela metade — ele espera a
-		// virada da hora, que é no máximo 60 min.
+		// O arquivo da janela corrente ainda está aberto para escrita. Entregar
+		// dele agora arriscaria ler linha pela metade E apagá-lo enquanto
+		// ainda escrevemos. Ele espera a virada da janela: 5 min, no máximo.
 		if s.arquivo != nil && caminho == filepath.Join(s.dir, s.horaAtual+".jsonl") {
 			continue
 		}
