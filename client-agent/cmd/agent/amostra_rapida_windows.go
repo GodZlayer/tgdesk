@@ -29,6 +29,10 @@ var (
 	kernel32Rapido         = syscall.NewLazyDLL("kernel32.dll")
 	procGetSystemTimes     = kernel32Rapido.NewProc("GetSystemTimes")
 	procGlobalMemoryStatus = kernel32Rapido.NewProc("GlobalMemoryStatusEx")
+	procGetDiskFreeSpaceEx = kernel32Rapido.NewProc("GetDiskFreeSpaceExW")
+	procGetTickCount64     = kernel32Rapido.NewProc("GetTickCount64")
+	psapiRapido            = syscall.NewLazyDLL("psapi.dll")
+	procGetPerformanceInfo = psapiRapido.NewProc("GetPerformanceInfo")
 )
 
 type filetimeRapido struct {
@@ -95,5 +99,103 @@ func amostrarRapido() amostraDeContexto {
 		a.RAM = float64(mem.memoryLoad)
 	}
 
+	return a
+}
+
+// AmostraBarata é o retrato contínuo da máquina, feito só com syscall.
+//
+// É o coração do requisito de custo: a coleta que roda o tempo todo NÃO pode
+// usar PowerShell nem CIM. Medido nesta máquina, o script de hardware leva de
+// 9 a 13 s e chegou a travar o laço de controle; isto aqui leva microssegundos
+// e pode rodar a cada segundo sem aparecer no gerenciador de tarefas.
+//
+// O que ela NÃO traz — modelo de disco, SMART, temperatura, inventário — segue
+// vindo da coleta cara, com intervalo largo. A divisão é essa: o que muda a
+// toda hora é barato; o que quase não muda pode custar caro de vez em quando.
+type AmostraBarata struct {
+	Em            time.Time          `json:"em"`
+	CPUPct        float64            `json:"cpu_pct"`
+	MemPct        float64            `json:"mem_pct"`
+	MemDispMB     uint64             `json:"mem_disponivel_mb"`
+	CommitPct     float64            `json:"commit_pct"`
+	Processos     uint32             `json:"processos"`
+	Threads       uint32             `json:"threads"`
+	Handles       uint32             `json:"handles"`
+	UptimeS       uint64             `json:"uptime_s"`
+	DiscoLivrePct map[string]float64 `json:"disco_livre_pct,omitempty"`
+}
+
+type performanceInformation struct {
+	cb                uint32
+	commitTotal       uintptr
+	commitLimit       uintptr
+	commitPeak        uintptr
+	physicalTotal     uintptr
+	physicalAvailable uintptr
+	systemCache       uintptr
+	kernelTotal       uintptr
+	kernelPaged       uintptr
+	kernelNonpaged    uintptr
+	pageSize          uintptr
+	handleCount       uint32
+	processCount      uint32
+	threadCount       uint32
+}
+
+// ColetarBarato monta o retrato contínuo.
+//
+// Cada campo aqui existe porque alguma causa da taxonomia o consome:
+// commit e memória disponível separam "memória insuficiente" de "memória
+// ocupada"; handles e threads detectam vazamento, que hoje é lacuna declarada;
+// espaço livre separa "disco cheio" de "disco lento"; uptime distingue
+// desligamento inesperado de reinício planejado.
+func ColetarBarato() AmostraBarata {
+	a := AmostraBarata{Em: time.Now().UTC()}
+
+	base := amostrarRapido()
+	a.CPUPct = base.CPU
+	a.MemPct = base.RAM
+
+	var pi performanceInformation
+	pi.cb = uint32(unsafe.Sizeof(pi))
+	if r, _, _ := procGetPerformanceInfo.Call(uintptr(unsafe.Pointer(&pi)), uintptr(pi.cb)); r != 0 {
+		a.Processos, a.Threads, a.Handles = pi.processCount, pi.threadCount, pi.handleCount
+		if pi.pageSize > 0 {
+			a.MemDispMB = uint64(pi.physicalAvailable) * uint64(pi.pageSize) / (1024 * 1024)
+			if pi.commitLimit > 0 {
+				a.CommitPct = float64(pi.commitTotal) / float64(pi.commitLimit) * 100
+			}
+		}
+	}
+
+	if r, _, _ := procGetTickCount64.Call(); r != 0 {
+		a.UptimeS = uint64(r) / 1000
+	}
+
+	// Espaço livre por volume fixo. `GetLogicalDrives` devolve um bitmask das
+	// letras existentes — enumerar assim custa nada perto de consultar CIM.
+	if letras, _, _ := kernel32Rapido.NewProc("GetLogicalDrives").Call(); letras != 0 {
+		a.DiscoLivrePct = map[string]float64{}
+		for i := 0; i < 26; i++ {
+			if letras&(1<<uint(i)) == 0 {
+				continue
+			}
+			raiz := string(rune('A'+i)) + `:\`
+			ptr, err := syscall.UTF16PtrFromString(raiz)
+			if err != nil {
+				continue
+			}
+			var livre, total, totalLivre uint64
+			r, _, _ := procGetDiskFreeSpaceEx.Call(
+				uintptr(unsafe.Pointer(ptr)),
+				uintptr(unsafe.Pointer(&livre)),
+				uintptr(unsafe.Pointer(&total)),
+				uintptr(unsafe.Pointer(&totalLivre)),
+			)
+			if r != 0 && total > 0 {
+				a.DiscoLivrePct[string(rune('A'+i))] = float64(totalLivre) / float64(total) * 100
+			}
+		}
+	}
 	return a
 }

@@ -194,6 +194,18 @@ func runDeviceControlLoop(cfg *agentConfig, remoteReady bool) error {
 	// Canal com folga de 1: a coleta entrega e segue, sem esperar o laço.
 	telemetriaPronta := make(chan HardwareSnapshot, 1)
 	coletando := false
+
+	// Telemetria local: coleta barata e frequente, entrega oportunista.
+	//
+	// A coleta NÃO depende do canal — é isso que faz a máquina sem internet
+	// continuar medindo, e é ela que costuma estar com problema. O dreno é que
+	// depende, e ele só descarta depois do aceite do servidor.
+	spool := novoSpool(tgdeskDataDir())
+	defer spool.Fechar()
+	coletaBarataTick := time.NewTicker(10 * time.Second)
+	defer coletaBarataTick.Stop()
+	drenoTick := time.NewTicker(20 * time.Second)
+	defer drenoTick.Stop()
 	defer heartbeatTick.Stop()
 	defer telemetryTick.Stop()
 	defer remoteRetryTick.Stop()
@@ -329,6 +341,24 @@ func runDeviceControlLoop(cfg *agentConfig, remoteReady bool) error {
 			}); err != nil {
 				return err
 			}
+		case <-coletaBarataTick.C:
+			// ~100 µs por amostra, só syscall. Roda mesmo sem canal.
+			spool.Gravar("amostra", ColetarBarato())
+
+		case <-drenoTick.C:
+			// Entrega o que ficou para trás. Um lote por vez: se a conexão
+			// cair no meio, o arquivo continua lá e a próxima passagem
+			// recomeça dele — reenvio custa banda, perda custa diagnóstico.
+			if lote, origem, completo := spool.LotePendente(); len(lote) > 0 {
+				if err := conn.WriteJSON(deviceControlMessage{
+					Type:    "telemetria_local",
+					Payload: map[string]any{"amostras": lote, "completo": completo},
+				}); err != nil {
+					return err
+				}
+				spool.ConfirmarEntrega(origem)
+			}
+
 		case <-autotesteCanal.C:
 			// Marcado como autoteste: o servidor carimba que o canal está de pé
 			// e NUNCA cria evento de trava com esta mensagem.

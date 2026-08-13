@@ -179,6 +179,12 @@ func (s *Server) DeviceControlWS(w http.ResponseWriter, r *http.Request) {
 			// BURACO entre batidas, que é raro e é o dado que interessa.
 			stall.tick()
 
+		case "telemetria_local":
+			// Lote drenado do spool do agente. Chega com o carimbo da COLETA,
+			// que é o que vale — a hora de chegada descreveria um dia offline
+			// inteiro como se tivesse acontecido no instante da reconexão.
+			s.ReceberTelemetriaLocal(r.Context(), deviceID, msg.Payload)
+
 		case "stall_context":
 			// Despejo do ring buffer do agente, DEPOIS do evento. É contexto,
 			// nunca relógio: quem diz quanto durou continua sendo o servidor.
