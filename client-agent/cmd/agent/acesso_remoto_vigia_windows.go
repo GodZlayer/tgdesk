@@ -55,24 +55,39 @@ type linhaTCP struct {
 // socket prova que o servidor aceita conexão, não que a NOSSA conexão está de
 // pé. São perguntas diferentes, e a segunda é a que importa para "estou
 // registrado?".
+// Devolve também a PORTA LOCAL, e isso não é detalhe: presença de conexão não
+// prova estabilidade.
+//
+// Foi o erro da primeira versão deste vigia. Ele perguntava "existe conexão
+// agora?" — e existia, a cada instante. Só que era sempre uma conexão NOVA: a
+// porta local ia de 59254 para 58612 entre duas amostras. O ciclo de
+// reconexão passava despercebido justamente porque era rápido demais para
+// deixar buraco.
+//
+// A identidade da conexão é a porta local. Se ela muda, houve reconexão.
 func ConexaoEstabelecidaCom(host string, porta uint16) (bool, error) {
+	viva, _, err := ConexaoComPortaLocal(host, porta)
+	return viva, err
+}
+
+func ConexaoComPortaLocal(host string, porta uint16) (bool, uint16, error) {
 	ip := net.ParseIP(host)
 	if ip == nil {
 		enderecos, err := net.LookupIP(host)
 		if err != nil || len(enderecos) == 0 {
-			return false, err
+			return false, 0, err
 		}
 		ip = enderecos[0]
 	}
 	v4 := ip.To4()
 	if v4 == nil {
-		return false, nil
+		return false, 0, nil
 	}
 	alvoIP := binary.LittleEndian.Uint32(v4)
 
 	linhas, err := tabelaTCP()
 	if err != nil {
-		return false, err
+		return false, 0, err
 	}
 	for _, l := range linhas {
 		if l.estado != tcpEstabelecido {
@@ -80,10 +95,10 @@ func ConexaoEstabelecidaCom(host string, porta uint16) (bool, error) {
 		}
 		// A porta vem em ordem de rede nos dois bytes baixos.
 		if l.ipRemoto == alvoIP && portaDaTabela(l.portaRemota) == porta {
-			return true, nil
+			return true, portaDaTabela(l.portaLocal), nil
 		}
 	}
-	return false, nil
+	return false, 0, nil
 }
 
 func portaDaTabela(bruto uint32) uint16 {

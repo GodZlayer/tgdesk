@@ -63,3 +63,47 @@ func TestVigiaNaoInventaConexao(t *testing.T) {
 		t.Fatal("o vigia viu conexão onde não há: continuaria prometendo acesso inexistente")
 	}
 }
+
+// A primeira versao do vigia checava PRESENCA de conexao. Isso nao detecta o
+// defeito real: no parque havia sempre uma conexao estabelecida, mas era
+// sempre uma NOVA — a porta local ia de 59254 para 58612 entre amostras.
+//
+// Reconectar sem parar equivale a nao estar registrado, do ponto de vista de
+// quem tenta acessar. Por isso o vigia precisa devolver a IDENTIDADE da
+// conexao, nao apenas se ela existe.
+func TestVigiaDevolveIdentidadeDaConexao(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("a tabela TCP é lida por API do Windows")
+	}
+	ouvinte, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("ouvinte: %v", err)
+	}
+	defer ouvinte.Close()
+	go func() {
+		if c, err := ouvinte.Accept(); err == nil {
+			time.Sleep(2 * time.Second)
+			c.Close()
+		}
+	}()
+
+	porta := uint16(ouvinte.Addr().(*net.TCPAddr).Port)
+	conexao, err := net.Dial("tcp", ouvinte.Addr().String())
+	if err != nil {
+		t.Fatalf("conectar: %v", err)
+	}
+	defer conexao.Close()
+
+	viva, portaLocal, err := ConexaoComPortaLocal("127.0.0.1", porta)
+	if err != nil || !viva {
+		t.Fatalf("conexão real não foi vista (err=%v)", err)
+	}
+	if portaLocal == 0 {
+		t.Fatal("sem a porta local não há como saber se a conexão é a mesma de antes — " +
+			"e é a troca de porta que denuncia o ciclo de reconexão")
+	}
+	esperada := uint16(conexao.LocalAddr().(*net.TCPAddr).Port)
+	if portaLocal != esperada {
+		t.Fatalf("porta local errada: %d, esperada %d", portaLocal, esperada)
+	}
+}

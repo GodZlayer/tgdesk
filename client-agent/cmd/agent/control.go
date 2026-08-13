@@ -197,6 +197,9 @@ func runDeviceControlLoop(cfg *agentConfig, remoteReady bool) error {
 	// Falhas seguidas na verificação de registro. Uma reconexão isolada é
 	// normal; o contador existe para não reconfigurar por oscilação de rede.
 	falhasDeRegistro := 0
+	// Identidade da última conexão vista com o rendezvous. Porta que muda
+	// entre duas verificações significa reconexão.
+	var ultimaPortaRendezvous uint16
 
 	// Telemetria local: coleta barata e frequente, entrega oportunista.
 	//
@@ -406,15 +409,31 @@ func runDeviceControlLoop(cfg *agentConfig, remoteReady bool) error {
 			// Agora, enquanto o programa estiver ativo, o acesso remoto é
 			// conferido e reparado. É essa a garantia.
 			if remoteReady && cfg.RendezvousHost != "" {
-				viva, err := ConexaoEstabelecidaCom(cfg.RendezvousHost, 21116)
-				if err == nil && !viva {
+				viva, portaLocal, err := ConexaoComPortaLocal(cfg.RendezvousHost, 21116)
+				// INSTABILIDADE, não ausência.
+				//
+				// A primeira versão perguntava "existe conexão agora?" — e
+				// existia, a cada instante. Só que era sempre uma conexão NOVA:
+				// a porta local ia de 59254 para 58612 entre duas amostras. O
+				// ciclo de reconexão passava despercebido por ser rápido demais
+				// para deixar buraco.
+				//
+				// A porta local é a identidade da conexão. Se ela muda, houve
+				// reconexão — e reconectar sem parar é o mesmo que não estar
+				// registrado, do ponto de vista de quem tenta acessar.
+				reconectou := viva && ultimaPortaRendezvous != 0 && portaLocal != ultimaPortaRendezvous
+				if viva {
+					ultimaPortaRendezvous = portaLocal
+				}
+				if err == nil && (!viva || reconectou) {
 					falhasDeRegistro++
 					if falhasDeRegistro >= falhasAteReparar {
 						// Deixou de estar registrado. Dizer a verdade primeiro
 						// — a tela precisa parar de prometer acesso que não
 						// existe — e só então tentar consertar.
 						remoteReady = false
-						remoteError = "registro no rendezvous caiu; refazendo a configuração"
+						remoteError = "registro no rendezvous instável (reconexão em ciclo); refazendo a configuração"
+						ultimaPortaRendezvous = 0
 						falhasDeRegistro = 0
 						writeCurrentStatus()
 						_ = sendHeartbeat()
