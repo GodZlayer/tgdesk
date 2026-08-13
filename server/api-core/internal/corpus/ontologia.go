@@ -265,18 +265,19 @@ var CausasDeclaradas = map[string][]string{
 	// Engasgo: alguma coisa toma o recurso por segundos e devolve. A peça está
 	// sã; o que está errado é a disputa.
 	"lentidao_intermitente": {
-		"software_conflitante",      // varredura, indexação, atualização em segundo plano
-		"recurso_saturado",          // pico legítimo de uso, sem folga para o resto
+		"processo_em_segundo_plano", // varredura, indexação, atualização
+		"software_conflitante",      // programa que interfere no sistema
 		"refrigeracao_insuficiente", // throttle térmico curto, que passa ao esfriar
 		"driver_incompativel",       // driver que trava o pipeline por instantes
 	},
 	// Degradação sustentada: entra num estado ruim e fica. Aqui a peça costuma
 	// estar no limite ou falhando, e controlar processo não resolve.
 	"lentidao_profunda": {
-		"disco_degradado",      // I/O com retry, latência alta sustentada
-		"recurso_saturado",     // RAM insuficiente para a carga, com paginação
-		"memoria_instavel",     // erro de memória forçando recuperação constante
-		"software_conflitante", // programa pesado que não devolve o recurso
+		"disco_lento",          // latência alta com SMART saudável — trocar por melhor
+		"disco_cheio",          // sem folga para paginação e temporários — limpar
+		"disco_degradado",      // I/O com retry — backup urgente e trocar
+		"memoria_insuficiente", // uso no teto com paginação — mais RAM
+		"cpu_insuficiente",     // uso sustentado sem pico isolado
 	},
 }
 
