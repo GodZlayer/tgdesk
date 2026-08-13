@@ -114,6 +114,34 @@ Legenda: `[ ]` não iniciado · `[~]` em curso · `[x]` concluído e verificado 
 Ordem cronológica inversa (mais recente no topo). Cada entrada diz **o que
 mudou**, **em quais arquivos** e **o que ficou faltando**.
 
+### 2026-08-12 — correção do usuário: um container por projeto
+
+O `brain` chegou a subir como serviço separado, seguindo §3 ao pé da letra.
+**Correção recebida: um container por projeto.** A rede foi movida para dentro
+do `api-core`, em `internal/diagnostico`, e o serviço saiu do compose.
+
+O que a mudança tirou, e nenhum item é perda:
+
+| Antes | Agora |
+| --- | --- |
+| serviço `brain` no compose, FastAPI + uvicorn | pacote Go em processo |
+| `POST /infer` por HTTP interno | chamada de função; mesmo contrato |
+| volume `tgdesk_model_data` para pesos | `model_version.pesos` no Postgres (0079) |
+| PyTorch/numpy | MLP em Go — mesma matemática |
+| dois runtimes, dois deploys, dois pontos de falha | um |
+
+A fronteira dura de §3 **ficou mais forte**, não mais fraca: o motor perdeu o
+endereço próprio. Não tem rota, não abre canal, não conhece RBAC. Deixou de ser
+serviço alcançável e virou função chamada.
+
+Ganho colateral que não estava no plano: o backup do banco passou a levar o
+cérebro junto. Restaurar um dump restaura o modelo com o dado, em vez de exigir
+que um volume à parte esteja no mesmo ponto do tempo.
+
+Verificado em produção: `cmd/treinar` treina de dentro do container, e o CHECK
+da 0078 **recusou de verdade** um `UPDATE ... SET estado='promovido'` sobre o
+modelo simulado. A trava é do banco, não da disciplina de quem escreve código.
+
 ### 2026-08-12 — O PIPELINE ENTRA EM PRODUÇÃO (e a rede treina)
 
 A descoberta que reordenou tudo: **produção estava na migration 0071**. As
