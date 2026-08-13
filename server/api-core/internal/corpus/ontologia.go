@@ -133,6 +133,11 @@ var descricaoDeStatus = map[string]string{
 // deles seria exatamente o "chute vira rótulo de treino" que a arquitetura
 // proíbe (§0 do roadmap).
 var classeParaCausa = map[string]string{
+	// A classe do corpus é grossa e não separa as condutas — no fórum "disco"
+	// cobre cheio, lento e falhando. Mapeia-se para a causa que o corpus
+	// realmente descreve na maioria dos casos (thread de fórum resolvida quase
+	// sempre termina em defeito, não em faxina), e as causas finas entram por
+	// declaração em `CausasDeclaradas`, com o discriminador que as separa.
 	"disco":      "disco_degradado",
 	"memoria":    "memoria_instavel",
 	"termico":    "refrigeracao_insuficiente",
@@ -140,21 +145,105 @@ var classeParaCausa = map[string]string{
 	"driver":     "driver_incompativel",
 	"software":   "software_conflitante",
 	"rede":       "rede_instavel",
-	"desempenho": "recurso_saturado",
+	"desempenho": "cpu_insuficiente",
 }
 
 // Descrição de cada causa em nível técnico e em nível cliente (§12.2 exige os
 // dois; o cliente lê uma frase, o técnico lê a curva).
+// Descrição de cada causa em nível técnico e em nível cliente (§12.2 exige os
+// dois; o cliente lê uma frase, o técnico lê a curva).
+//
+// O CRITÉRIO DE EXISTÊNCIA DE UMA CAUSA É A CONDUTA QUE ELA GERA.
+//
+// A primeira versão tinha `recurso_saturado` engolindo "RAM cheia" e "CPU
+// sobrecarregada", e `disco_degradado` engolindo "cheio", "lento" e "falhando".
+// Cinco condutas opostas em duas causas — limpar, trocar por melhor, trocar
+// urgente com backup, comprar RAM, achar um processo. Um softmax sobre causas
+// grossas produz uma probabilidade que não diz o que fazer, e uma probabilidade
+// que não diz o que fazer não vale nada para quem atende.
+//
+// Então causa se divide sempre que a AÇÃO se divide, e nunca só porque o nome
+// soa diferente.
 var descricaoDeCausa = map[string][2]string{
-	"disco_degradado":           {"Disco degradado — superfície, controladora ou interface falhando.", "O disco (onde ficam seus arquivos) está falhando."},
-	"memoria_instavel":          {"Memória instável — erro de leitura/escrita em RAM sob carga.", "A memória do computador está com defeito."},
-	"refrigeracao_insuficiente": {"Refrigeração insuficiente — dissipação abaixo do necessário para a carga.", "O computador está esquentando demais."},
-	"alimentacao_instavel":      {"Alimentação instável — fonte, bateria ou rede elétrica fora da faixa.", "A energia que chega ao computador está oscilando."},
-	"driver_incompativel":       {"Driver incompatível ou defeituoso para o hardware presente.", "Um programa de controle de peça está com defeito."},
-	"software_conflitante":      {"Software conflitante — programa ou serviço interferindo no sistema.", "Um programa instalado está atrapalhando o sistema."},
-	"rede_instavel":             {"Rede instável — perda, latência ou saturação do enlace.", "A conexão de rede está instável."},
-	"recurso_saturado":          {"Recurso saturado — CPU, RAM ou I/O em uso pleno de forma sustentada.", "O computador está sem folga para o que você usa."},
+	// --- disco: três causas, três condutas -------------------------------
+	"disco_cheio": {
+		"Disco sem espaço livre — o sistema não tem folga para paginação, cache e temporários.",
+		"O disco está quase cheio, e isso deixa tudo mais devagar.",
+	},
+	"disco_lento": {
+		"Disco funcional porém lento — latência de I/O alta com SMART saudável.",
+		"O disco funciona, mas é lento para o que você faz.",
+	},
+	"disco_degradado": {
+		"Disco degradado — superfície, controladora ou interface falhando.",
+		"O disco (onde ficam seus arquivos) está falhando.",
+	},
+
+	// --- memória: falta é diferente de defeito ---------------------------
+	"memoria_insuficiente": {
+		"Memória insuficiente para a carga — uso sustentado no teto, com paginação.",
+		"O computador tem menos memória do que precisa para o que você usa.",
+	},
+	"memoria_instavel": {
+		"Memória instável — erro de leitura/escrita em RAM sob carga.",
+		"A memória do computador está com defeito.",
+	},
+
+	// --- processamento: falta de capacidade é diferente de disputa -------
+	"cpu_insuficiente": {
+		"Processador insuficiente para a carga — uso sustentado no teto sem pico isolado.",
+		"O processador não dá conta do que você usa.",
+	},
+	"processo_em_segundo_plano": {
+		"Processo ou serviço em segundo plano consumindo recurso — varredura, indexação, atualização.",
+		"Um programa trabalhando escondido está consumindo o computador.",
+	},
+	"software_conflitante": {
+		"Software conflitante — programa ou serviço interferindo no funcionamento do sistema.",
+		"Um programa instalado está atrapalhando o sistema.",
+	},
+
+	// --- o resto, que já era específico o bastante -----------------------
+	"refrigeracao_insuficiente": {
+		"Refrigeração insuficiente — dissipação abaixo do necessário para a carga.",
+		"O computador está esquentando demais.",
+	},
+	"alimentacao_instavel": {
+		"Alimentação instável — fonte, bateria ou rede elétrica fora da faixa.",
+		"A energia que chega ao computador está oscilando.",
+	},
+	"driver_incompativel": {
+		"Driver incompatível ou defeituoso para o hardware presente.",
+		"Um programa de controle de peça está com defeito.",
+	},
+	"rede_instavel": {
+		"Rede instável — perda, latência ou saturação do enlace.",
+		"A conexão de rede está instável.",
+	},
 }
+
+// AcaoDaCausa é o que fazer. Existe separado da descrição porque é O MOTIVO de
+// a causa existir: se duas causas têm a mesma ação, elas são a mesma causa.
+//
+// Também é o que a tela mostra em "ação recomendada" (§10.5.2, campo 7) — e o
+// que torna possível checar, no futuro, se a ação tomada bateu com a sugerida.
+var acaoDaCausa = map[string]string{
+	"disco_cheio":               "liberar espaço; abaixo de 10% livre o sistema não tem folga para trabalhar",
+	"disco_lento":               "substituir por um disco mais rápido (SSD/NVMe); o atual não está com defeito",
+	"disco_degradado":           "fazer backup imediato e substituir o disco",
+	"memoria_insuficiente":      "aumentar a memória, ou reduzir o que roda simultaneamente",
+	"memoria_instavel":          "testar os pentes e substituir o defeituoso",
+	"cpu_insuficiente":          "reduzir a carga, ou trocar o equipamento para o uso pretendido",
+	"processo_em_segundo_plano": "identificar o processo e controlar horário ou remoção",
+	"software_conflitante":      "remover ou reconfigurar o programa que interfere",
+	"refrigeracao_insuficiente": "limpar e revisar a refrigeração",
+	"alimentacao_instavel":      "verificar fonte, bateria e rede elétrica",
+	"driver_incompativel":       "atualizar ou reverter o driver",
+	"rede_instavel":             "verificar enlace, cabo e saturação",
+}
+
+// AcaoDaCausa devolve a conduta recomendada.
+func AcaoDaCausa(causa string) string { return acaoDaCausa[causa] }
 
 // CausasDeclaradas cobre os status que o corpus NÃO consegue popular.
 //
