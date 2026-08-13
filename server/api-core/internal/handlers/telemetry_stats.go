@@ -26,6 +26,15 @@ type hardwareSample struct {
 		Total uint64   `json:"total_bytes"`
 		Usage *float64 `json:"usage"`
 	} `json:"memory_summary"`
+	// Atividade do disco: ocupação e latência. Chega desde a 1.2.53 e é a
+	// medida que separa "disco cheio" de "disco lento" — as duas produzem
+	// condutas opostas, limpar contra trocar.
+	DiskActivity *struct {
+		BusyPct     *float64 `json:"busy_pct"`
+		LatencyMs   *float64 `json:"latency_ms"`
+		QueueLength *float64 `json:"queue_length"`
+		Samples     int      `json:"samples"`
+	} `json:"disk_activity"`
 	Memory []struct {
 		ID   string `json:"id"`
 		Used uint64 `json:"used_bytes"`

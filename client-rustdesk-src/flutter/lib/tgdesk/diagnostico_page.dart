@@ -309,6 +309,10 @@ String _medidaEmPortugues(String codigo) {
       return 'tempo de disco ocupado e latência de leitura/escrita — '
           'hoje medimos só a OCUPAÇÃO do disco, que é quanto está cheio, '
           'não quanto ele demora para responder';
+    case 'historico_de_episodios':
+      return 'histórico de episódios de disco — a medida já está sendo '
+          'coletada desde agora; ela precisa de alguns dias acumulados para '
+          'mostrar se a lentidão vem em episódios';
     case 'historico_de_pressao':
       return 'histórico de pressão de recursos (ainda não há amostras suficientes)';
     case 'duracao_do_episodio':

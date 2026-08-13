@@ -69,6 +69,29 @@ func (s *Server) rollTelemetry(ctx context.Context, deviceID string, h hardwareS
 	if temDisco {
 		roll(catStorage, &maiorUso)
 	}
+
+	// ATIVIDADE do disco, acumulada no histograma pelo mesmo caminho de CPU e
+	// memória.
+	//
+	// Por que acumular e não só olhar o instantâneo: a máquina do parque com a
+	// lentidão mais severa mediu 2,5 ms de latência no momento em que a medida
+	// entrou no ar — ou seja, saudável naquele segundo. A lentidão dela é
+	// EPISÓDICA, e episódio não aparece em amostra isolada; aparece na
+	// contagem de quantas amostras passaram do limiar, que é exatamente o que
+	// `acima_75/85/95` guarda.
+	//
+	// É a mesma lição da forma do episódio, aplicada uma camada abaixo: o que
+	// diagnostica não é o valor, é a distribuição dele no tempo.
+	if da := h.DiskActivity; da != nil {
+		roll("disk_busy", da.BusyPct)
+		// Latência só entra quando houve transferência. Sem operação na janela
+		// não há latência para medir, e gravar zero contaminaria a média com
+		// "instantâneo" toda vez que a máquina estivesse parada — enviesando o
+		// histograma exatamente no sentido de esconder o problema.
+		if da.Samples > 0 {
+			roll("disk_latency_ms", da.LatencyMs)
+		}
+	}
 }
 
 // readHealthLevel devolve o nível já persistido, sem reavaliar nada.

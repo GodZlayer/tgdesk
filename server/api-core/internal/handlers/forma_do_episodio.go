@@ -95,6 +95,37 @@ func (s *Server) formaDaLentidao(ctx context.Context, deviceID string) FormaDoEp
 
 	cpu := porMetrica["processing"]
 	mem := porMetrica["memory"]
+	latencia := porMetrica["disk_latency_ms"]
+	discoOcupado := porMetrica["disk_busy"]
+
+	// 0. O disco primeiro, e antes de CPU e memória.
+	//
+	// A ordem não é arbitrária. A máquina do parque com a lentidão mais severa
+	// tinha CPU e memória tranquilas — se o disco fosse avaliado por último,
+	// ela cairia em "não caracterizada" mesmo com a latência gritando. Quem
+	// tem a medida direta do gargalo decide antes de quem tem indício.
+	//
+	// `acima_75` sobre latência conta amostras acima de 75 na ESCALA DA
+	// MÉTRICA, que aqui é milissegundo: são as amostras em que uma operação
+	// levou mais de 75 ms. Isso é episódio, não pico instantâneo.
+	if latencia.amostras >= 30 {
+		fracaoLenta := float64(latencia.acima85) / float64(latencia.amostras)
+		if fracaoLenta > 0 || latencia.media >= 20 {
+			return FormaDoEpisodio{
+				Status: "lentidao_profunda",
+				Evidencia: fmt.Sprintf(
+					"disco com latência média de %.1f ms na janela, e %d amostras acima de 85 ms (de %d)",
+					latencia.media, latencia.acima85, latencia.amostras),
+			}
+		}
+	}
+	if discoOcupado.amostras >= 30 && discoOcupado.media >= 70 {
+		return FormaDoEpisodio{
+			Status: "lentidao_profunda",
+			Evidencia: fmt.Sprintf("disco ocupado %.0f%% do tempo, em média, na janela",
+				discoOcupado.media),
+		}
+	}
 
 	// 1. Engasgo: muita amostra em pico, mas média baixa. O recurso é tomado e
 	//    devolvido — é a assinatura de disputa, não de esgotamento.
@@ -131,9 +162,17 @@ func (s *Server) formaDaLentidao(ctx context.Context, deviceID string) FormaDoEp
 	//    profunda é o disco OCUPADO e a latência de I/O — e a métrica
 	//    `storage` que coletamos é OCUPAÇÃO, não atividade. Disco cheio e
 	//    disco lento são coisas diferentes, e hoje só medimos o primeiro.
+	// Se a latência JÁ está sendo medida e está normal, a lacuna deixa de ser
+	// "não medimos" e passa a ser "não sabemos ainda" — que é outra coisa, e a
+	// tela precisa dizer a certa. Confundir as duas faria o técnico procurar um
+	// sinal que já existe.
+	falta := "tempo_de_disco_ocupado_e_latencia_io"
+	if latencia.amostras > 0 || discoOcupado.amostras > 0 {
+		falta = "historico_de_episodios"
+	}
 	return FormaDoEpisodio{
 		Status:         "lentidao_nao_caracterizada",
-		MedidaQueFalta: "tempo_de_disco_ocupado_e_latencia_io",
+		MedidaQueFalta: falta,
 		Evidencia: fmt.Sprintf(
 			"CPU e memória dentro do normal na janela (CPU média %.0f%%, pico em %.2f%% das amostras)",
 			cpu.media, fracaoSegura(cpu.acima95, cpu.amostras)*100),
