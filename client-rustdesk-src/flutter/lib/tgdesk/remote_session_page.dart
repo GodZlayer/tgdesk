@@ -18,7 +18,7 @@ import 'package:bot_toast/bot_toast.dart';
 import 'package:get/get.dart';
 import 'package:flex_color_picker/flex_color_picker.dart';
 
-import 'diagnostics_dialog.dart';
+import 'diagnostico_page.dart';
 import 'theme.dart';
 import 'window_frame.dart';
 
@@ -888,15 +888,13 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage>
         icon: const Icon(Icons.build_circle_outlined, size: 20),
         onSelected: (value) {
           if (value == 'diagnostics') {
-            showDialog<void>(
-              context: context,
-              barrierDismissible: false,
-              builder: (_) => DiagnosticDialog(
+            // Ação única (§10.1): abre o dossiê, não um menu de testes.
+            Navigator.of(context).push(MaterialPageRoute<void>(
+              builder: (_) => DiagnosticoPage(
                 deviceId: widget.deviceId,
                 deviceName: widget.hostname,
-                online: true,
               ),
-            );
+            ));
           }
         },
         itemBuilder: (_) => [

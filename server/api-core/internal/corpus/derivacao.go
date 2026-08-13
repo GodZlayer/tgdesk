@@ -30,7 +30,7 @@ var vocabularioDeSinais = map[string][]string{
 	"smart_pending":       {"pending sector", "current pending", "setor pendente"},
 	"smart_geral":         {"smart status", "smart attribute", "crystaldiskinfo", "smartctl", "smart data"},
 	"erro_io_log":         {"bad block", "disk error", "event id 51", "event id 7", "controller error", "i/o error", "erro de leitura"},
-	"latencia_disco":      {"disk latency", "100% disk", "disk usage 100", "response time", "disco em 100"},
+	"latencia_disco":      {"disk latency", "100% disk", "disk usage 100", "response time", "disco em 100", "ms/transfer", "high disk latency", "disk busy"},
 	"erro_memoria":        {"memtest", "memory error", "erro de memória", "erro de memoria", "page fault", "memory_management"},
 	"uso_memoria":         {"out of memory", "memory usage", "committed memory", "memória cheia", "ram usage"},
 	"temperatura":         {"temperature", "overheat", "thermal throttl", "°c", " celsius", "temperatura", "hwmonitor", "core temp"},

@@ -27,6 +27,10 @@ import (
 type dossiePassivo struct {
 	StatusProvavel string
 	Evidencias     []EvidenciaDoDossie
+	// Nomeia a medida que faltou quando o dossiê não conseguiu decidir. É o
+	// "próximo teste que mais separa" de §10.5.1 — e uma lacuna nomeada vale
+	// mais que uma hipótese escolhida no chute.
+	MedidaQueFalta string
 }
 
 // evidenciasDoDispositivo traduz a telemetria em sinais do vocabulário.
@@ -71,6 +75,20 @@ func (s *Server) evidenciasDoDispositivo(ctx context.Context, deviceID string) d
 	}
 
 	d.StatusProvavel = statusProvavel(d.Evidencias)
+
+	// Lentidão não é um status, são dois — engasgo curto e degradação
+	// sustentada — e a diferença é de FORMA, não de intensidade. O sinal
+	// instantâneo não sabe disso: só o histórico tem a forma do episódio.
+	if d.StatusProvavel == "lentidao_nao_caracterizada" {
+		forma := s.formaDaLentidao(ctx, deviceID)
+		d.StatusProvavel = forma.Status
+		if forma.Evidencia != "" {
+			d.Evidencias = append(d.Evidencias, EvidenciaDoDossie{
+				Sinal: "forma_do_episodio", Literal: forma.Evidencia,
+			})
+		}
+		d.MedidaQueFalta = forma.MedidaQueFalta
+	}
 	return d
 }
 
@@ -118,6 +136,14 @@ func sinaisDoHardware(bruto []byte) []EvidenciaDoDossie {
 			UsedPct     *float64 `json:"used_pct"`
 			Temperature *float64 `json:"temperature"`
 		} `json:"cpu"`
+		// A medida que faltava para explicar lentidão profunda: ATIVIDADE do
+		// disco, não ocupação. Disco cheio e disco lento são coisas diferentes.
+		DiskActivity *struct {
+			BusyPct     *float64 `json:"busy_pct"`
+			LatencyMs   *float64 `json:"latency_ms"`
+			QueueLength *float64 `json:"queue_length"`
+			Samples     int      `json:"samples"`
+		} `json:"disk_activity"`
 	}
 	if json.Unmarshal(bruto, &hw) != nil {
 		return nil
@@ -174,6 +200,30 @@ func sinaisDoHardware(bruto []byte) []EvidenciaDoDossie {
 			Sinal: "uso_cpu", Literal: fmt.Sprintf("CPU em %.0f%% de uso", v), Valor: &v,
 		})
 	}
+	if da := hw.DiskActivity; da != nil {
+		// Latência ausente ≠ latência zero. Disco ocioso na janela não mediu
+		// nada, e o agente manda o campo ausente de propósito (§19.3).
+		if da.LatencyMs != nil && da.Samples > 0 {
+			v := *da.LatencyMs
+			// 20 ms por transferência é o ponto em que o usuário SENTE. Abaixo
+			// disso o disco não é o gargalo, por mais cheio que esteja.
+			if v >= 20 {
+				ev = append(ev, EvidenciaDoDossie{
+					Sinal:   "latencia_disco",
+					Literal: fmt.Sprintf("disco levando %.1f ms por operação (%d operações medidas)", v, da.Samples),
+					Valor:   &v,
+				})
+			}
+		}
+		if da.BusyPct != nil && *da.BusyPct >= 80 {
+			v := *da.BusyPct
+			ev = append(ev, EvidenciaDoDossie{
+				Sinal:   "latencia_disco",
+				Literal: fmt.Sprintf("disco ocupado %.0f%% do tempo", v),
+				Valor:   &v,
+			})
+		}
+	}
 	if t := hw.CPU.Temperature; t != nil && *t >= 85 {
 		v := *t
 		ev = append(ev, EvidenciaDoDossie{
@@ -199,10 +249,20 @@ func statusProvavel(evidencias []EvidenciaDoDossie) string {
 	case tem["smart_geral"] || tem["smart_desgaste"] || tem["erro_io_log"]:
 		// O sistema já acusou a peça. §7.3: se o sistema diz, não se adivinha.
 		return "erro_de_dispositivo"
+	case tem["latencia_disco"]:
+		// O disco está demorando para responder. Isso NÃO passa pela forma do
+		// episódio: latência alta sustentada é degradação profunda por
+		// definição, e é a medida que faltava para explicar a máquina do parque
+		// cuja lentidão nenhum outro sinal explicava.
+		return "lentidao_profunda"
 	case tem["temperatura"]:
 		return "superaquecimento"
 	case tem["uso_memoria"] || tem["uso_cpu"] || tem["processo_pesado"]:
-		return "lentidao_persistente"
+		// Ainda NÃO se sabe se é engasgo ou degradação: o sinal instantâneo não
+		// carrega a forma do episódio. Quem refina é `formaDaLentidao`, com o
+		// histórico. Devolver um dos dois aqui seria escolher entre condutas
+		// opostas — controlar um processo contra trocar uma peça — sem medida.
+		return "lentidao_nao_caracterizada"
 	default:
 		return ""
 	}
@@ -294,6 +354,10 @@ type DiagnosticoDoDispositivo struct {
 	Motor           string              `json:"motor"`
 	ProximosTestes  []string            `json:"proximos_testes"`
 	Evidencias      []EvidenciaDoDossie `json:"evidencias"`
+	// A medida que falta para decidir, quando falta. A tela mostra isso no
+	// lugar de uma probabilidade inventada — lacuna nomeada vale mais que
+	// hipótese escolhida no chute (§13.6).
+	MedidaQueFalta string `json:"medida_que_falta,omitempty"`
 	// A suposição da rede quando ela roda no escuro. Vai para a tela do
 	// SUPERVISOR como comparação, e para `rat_comparacao` como rótulo — nunca
 	// como veredito (§14.1).
@@ -312,7 +376,8 @@ func (s *Server) diagnosticosParaSnapshot(ctx context.Context, deviceIDs []strin
 		d := s.evidenciasDoDispositivo(ctx, id)
 		retrato := DiagnosticoDoDispositivo{
 			DeviceID: id, Status: d.StatusProvavel,
-			Evidencias: d.Evidencias, ProduzidoEm: time.Now().UTC(),
+			Evidencias: d.Evidencias, MedidaQueFalta: d.MedidaQueFalta,
+			ProduzidoEm: time.Now().UTC(),
 		}
 		if d.StatusProvavel == "" {
 			// Nada observado. Não se chama o motor para ele responder sobre

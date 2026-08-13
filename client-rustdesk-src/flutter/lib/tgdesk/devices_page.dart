@@ -8,7 +8,6 @@ import 'health_text.dart';
 import 'theme.dart';
 import 'control_channel.dart';
 import 'diagnostico_page.dart';
-import 'diagnostics_dialog.dart';
 import 'remote_session_page.dart';
 import 'ui_contract.dart';
 
@@ -1119,19 +1118,6 @@ class _DevicesPageState extends State<DevicesPage> {
                   deviceId: d['id'] as String,
                   deviceName: displayName,
                 ),
-              ),
-            ),
-          ),
-        if (d['state'] == 'ativo')
-          IconButton(
-            icon: const Icon(Icons.science_outlined, color: TgdeskColors.seed),
-            tooltip: 'Diagnóstico avançado',
-            onPressed: () => showDialog<void>(
-              context: context,
-              builder: (_) => DiagnosticDialog(
-                deviceId: d['id'] as String,
-                deviceName: displayName,
-                online: presence == 'online',
               ),
             ),
           ),

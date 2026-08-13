@@ -17,7 +17,7 @@ ON CONFLICT (codigo) DO UPDATE SET
 INSERT INTO negative_status
   (codigo, descricao, sinais, causas_candidatas, testes_discriminantes,
    limitacoes, origem_corpus, revisado_por_automacao, revisado_em)
-VALUES ('lentidao_persistente','O computador está sistematicamente mais lento do que deveria para o seu hardware.','["temperatura","tensao","processo_pesado","uso_memoria","corrupcao_arquivo","smart_geral","uso_cpu","ventoinha"]','["alimentacao_instavel","disco_degradado","driver_incompativel","memoria_instavel","recurso_saturado","rede_instavel","refrigeracao_insuficiente","software_conflitante"]','["boot_limpo","integridade_so","leitura_eventos","leitura_termica","smart_leitura","superficie_disco"]','[]','corpusderiva/ontologia@superuser-dump','corpusderiva/ontologia@superuser-dump', now())
+VALUES ('lentidao_nao_caracterizada','O computador está lento, e ainda não se sabe se são engasgos curtos ou períodos longos.','["temperatura","tensao","processo_pesado","uso_memoria","smart_geral","uso_cpu","ventoinha","corrupcao_arquivo"]','["alimentacao_instavel","disco_degradado","driver_incompativel","memoria_instavel","recurso_saturado","rede_instavel","refrigeracao_insuficiente","software_conflitante"]','["boot_limpo","leitura_termica","smart_leitura","integridade_so","troca_peca","leitura_eventos"]','[]','corpusderiva/ontologia@superuser-dump','corpusderiva/ontologia@superuser-dump', now())
 ON CONFLICT (codigo) DO UPDATE SET
   descricao=EXCLUDED.descricao, sinais=EXCLUDED.sinais,
   causas_candidatas=EXCLUDED.causas_candidatas,
@@ -28,7 +28,7 @@ ON CONFLICT (codigo) DO UPDATE SET
 INSERT INTO negative_status
   (codigo, descricao, sinais, causas_candidatas, testes_discriminantes,
    limitacoes, origem_corpus, revisado_por_automacao, revisado_em)
-VALUES ('trava_sob_carga','O computador para de responder e volta sozinho, ou precisa ser reiniciado à força.','["tensao","temperatura","bugcheck","erro_memoria","corrupcao_arquivo","erro_sistema_log","uso_cpu","uso_memoria"]','["alimentacao_instavel","disco_degradado","driver_incompativel","memoria_instavel","rede_instavel","software_conflitante"]','["boot_limpo","memtest","integridade_so","smart_leitura","leitura_eventos","stress_cpu"]','["recurso_saturado","refrigeracao_insuficiente"]','corpusderiva/ontologia@superuser-dump','corpusderiva/ontologia@superuser-dump', now())
+VALUES ('trava_sob_carga','O computador para de responder e volta sozinho, ou precisa ser reiniciado à força.','["tensao","bugcheck","erro_memoria","temperatura","corrupcao_arquivo","erro_sistema_log","uso_cpu","uso_memoria"]','["alimentacao_instavel","disco_degradado","driver_incompativel","memoria_instavel","rede_instavel","software_conflitante"]','["boot_limpo","memtest","integridade_so","smart_leitura","leitura_eventos","stress_cpu"]','["recurso_saturado","refrigeracao_insuficiente"]','corpusderiva/ontologia@superuser-dump','corpusderiva/ontologia@superuser-dump', now())
 ON CONFLICT (codigo) DO UPDATE SET
   descricao=EXCLUDED.descricao, sinais=EXCLUDED.sinais,
   causas_candidatas=EXCLUDED.causas_candidatas,
@@ -72,7 +72,29 @@ ON CONFLICT (codigo) DO UPDATE SET
 INSERT INTO negative_status
   (codigo, descricao, sinais, causas_candidatas, testes_discriminantes,
    limitacoes, origem_corpus, revisado_por_automacao, revisado_em)
+VALUES ('lentidao_profunda','O computador entra em períodos longos em que tudo fica lento, e não melhora sozinho.','["corrupcao_arquivo","temperatura","erro_sistema_log","erro_io_log","processo_pesado","smart_reallocated","tensao","ventoinha"]','["disco_degradado","memoria_instavel","recurso_saturado","software_conflitante"]','["integridade_so","boot_limpo","leitura_eventos","superficie_disco","smart_leitura","troca_peca","duracao_do_episodio"]','["alimentacao_instavel","driver_incompativel","rede_instavel","refrigeracao_insuficiente"]','corpusderiva/ontologia@superuser-dump','corpusderiva/ontologia@superuser-dump', now())
+ON CONFLICT (codigo) DO UPDATE SET
+  descricao=EXCLUDED.descricao, sinais=EXCLUDED.sinais,
+  causas_candidatas=EXCLUDED.causas_candidatas,
+  testes_discriminantes=EXCLUDED.testes_discriminantes,
+  limitacoes=EXCLUDED.limitacoes, origem_corpus=EXCLUDED.origem_corpus,
+  revisado_por_automacao=EXCLUDED.revisado_por_automacao,
+  revisado_em=now(), updated_at=now();
+INSERT INTO negative_status
+  (codigo, descricao, sinais, causas_candidatas, testes_discriminantes,
+   limitacoes, origem_corpus, revisado_por_automacao, revisado_em)
 VALUES ('corrupcao_de_dados','Arquivos ou estruturas do sistema de arquivos estão sendo corrompidos.','["corrupcao_arquivo","smart_geral","erro_io_log","erro_memoria","smart_reallocated","bugcheck","driver_falho","temperatura"]','["disco_degradado"]','["integridade_so","smart_leitura","memtest","superficie_disco","boot_limpo","leitura_termica"]','["driver_incompativel","memoria_instavel","rede_instavel","refrigeracao_insuficiente","software_conflitante"]','corpusderiva/ontologia@superuser-dump','corpusderiva/ontologia@superuser-dump', now())
+ON CONFLICT (codigo) DO UPDATE SET
+  descricao=EXCLUDED.descricao, sinais=EXCLUDED.sinais,
+  causas_candidatas=EXCLUDED.causas_candidatas,
+  testes_discriminantes=EXCLUDED.testes_discriminantes,
+  limitacoes=EXCLUDED.limitacoes, origem_corpus=EXCLUDED.origem_corpus,
+  revisado_por_automacao=EXCLUDED.revisado_por_automacao,
+  revisado_em=now(), updated_at=now();
+INSERT INTO negative_status
+  (codigo, descricao, sinais, causas_candidatas, testes_discriminantes,
+   limitacoes, origem_corpus, revisado_por_automacao, revisado_em)
+VALUES ('lentidao_intermitente','O computador engasga por segundos e volta ao normal sozinho, várias vezes ao dia.','["tensao","smart_geral","temperatura","ventoinha"]','["driver_incompativel","recurso_saturado","refrigeracao_insuficiente","software_conflitante"]','["smart_leitura","superficie_disco","duracao_do_episodio"]','["alimentacao_instavel","disco_degradado"]','corpusderiva/ontologia@superuser-dump','corpusderiva/ontologia@superuser-dump', now())
 ON CONFLICT (codigo) DO UPDATE SET
   descricao=EXCLUDED.descricao, sinais=EXCLUDED.sinais,
   causas_candidatas=EXCLUDED.causas_candidatas,
@@ -86,31 +108,31 @@ VALUES ('corrupcao_de_dados','disco_degradado',1.000000,43,1.0)
 ON CONFLICT (status_codigo, causa_codigo) DO UPDATE SET
   frequencia=EXCLUDED.frequencia, n=EXCLUDED.n, atualizado_em=now();
 INSERT INTO corpus.corpus_prior (status_codigo, causa_codigo, frequencia, n, peso_atual)
-VALUES ('desligamento_inesperado','alimentacao_instavel',0.511111,253,1.0)
+VALUES ('desligamento_inesperado','alimentacao_instavel',0.511202,251,1.0)
 ON CONFLICT (status_codigo, causa_codigo) DO UPDATE SET
   frequencia=EXCLUDED.frequencia, n=EXCLUDED.n, atualizado_em=now();
 INSERT INTO corpus.corpus_prior (status_codigo, causa_codigo, frequencia, n, peso_atual)
-VALUES ('desligamento_inesperado','disco_degradado',0.141414,70,1.0)
+VALUES ('desligamento_inesperado','disco_degradado',0.142566,70,1.0)
 ON CONFLICT (status_codigo, causa_codigo) DO UPDATE SET
   frequencia=EXCLUDED.frequencia, n=EXCLUDED.n, atualizado_em=now();
 INSERT INTO corpus.corpus_prior (status_codigo, causa_codigo, frequencia, n, peso_atual)
-VALUES ('desligamento_inesperado','driver_incompativel',0.125253,62,1.0)
+VALUES ('desligamento_inesperado','driver_incompativel',0.122200,60,1.0)
 ON CONFLICT (status_codigo, causa_codigo) DO UPDATE SET
   frequencia=EXCLUDED.frequencia, n=EXCLUDED.n, atualizado_em=now();
 INSERT INTO corpus.corpus_prior (status_codigo, causa_codigo, frequencia, n, peso_atual)
-VALUES ('desligamento_inesperado','memoria_instavel',0.111111,55,1.0)
+VALUES ('desligamento_inesperado','memoria_instavel',0.112016,55,1.0)
 ON CONFLICT (status_codigo, causa_codigo) DO UPDATE SET
   frequencia=EXCLUDED.frequencia, n=EXCLUDED.n, atualizado_em=now();
 INSERT INTO corpus.corpus_prior (status_codigo, causa_codigo, frequencia, n, peso_atual)
-VALUES ('desligamento_inesperado','software_conflitante',0.050505,25,1.0)
+VALUES ('desligamento_inesperado','software_conflitante',0.050916,25,1.0)
 ON CONFLICT (status_codigo, causa_codigo) DO UPDATE SET
   frequencia=EXCLUDED.frequencia, n=EXCLUDED.n, atualizado_em=now();
 INSERT INTO corpus.corpus_prior (status_codigo, causa_codigo, frequencia, n, peso_atual)
-VALUES ('desligamento_inesperado','refrigeracao_insuficiente',0.036364,18,1.0)
+VALUES ('desligamento_inesperado','refrigeracao_insuficiente',0.036660,18,1.0)
 ON CONFLICT (status_codigo, causa_codigo) DO UPDATE SET
   frequencia=EXCLUDED.frequencia, n=EXCLUDED.n, atualizado_em=now();
 INSERT INTO corpus.corpus_prior (status_codigo, causa_codigo, frequencia, n, peso_atual)
-VALUES ('desligamento_inesperado','rede_instavel',0.024242,12,1.0)
+VALUES ('desligamento_inesperado','rede_instavel',0.024440,12,1.0)
 ON CONFLICT (status_codigo, causa_codigo) DO UPDATE SET
   frequencia=EXCLUDED.frequencia, n=EXCLUDED.n, atualizado_em=now();
 INSERT INTO corpus.corpus_prior (status_codigo, causa_codigo, frequencia, n, peso_atual)
@@ -118,35 +140,43 @@ VALUES ('erro_de_dispositivo','disco_degradado',1.000000,79,1.0)
 ON CONFLICT (status_codigo, causa_codigo) DO UPDATE SET
   frequencia=EXCLUDED.frequencia, n=EXCLUDED.n, atualizado_em=now();
 INSERT INTO corpus.corpus_prior (status_codigo, causa_codigo, frequencia, n, peso_atual)
-VALUES ('lentidao_persistente','recurso_saturado',0.512552,245,1.0)
+VALUES ('lentidao_nao_caracterizada','recurso_saturado',0.519417,214,1.0)
 ON CONFLICT (status_codigo, causa_codigo) DO UPDATE SET
   frequencia=EXCLUDED.frequencia, n=EXCLUDED.n, atualizado_em=now();
 INSERT INTO corpus.corpus_prior (status_codigo, causa_codigo, frequencia, n, peso_atual)
-VALUES ('lentidao_persistente','disco_degradado',0.179916,86,1.0)
+VALUES ('lentidao_nao_caracterizada','disco_degradado',0.157767,65,1.0)
 ON CONFLICT (status_codigo, causa_codigo) DO UPDATE SET
   frequencia=EXCLUDED.frequencia, n=EXCLUDED.n, atualizado_em=now();
 INSERT INTO corpus.corpus_prior (status_codigo, causa_codigo, frequencia, n, peso_atual)
-VALUES ('lentidao_persistente','rede_instavel',0.135983,65,1.0)
+VALUES ('lentidao_nao_caracterizada','rede_instavel',0.143204,59,1.0)
 ON CONFLICT (status_codigo, causa_codigo) DO UPDATE SET
   frequencia=EXCLUDED.frequencia, n=EXCLUDED.n, atualizado_em=now();
 INSERT INTO corpus.corpus_prior (status_codigo, causa_codigo, frequencia, n, peso_atual)
-VALUES ('lentidao_persistente','memoria_instavel',0.066946,32,1.0)
+VALUES ('lentidao_nao_caracterizada','memoria_instavel',0.067961,28,1.0)
 ON CONFLICT (status_codigo, causa_codigo) DO UPDATE SET
   frequencia=EXCLUDED.frequencia, n=EXCLUDED.n, atualizado_em=now();
 INSERT INTO corpus.corpus_prior (status_codigo, causa_codigo, frequencia, n, peso_atual)
-VALUES ('lentidao_persistente','software_conflitante',0.033473,16,1.0)
+VALUES ('lentidao_nao_caracterizada','software_conflitante',0.036408,15,1.0)
 ON CONFLICT (status_codigo, causa_codigo) DO UPDATE SET
   frequencia=EXCLUDED.frequencia, n=EXCLUDED.n, atualizado_em=now();
 INSERT INTO corpus.corpus_prior (status_codigo, causa_codigo, frequencia, n, peso_atual)
-VALUES ('lentidao_persistente','alimentacao_instavel',0.029289,14,1.0)
+VALUES ('lentidao_nao_caracterizada','alimentacao_instavel',0.029126,12,1.0)
 ON CONFLICT (status_codigo, causa_codigo) DO UPDATE SET
   frequencia=EXCLUDED.frequencia, n=EXCLUDED.n, atualizado_em=now();
 INSERT INTO corpus.corpus_prior (status_codigo, causa_codigo, frequencia, n, peso_atual)
-VALUES ('lentidao_persistente','refrigeracao_insuficiente',0.023013,11,1.0)
+VALUES ('lentidao_nao_caracterizada','refrigeracao_insuficiente',0.026699,11,1.0)
 ON CONFLICT (status_codigo, causa_codigo) DO UPDATE SET
   frequencia=EXCLUDED.frequencia, n=EXCLUDED.n, atualizado_em=now();
 INSERT INTO corpus.corpus_prior (status_codigo, causa_codigo, frequencia, n, peso_atual)
-VALUES ('lentidao_persistente','driver_incompativel',0.018828,9,1.0)
+VALUES ('lentidao_nao_caracterizada','driver_incompativel',0.019417,8,1.0)
+ON CONFLICT (status_codigo, causa_codigo) DO UPDATE SET
+  frequencia=EXCLUDED.frequencia, n=EXCLUDED.n, atualizado_em=now();
+INSERT INTO corpus.corpus_prior (status_codigo, causa_codigo, frequencia, n, peso_atual)
+VALUES ('lentidao_profunda','recurso_saturado',0.377358,30,1.0)
+ON CONFLICT (status_codigo, causa_codigo) DO UPDATE SET
+  frequencia=EXCLUDED.frequencia, n=EXCLUDED.n, atualizado_em=now();
+INSERT INTO corpus.corpus_prior (status_codigo, causa_codigo, frequencia, n, peso_atual)
+VALUES ('lentidao_profunda','disco_degradado',0.289308,23,1.0)
 ON CONFLICT (status_codigo, causa_codigo) DO UPDATE SET
   frequencia=EXCLUDED.frequencia, n=EXCLUDED.n, atualizado_em=now();
 INSERT INTO corpus.corpus_prior (status_codigo, causa_codigo, frequencia, n, peso_atual)
@@ -162,31 +192,55 @@ VALUES ('nao_inicializa','alimentacao_instavel',0.244898,24,1.0)
 ON CONFLICT (status_codigo, causa_codigo) DO UPDATE SET
   frequencia=EXCLUDED.frequencia, n=EXCLUDED.n, atualizado_em=now();
 INSERT INTO corpus.corpus_prior (status_codigo, causa_codigo, frequencia, n, peso_atual)
-VALUES ('superaquecimento','refrigeracao_insuficiente',1.000000,78,1.0)
+VALUES ('superaquecimento','refrigeracao_insuficiente',1.000000,77,1.0)
 ON CONFLICT (status_codigo, causa_codigo) DO UPDATE SET
   frequencia=EXCLUDED.frequencia, n=EXCLUDED.n, atualizado_em=now();
 INSERT INTO corpus.corpus_prior (status_codigo, causa_codigo, frequencia, n, peso_atual)
-VALUES ('trava_sob_carga','disco_degradado',0.412935,83,1.0)
+VALUES ('trava_sob_carga','disco_degradado',0.409091,81,1.0)
 ON CONFLICT (status_codigo, causa_codigo) DO UPDATE SET
   frequencia=EXCLUDED.frequencia, n=EXCLUDED.n, atualizado_em=now();
 INSERT INTO corpus.corpus_prior (status_codigo, causa_codigo, frequencia, n, peso_atual)
-VALUES ('trava_sob_carga','software_conflitante',0.144279,29,1.0)
+VALUES ('trava_sob_carga','memoria_instavel',0.146465,29,1.0)
 ON CONFLICT (status_codigo, causa_codigo) DO UPDATE SET
   frequencia=EXCLUDED.frequencia, n=EXCLUDED.n, atualizado_em=now();
 INSERT INTO corpus.corpus_prior (status_codigo, causa_codigo, frequencia, n, peso_atual)
-VALUES ('trava_sob_carga','memoria_instavel',0.144279,29,1.0)
+VALUES ('trava_sob_carga','software_conflitante',0.141414,28,1.0)
 ON CONFLICT (status_codigo, causa_codigo) DO UPDATE SET
   frequencia=EXCLUDED.frequencia, n=EXCLUDED.n, atualizado_em=now();
 INSERT INTO corpus.corpus_prior (status_codigo, causa_codigo, frequencia, n, peso_atual)
-VALUES ('trava_sob_carga','rede_instavel',0.134328,27,1.0)
+VALUES ('trava_sob_carga','rede_instavel',0.136364,27,1.0)
 ON CONFLICT (status_codigo, causa_codigo) DO UPDATE SET
   frequencia=EXCLUDED.frequencia, n=EXCLUDED.n, atualizado_em=now();
 INSERT INTO corpus.corpus_prior (status_codigo, causa_codigo, frequencia, n, peso_atual)
-VALUES ('trava_sob_carga','alimentacao_instavel',0.099502,20,1.0)
+VALUES ('trava_sob_carga','alimentacao_instavel',0.101010,20,1.0)
 ON CONFLICT (status_codigo, causa_codigo) DO UPDATE SET
   frequencia=EXCLUDED.frequencia, n=EXCLUDED.n, atualizado_em=now();
 INSERT INTO corpus.corpus_prior (status_codigo, causa_codigo, frequencia, n, peso_atual)
-VALUES ('trava_sob_carga','driver_incompativel',0.064677,13,1.0)
+VALUES ('trava_sob_carga','driver_incompativel',0.065657,13,1.0)
+ON CONFLICT (status_codigo, causa_codigo) DO UPDATE SET
+  frequencia=EXCLUDED.frequencia, n=EXCLUDED.n, atualizado_em=now();
+INSERT INTO corpus.corpus_prior (status_codigo, causa_codigo, frequencia, n, peso_atual)
+VALUES ('lentidao_intermitente','software_conflitante',0.250000,0,1.0)
+ON CONFLICT (status_codigo, causa_codigo) DO UPDATE SET
+  frequencia=EXCLUDED.frequencia, n=EXCLUDED.n, atualizado_em=now();
+INSERT INTO corpus.corpus_prior (status_codigo, causa_codigo, frequencia, n, peso_atual)
+VALUES ('lentidao_intermitente','recurso_saturado',0.250000,0,1.0)
+ON CONFLICT (status_codigo, causa_codigo) DO UPDATE SET
+  frequencia=EXCLUDED.frequencia, n=EXCLUDED.n, atualizado_em=now();
+INSERT INTO corpus.corpus_prior (status_codigo, causa_codigo, frequencia, n, peso_atual)
+VALUES ('lentidao_intermitente','refrigeracao_insuficiente',0.250000,0,1.0)
+ON CONFLICT (status_codigo, causa_codigo) DO UPDATE SET
+  frequencia=EXCLUDED.frequencia, n=EXCLUDED.n, atualizado_em=now();
+INSERT INTO corpus.corpus_prior (status_codigo, causa_codigo, frequencia, n, peso_atual)
+VALUES ('lentidao_intermitente','driver_incompativel',0.250000,0,1.0)
+ON CONFLICT (status_codigo, causa_codigo) DO UPDATE SET
+  frequencia=EXCLUDED.frequencia, n=EXCLUDED.n, atualizado_em=now();
+INSERT INTO corpus.corpus_prior (status_codigo, causa_codigo, frequencia, n, peso_atual)
+VALUES ('lentidao_profunda','memoria_instavel',0.166667,0,1.0)
+ON CONFLICT (status_codigo, causa_codigo) DO UPDATE SET
+  frequencia=EXCLUDED.frequencia, n=EXCLUDED.n, atualizado_em=now();
+INSERT INTO corpus.corpus_prior (status_codigo, causa_codigo, frequencia, n, peso_atual)
+VALUES ('lentidao_profunda','software_conflitante',0.166667,0,1.0)
 ON CONFLICT (status_codigo, causa_codigo) DO UPDATE SET
   frequencia=EXCLUDED.frequencia, n=EXCLUDED.n, atualizado_em=now();
 
@@ -281,82 +335,102 @@ ON CONFLICT (chave, idioma, nivel, versao) DO UPDATE SET
   titulo=EXCLUDED.titulo, corpo=EXCLUDED.corpo, slots=EXCLUDED.slots,
   revisado_por_automacao=EXCLUDED.revisado_por_automacao, revisado_em=now();
 INSERT INTO text_template (chave, idioma, nivel, titulo, corpo, slots, versao, origem_corpus, revisado_por_automacao, revisado_em)
-VALUES ('lentidao_persistente.recurso_saturado.v1','pt-BR','tecnico','Recurso saturado — CPU, RAM ou I/O em uso pleno de forma sustentada.','Recurso saturado — CPU, RAM ou I/O em uso pleno de forma sustentada. Medimos {valor_medido}; o esperado para esta classe seria {limiar_esperado}. Probabilidade {probabilidade}.','["valor_medido","limiar_esperado","probabilidade"]',1,'corpusderiva/ontologia@superuser-dump','corpusderiva/ontologia@superuser-dump', now())
+VALUES ('lentidao_nao_caracterizada.recurso_saturado.v1','pt-BR','tecnico','Recurso saturado — CPU, RAM ou I/O em uso pleno de forma sustentada.','Recurso saturado — CPU, RAM ou I/O em uso pleno de forma sustentada. Medimos {valor_medido}; o esperado para esta classe seria {limiar_esperado}. Probabilidade {probabilidade}.','["valor_medido","limiar_esperado","probabilidade"]',1,'corpusderiva/ontologia@superuser-dump','corpusderiva/ontologia@superuser-dump', now())
 ON CONFLICT (chave, idioma, nivel, versao) DO UPDATE SET
   titulo=EXCLUDED.titulo, corpo=EXCLUDED.corpo, slots=EXCLUDED.slots,
   revisado_por_automacao=EXCLUDED.revisado_por_automacao, revisado_em=now();
 INSERT INTO text_template (chave, idioma, nivel, titulo, corpo, slots, versao, origem_corpus, revisado_por_automacao, revisado_em)
-VALUES ('lentidao_persistente.recurso_saturado.v1','pt-BR','cliente','Recurso saturado — CPU, RAM ou I/O em uso pleno de forma sustentada.','O computador está sem folga para o que você usa. Fale com um tecnico.','["valor_medido","limiar_esperado","probabilidade"]',1,'corpusderiva/ontologia@superuser-dump','corpusderiva/ontologia@superuser-dump', now())
+VALUES ('lentidao_nao_caracterizada.recurso_saturado.v1','pt-BR','cliente','Recurso saturado — CPU, RAM ou I/O em uso pleno de forma sustentada.','O computador está sem folga para o que você usa. Fale com um tecnico.','["valor_medido","limiar_esperado","probabilidade"]',1,'corpusderiva/ontologia@superuser-dump','corpusderiva/ontologia@superuser-dump', now())
 ON CONFLICT (chave, idioma, nivel, versao) DO UPDATE SET
   titulo=EXCLUDED.titulo, corpo=EXCLUDED.corpo, slots=EXCLUDED.slots,
   revisado_por_automacao=EXCLUDED.revisado_por_automacao, revisado_em=now();
 INSERT INTO text_template (chave, idioma, nivel, titulo, corpo, slots, versao, origem_corpus, revisado_por_automacao, revisado_em)
-VALUES ('lentidao_persistente.disco_degradado.v1','pt-BR','tecnico','Disco degradado — superfície, controladora ou interface falhando.','Disco degradado — superfície, controladora ou interface falhando. Medimos {valor_medido}; o esperado para esta classe seria {limiar_esperado}. Probabilidade {probabilidade}.','["valor_medido","limiar_esperado","probabilidade"]',1,'corpusderiva/ontologia@superuser-dump','corpusderiva/ontologia@superuser-dump', now())
+VALUES ('lentidao_nao_caracterizada.disco_degradado.v1','pt-BR','tecnico','Disco degradado — superfície, controladora ou interface falhando.','Disco degradado — superfície, controladora ou interface falhando. Medimos {valor_medido}; o esperado para esta classe seria {limiar_esperado}. Probabilidade {probabilidade}.','["valor_medido","limiar_esperado","probabilidade"]',1,'corpusderiva/ontologia@superuser-dump','corpusderiva/ontologia@superuser-dump', now())
 ON CONFLICT (chave, idioma, nivel, versao) DO UPDATE SET
   titulo=EXCLUDED.titulo, corpo=EXCLUDED.corpo, slots=EXCLUDED.slots,
   revisado_por_automacao=EXCLUDED.revisado_por_automacao, revisado_em=now();
 INSERT INTO text_template (chave, idioma, nivel, titulo, corpo, slots, versao, origem_corpus, revisado_por_automacao, revisado_em)
-VALUES ('lentidao_persistente.disco_degradado.v1','pt-BR','cliente','Disco degradado — superfície, controladora ou interface falhando.','O disco (onde ficam seus arquivos) está falhando. Fale com um tecnico.','["valor_medido","limiar_esperado","probabilidade"]',1,'corpusderiva/ontologia@superuser-dump','corpusderiva/ontologia@superuser-dump', now())
+VALUES ('lentidao_nao_caracterizada.disco_degradado.v1','pt-BR','cliente','Disco degradado — superfície, controladora ou interface falhando.','O disco (onde ficam seus arquivos) está falhando. Fale com um tecnico.','["valor_medido","limiar_esperado","probabilidade"]',1,'corpusderiva/ontologia@superuser-dump','corpusderiva/ontologia@superuser-dump', now())
 ON CONFLICT (chave, idioma, nivel, versao) DO UPDATE SET
   titulo=EXCLUDED.titulo, corpo=EXCLUDED.corpo, slots=EXCLUDED.slots,
   revisado_por_automacao=EXCLUDED.revisado_por_automacao, revisado_em=now();
 INSERT INTO text_template (chave, idioma, nivel, titulo, corpo, slots, versao, origem_corpus, revisado_por_automacao, revisado_em)
-VALUES ('lentidao_persistente.rede_instavel.v1','pt-BR','tecnico','Rede instável — perda, latência ou saturação do enlace.','Rede instável — perda, latência ou saturação do enlace. Medimos {valor_medido}; o esperado para esta classe seria {limiar_esperado}. Probabilidade {probabilidade}.','["valor_medido","limiar_esperado","probabilidade"]',1,'corpusderiva/ontologia@superuser-dump','corpusderiva/ontologia@superuser-dump', now())
+VALUES ('lentidao_nao_caracterizada.rede_instavel.v1','pt-BR','tecnico','Rede instável — perda, latência ou saturação do enlace.','Rede instável — perda, latência ou saturação do enlace. Medimos {valor_medido}; o esperado para esta classe seria {limiar_esperado}. Probabilidade {probabilidade}.','["valor_medido","limiar_esperado","probabilidade"]',1,'corpusderiva/ontologia@superuser-dump','corpusderiva/ontologia@superuser-dump', now())
 ON CONFLICT (chave, idioma, nivel, versao) DO UPDATE SET
   titulo=EXCLUDED.titulo, corpo=EXCLUDED.corpo, slots=EXCLUDED.slots,
   revisado_por_automacao=EXCLUDED.revisado_por_automacao, revisado_em=now();
 INSERT INTO text_template (chave, idioma, nivel, titulo, corpo, slots, versao, origem_corpus, revisado_por_automacao, revisado_em)
-VALUES ('lentidao_persistente.rede_instavel.v1','pt-BR','cliente','Rede instável — perda, latência ou saturação do enlace.','A conexão de rede está instável. Fale com um tecnico.','["valor_medido","limiar_esperado","probabilidade"]',1,'corpusderiva/ontologia@superuser-dump','corpusderiva/ontologia@superuser-dump', now())
+VALUES ('lentidao_nao_caracterizada.rede_instavel.v1','pt-BR','cliente','Rede instável — perda, latência ou saturação do enlace.','A conexão de rede está instável. Fale com um tecnico.','["valor_medido","limiar_esperado","probabilidade"]',1,'corpusderiva/ontologia@superuser-dump','corpusderiva/ontologia@superuser-dump', now())
 ON CONFLICT (chave, idioma, nivel, versao) DO UPDATE SET
   titulo=EXCLUDED.titulo, corpo=EXCLUDED.corpo, slots=EXCLUDED.slots,
   revisado_por_automacao=EXCLUDED.revisado_por_automacao, revisado_em=now();
 INSERT INTO text_template (chave, idioma, nivel, titulo, corpo, slots, versao, origem_corpus, revisado_por_automacao, revisado_em)
-VALUES ('lentidao_persistente.memoria_instavel.v1','pt-BR','tecnico','Memória instável — erro de leitura/escrita em RAM sob carga.','Memória instável — erro de leitura/escrita em RAM sob carga. Medimos {valor_medido}; o esperado para esta classe seria {limiar_esperado}. Probabilidade {probabilidade}.','["valor_medido","limiar_esperado","probabilidade"]',1,'corpusderiva/ontologia@superuser-dump','corpusderiva/ontologia@superuser-dump', now())
+VALUES ('lentidao_nao_caracterizada.memoria_instavel.v1','pt-BR','tecnico','Memória instável — erro de leitura/escrita em RAM sob carga.','Memória instável — erro de leitura/escrita em RAM sob carga. Medimos {valor_medido}; o esperado para esta classe seria {limiar_esperado}. Probabilidade {probabilidade}.','["valor_medido","limiar_esperado","probabilidade"]',1,'corpusderiva/ontologia@superuser-dump','corpusderiva/ontologia@superuser-dump', now())
 ON CONFLICT (chave, idioma, nivel, versao) DO UPDATE SET
   titulo=EXCLUDED.titulo, corpo=EXCLUDED.corpo, slots=EXCLUDED.slots,
   revisado_por_automacao=EXCLUDED.revisado_por_automacao, revisado_em=now();
 INSERT INTO text_template (chave, idioma, nivel, titulo, corpo, slots, versao, origem_corpus, revisado_por_automacao, revisado_em)
-VALUES ('lentidao_persistente.memoria_instavel.v1','pt-BR','cliente','Memória instável — erro de leitura/escrita em RAM sob carga.','A memória do computador está com defeito. Fale com um tecnico.','["valor_medido","limiar_esperado","probabilidade"]',1,'corpusderiva/ontologia@superuser-dump','corpusderiva/ontologia@superuser-dump', now())
+VALUES ('lentidao_nao_caracterizada.memoria_instavel.v1','pt-BR','cliente','Memória instável — erro de leitura/escrita em RAM sob carga.','A memória do computador está com defeito. Fale com um tecnico.','["valor_medido","limiar_esperado","probabilidade"]',1,'corpusderiva/ontologia@superuser-dump','corpusderiva/ontologia@superuser-dump', now())
 ON CONFLICT (chave, idioma, nivel, versao) DO UPDATE SET
   titulo=EXCLUDED.titulo, corpo=EXCLUDED.corpo, slots=EXCLUDED.slots,
   revisado_por_automacao=EXCLUDED.revisado_por_automacao, revisado_em=now();
 INSERT INTO text_template (chave, idioma, nivel, titulo, corpo, slots, versao, origem_corpus, revisado_por_automacao, revisado_em)
-VALUES ('lentidao_persistente.software_conflitante.v1','pt-BR','tecnico','Software conflitante — programa ou serviço interferindo no sistema.','Software conflitante — programa ou serviço interferindo no sistema. Medimos {valor_medido}; o esperado para esta classe seria {limiar_esperado}. Probabilidade {probabilidade}.','["valor_medido","limiar_esperado","probabilidade"]',1,'corpusderiva/ontologia@superuser-dump','corpusderiva/ontologia@superuser-dump', now())
+VALUES ('lentidao_nao_caracterizada.software_conflitante.v1','pt-BR','tecnico','Software conflitante — programa ou serviço interferindo no sistema.','Software conflitante — programa ou serviço interferindo no sistema. Medimos {valor_medido}; o esperado para esta classe seria {limiar_esperado}. Probabilidade {probabilidade}.','["valor_medido","limiar_esperado","probabilidade"]',1,'corpusderiva/ontologia@superuser-dump','corpusderiva/ontologia@superuser-dump', now())
 ON CONFLICT (chave, idioma, nivel, versao) DO UPDATE SET
   titulo=EXCLUDED.titulo, corpo=EXCLUDED.corpo, slots=EXCLUDED.slots,
   revisado_por_automacao=EXCLUDED.revisado_por_automacao, revisado_em=now();
 INSERT INTO text_template (chave, idioma, nivel, titulo, corpo, slots, versao, origem_corpus, revisado_por_automacao, revisado_em)
-VALUES ('lentidao_persistente.software_conflitante.v1','pt-BR','cliente','Software conflitante — programa ou serviço interferindo no sistema.','Um programa instalado está atrapalhando o sistema. Fale com um tecnico.','["valor_medido","limiar_esperado","probabilidade"]',1,'corpusderiva/ontologia@superuser-dump','corpusderiva/ontologia@superuser-dump', now())
+VALUES ('lentidao_nao_caracterizada.software_conflitante.v1','pt-BR','cliente','Software conflitante — programa ou serviço interferindo no sistema.','Um programa instalado está atrapalhando o sistema. Fale com um tecnico.','["valor_medido","limiar_esperado","probabilidade"]',1,'corpusderiva/ontologia@superuser-dump','corpusderiva/ontologia@superuser-dump', now())
 ON CONFLICT (chave, idioma, nivel, versao) DO UPDATE SET
   titulo=EXCLUDED.titulo, corpo=EXCLUDED.corpo, slots=EXCLUDED.slots,
   revisado_por_automacao=EXCLUDED.revisado_por_automacao, revisado_em=now();
 INSERT INTO text_template (chave, idioma, nivel, titulo, corpo, slots, versao, origem_corpus, revisado_por_automacao, revisado_em)
-VALUES ('lentidao_persistente.alimentacao_instavel.v1','pt-BR','tecnico','Alimentação instável — fonte, bateria ou rede elétrica fora da faixa.','Alimentação instável — fonte, bateria ou rede elétrica fora da faixa. Medimos {valor_medido}; o esperado para esta classe seria {limiar_esperado}. Probabilidade {probabilidade}.','["valor_medido","limiar_esperado","probabilidade"]',1,'corpusderiva/ontologia@superuser-dump','corpusderiva/ontologia@superuser-dump', now())
+VALUES ('lentidao_nao_caracterizada.alimentacao_instavel.v1','pt-BR','tecnico','Alimentação instável — fonte, bateria ou rede elétrica fora da faixa.','Alimentação instável — fonte, bateria ou rede elétrica fora da faixa. Medimos {valor_medido}; o esperado para esta classe seria {limiar_esperado}. Probabilidade {probabilidade}.','["valor_medido","limiar_esperado","probabilidade"]',1,'corpusderiva/ontologia@superuser-dump','corpusderiva/ontologia@superuser-dump', now())
 ON CONFLICT (chave, idioma, nivel, versao) DO UPDATE SET
   titulo=EXCLUDED.titulo, corpo=EXCLUDED.corpo, slots=EXCLUDED.slots,
   revisado_por_automacao=EXCLUDED.revisado_por_automacao, revisado_em=now();
 INSERT INTO text_template (chave, idioma, nivel, titulo, corpo, slots, versao, origem_corpus, revisado_por_automacao, revisado_em)
-VALUES ('lentidao_persistente.alimentacao_instavel.v1','pt-BR','cliente','Alimentação instável — fonte, bateria ou rede elétrica fora da faixa.','A energia que chega ao computador está oscilando. Fale com um tecnico.','["valor_medido","limiar_esperado","probabilidade"]',1,'corpusderiva/ontologia@superuser-dump','corpusderiva/ontologia@superuser-dump', now())
+VALUES ('lentidao_nao_caracterizada.alimentacao_instavel.v1','pt-BR','cliente','Alimentação instável — fonte, bateria ou rede elétrica fora da faixa.','A energia que chega ao computador está oscilando. Fale com um tecnico.','["valor_medido","limiar_esperado","probabilidade"]',1,'corpusderiva/ontologia@superuser-dump','corpusderiva/ontologia@superuser-dump', now())
 ON CONFLICT (chave, idioma, nivel, versao) DO UPDATE SET
   titulo=EXCLUDED.titulo, corpo=EXCLUDED.corpo, slots=EXCLUDED.slots,
   revisado_por_automacao=EXCLUDED.revisado_por_automacao, revisado_em=now();
 INSERT INTO text_template (chave, idioma, nivel, titulo, corpo, slots, versao, origem_corpus, revisado_por_automacao, revisado_em)
-VALUES ('lentidao_persistente.refrigeracao_insuficiente.v1','pt-BR','tecnico','Refrigeração insuficiente — dissipação abaixo do necessário para a carga.','Refrigeração insuficiente — dissipação abaixo do necessário para a carga. Medimos {valor_medido}; o esperado para esta classe seria {limiar_esperado}. Probabilidade {probabilidade}.','["valor_medido","limiar_esperado","probabilidade"]',1,'corpusderiva/ontologia@superuser-dump','corpusderiva/ontologia@superuser-dump', now())
+VALUES ('lentidao_nao_caracterizada.refrigeracao_insuficiente.v1','pt-BR','tecnico','Refrigeração insuficiente — dissipação abaixo do necessário para a carga.','Refrigeração insuficiente — dissipação abaixo do necessário para a carga. Medimos {valor_medido}; o esperado para esta classe seria {limiar_esperado}. Probabilidade {probabilidade}.','["valor_medido","limiar_esperado","probabilidade"]',1,'corpusderiva/ontologia@superuser-dump','corpusderiva/ontologia@superuser-dump', now())
 ON CONFLICT (chave, idioma, nivel, versao) DO UPDATE SET
   titulo=EXCLUDED.titulo, corpo=EXCLUDED.corpo, slots=EXCLUDED.slots,
   revisado_por_automacao=EXCLUDED.revisado_por_automacao, revisado_em=now();
 INSERT INTO text_template (chave, idioma, nivel, titulo, corpo, slots, versao, origem_corpus, revisado_por_automacao, revisado_em)
-VALUES ('lentidao_persistente.refrigeracao_insuficiente.v1','pt-BR','cliente','Refrigeração insuficiente — dissipação abaixo do necessário para a carga.','O computador está esquentando demais. Fale com um tecnico.','["valor_medido","limiar_esperado","probabilidade"]',1,'corpusderiva/ontologia@superuser-dump','corpusderiva/ontologia@superuser-dump', now())
+VALUES ('lentidao_nao_caracterizada.refrigeracao_insuficiente.v1','pt-BR','cliente','Refrigeração insuficiente — dissipação abaixo do necessário para a carga.','O computador está esquentando demais. Fale com um tecnico.','["valor_medido","limiar_esperado","probabilidade"]',1,'corpusderiva/ontologia@superuser-dump','corpusderiva/ontologia@superuser-dump', now())
 ON CONFLICT (chave, idioma, nivel, versao) DO UPDATE SET
   titulo=EXCLUDED.titulo, corpo=EXCLUDED.corpo, slots=EXCLUDED.slots,
   revisado_por_automacao=EXCLUDED.revisado_por_automacao, revisado_em=now();
 INSERT INTO text_template (chave, idioma, nivel, titulo, corpo, slots, versao, origem_corpus, revisado_por_automacao, revisado_em)
-VALUES ('lentidao_persistente.driver_incompativel.v1','pt-BR','tecnico','Driver incompatível ou defeituoso para o hardware presente.','Driver incompatível ou defeituoso para o hardware presente. Medimos {valor_medido}; o esperado para esta classe seria {limiar_esperado}. Probabilidade {probabilidade}.','["valor_medido","limiar_esperado","probabilidade"]',1,'corpusderiva/ontologia@superuser-dump','corpusderiva/ontologia@superuser-dump', now())
+VALUES ('lentidao_nao_caracterizada.driver_incompativel.v1','pt-BR','tecnico','Driver incompatível ou defeituoso para o hardware presente.','Driver incompatível ou defeituoso para o hardware presente. Medimos {valor_medido}; o esperado para esta classe seria {limiar_esperado}. Probabilidade {probabilidade}.','["valor_medido","limiar_esperado","probabilidade"]',1,'corpusderiva/ontologia@superuser-dump','corpusderiva/ontologia@superuser-dump', now())
 ON CONFLICT (chave, idioma, nivel, versao) DO UPDATE SET
   titulo=EXCLUDED.titulo, corpo=EXCLUDED.corpo, slots=EXCLUDED.slots,
   revisado_por_automacao=EXCLUDED.revisado_por_automacao, revisado_em=now();
 INSERT INTO text_template (chave, idioma, nivel, titulo, corpo, slots, versao, origem_corpus, revisado_por_automacao, revisado_em)
-VALUES ('lentidao_persistente.driver_incompativel.v1','pt-BR','cliente','Driver incompatível ou defeituoso para o hardware presente.','Um programa de controle de peça está com defeito. Fale com um tecnico.','["valor_medido","limiar_esperado","probabilidade"]',1,'corpusderiva/ontologia@superuser-dump','corpusderiva/ontologia@superuser-dump', now())
+VALUES ('lentidao_nao_caracterizada.driver_incompativel.v1','pt-BR','cliente','Driver incompatível ou defeituoso para o hardware presente.','Um programa de controle de peça está com defeito. Fale com um tecnico.','["valor_medido","limiar_esperado","probabilidade"]',1,'corpusderiva/ontologia@superuser-dump','corpusderiva/ontologia@superuser-dump', now())
+ON CONFLICT (chave, idioma, nivel, versao) DO UPDATE SET
+  titulo=EXCLUDED.titulo, corpo=EXCLUDED.corpo, slots=EXCLUDED.slots,
+  revisado_por_automacao=EXCLUDED.revisado_por_automacao, revisado_em=now();
+INSERT INTO text_template (chave, idioma, nivel, titulo, corpo, slots, versao, origem_corpus, revisado_por_automacao, revisado_em)
+VALUES ('lentidao_profunda.recurso_saturado.v1','pt-BR','tecnico','Recurso saturado — CPU, RAM ou I/O em uso pleno de forma sustentada.','Recurso saturado — CPU, RAM ou I/O em uso pleno de forma sustentada. Medimos {valor_medido}; o esperado para esta classe seria {limiar_esperado}. Probabilidade {probabilidade}.','["valor_medido","limiar_esperado","probabilidade"]',1,'corpusderiva/ontologia@superuser-dump','corpusderiva/ontologia@superuser-dump', now())
+ON CONFLICT (chave, idioma, nivel, versao) DO UPDATE SET
+  titulo=EXCLUDED.titulo, corpo=EXCLUDED.corpo, slots=EXCLUDED.slots,
+  revisado_por_automacao=EXCLUDED.revisado_por_automacao, revisado_em=now();
+INSERT INTO text_template (chave, idioma, nivel, titulo, corpo, slots, versao, origem_corpus, revisado_por_automacao, revisado_em)
+VALUES ('lentidao_profunda.recurso_saturado.v1','pt-BR','cliente','Recurso saturado — CPU, RAM ou I/O em uso pleno de forma sustentada.','O computador está sem folga para o que você usa. Fale com um tecnico.','["valor_medido","limiar_esperado","probabilidade"]',1,'corpusderiva/ontologia@superuser-dump','corpusderiva/ontologia@superuser-dump', now())
+ON CONFLICT (chave, idioma, nivel, versao) DO UPDATE SET
+  titulo=EXCLUDED.titulo, corpo=EXCLUDED.corpo, slots=EXCLUDED.slots,
+  revisado_por_automacao=EXCLUDED.revisado_por_automacao, revisado_em=now();
+INSERT INTO text_template (chave, idioma, nivel, titulo, corpo, slots, versao, origem_corpus, revisado_por_automacao, revisado_em)
+VALUES ('lentidao_profunda.disco_degradado.v1','pt-BR','tecnico','Disco degradado — superfície, controladora ou interface falhando.','Disco degradado — superfície, controladora ou interface falhando. Medimos {valor_medido}; o esperado para esta classe seria {limiar_esperado}. Probabilidade {probabilidade}.','["valor_medido","limiar_esperado","probabilidade"]',1,'corpusderiva/ontologia@superuser-dump','corpusderiva/ontologia@superuser-dump', now())
+ON CONFLICT (chave, idioma, nivel, versao) DO UPDATE SET
+  titulo=EXCLUDED.titulo, corpo=EXCLUDED.corpo, slots=EXCLUDED.slots,
+  revisado_por_automacao=EXCLUDED.revisado_por_automacao, revisado_em=now();
+INSERT INTO text_template (chave, idioma, nivel, titulo, corpo, slots, versao, origem_corpus, revisado_por_automacao, revisado_em)
+VALUES ('lentidao_profunda.disco_degradado.v1','pt-BR','cliente','Disco degradado — superfície, controladora ou interface falhando.','O disco (onde ficam seus arquivos) está falhando. Fale com um tecnico.','["valor_medido","limiar_esperado","probabilidade"]',1,'corpusderiva/ontologia@superuser-dump','corpusderiva/ontologia@superuser-dump', now())
 ON CONFLICT (chave, idioma, nivel, versao) DO UPDATE SET
   titulo=EXCLUDED.titulo, corpo=EXCLUDED.corpo, slots=EXCLUDED.slots,
   revisado_por_automacao=EXCLUDED.revisado_por_automacao, revisado_em=now();
@@ -411,22 +485,22 @@ ON CONFLICT (chave, idioma, nivel, versao) DO UPDATE SET
   titulo=EXCLUDED.titulo, corpo=EXCLUDED.corpo, slots=EXCLUDED.slots,
   revisado_por_automacao=EXCLUDED.revisado_por_automacao, revisado_em=now();
 INSERT INTO text_template (chave, idioma, nivel, titulo, corpo, slots, versao, origem_corpus, revisado_por_automacao, revisado_em)
-VALUES ('trava_sob_carga.software_conflitante.v1','pt-BR','tecnico','Software conflitante — programa ou serviço interferindo no sistema.','Software conflitante — programa ou serviço interferindo no sistema. Medimos {valor_medido}; o esperado para esta classe seria {limiar_esperado}. Probabilidade {probabilidade}.','["valor_medido","limiar_esperado","probabilidade"]',1,'corpusderiva/ontologia@superuser-dump','corpusderiva/ontologia@superuser-dump', now())
-ON CONFLICT (chave, idioma, nivel, versao) DO UPDATE SET
-  titulo=EXCLUDED.titulo, corpo=EXCLUDED.corpo, slots=EXCLUDED.slots,
-  revisado_por_automacao=EXCLUDED.revisado_por_automacao, revisado_em=now();
-INSERT INTO text_template (chave, idioma, nivel, titulo, corpo, slots, versao, origem_corpus, revisado_por_automacao, revisado_em)
-VALUES ('trava_sob_carga.software_conflitante.v1','pt-BR','cliente','Software conflitante — programa ou serviço interferindo no sistema.','Um programa instalado está atrapalhando o sistema. Fale com um tecnico.','["valor_medido","limiar_esperado","probabilidade"]',1,'corpusderiva/ontologia@superuser-dump','corpusderiva/ontologia@superuser-dump', now())
-ON CONFLICT (chave, idioma, nivel, versao) DO UPDATE SET
-  titulo=EXCLUDED.titulo, corpo=EXCLUDED.corpo, slots=EXCLUDED.slots,
-  revisado_por_automacao=EXCLUDED.revisado_por_automacao, revisado_em=now();
-INSERT INTO text_template (chave, idioma, nivel, titulo, corpo, slots, versao, origem_corpus, revisado_por_automacao, revisado_em)
 VALUES ('trava_sob_carga.memoria_instavel.v1','pt-BR','tecnico','Memória instável — erro de leitura/escrita em RAM sob carga.','Memória instável — erro de leitura/escrita em RAM sob carga. Medimos {valor_medido}; o esperado para esta classe seria {limiar_esperado}. Probabilidade {probabilidade}.','["valor_medido","limiar_esperado","probabilidade"]',1,'corpusderiva/ontologia@superuser-dump','corpusderiva/ontologia@superuser-dump', now())
 ON CONFLICT (chave, idioma, nivel, versao) DO UPDATE SET
   titulo=EXCLUDED.titulo, corpo=EXCLUDED.corpo, slots=EXCLUDED.slots,
   revisado_por_automacao=EXCLUDED.revisado_por_automacao, revisado_em=now();
 INSERT INTO text_template (chave, idioma, nivel, titulo, corpo, slots, versao, origem_corpus, revisado_por_automacao, revisado_em)
 VALUES ('trava_sob_carga.memoria_instavel.v1','pt-BR','cliente','Memória instável — erro de leitura/escrita em RAM sob carga.','A memória do computador está com defeito. Fale com um tecnico.','["valor_medido","limiar_esperado","probabilidade"]',1,'corpusderiva/ontologia@superuser-dump','corpusderiva/ontologia@superuser-dump', now())
+ON CONFLICT (chave, idioma, nivel, versao) DO UPDATE SET
+  titulo=EXCLUDED.titulo, corpo=EXCLUDED.corpo, slots=EXCLUDED.slots,
+  revisado_por_automacao=EXCLUDED.revisado_por_automacao, revisado_em=now();
+INSERT INTO text_template (chave, idioma, nivel, titulo, corpo, slots, versao, origem_corpus, revisado_por_automacao, revisado_em)
+VALUES ('trava_sob_carga.software_conflitante.v1','pt-BR','tecnico','Software conflitante — programa ou serviço interferindo no sistema.','Software conflitante — programa ou serviço interferindo no sistema. Medimos {valor_medido}; o esperado para esta classe seria {limiar_esperado}. Probabilidade {probabilidade}.','["valor_medido","limiar_esperado","probabilidade"]',1,'corpusderiva/ontologia@superuser-dump','corpusderiva/ontologia@superuser-dump', now())
+ON CONFLICT (chave, idioma, nivel, versao) DO UPDATE SET
+  titulo=EXCLUDED.titulo, corpo=EXCLUDED.corpo, slots=EXCLUDED.slots,
+  revisado_por_automacao=EXCLUDED.revisado_por_automacao, revisado_em=now();
+INSERT INTO text_template (chave, idioma, nivel, titulo, corpo, slots, versao, origem_corpus, revisado_por_automacao, revisado_em)
+VALUES ('trava_sob_carga.software_conflitante.v1','pt-BR','cliente','Software conflitante — programa ou serviço interferindo no sistema.','Um programa instalado está atrapalhando o sistema. Fale com um tecnico.','["valor_medido","limiar_esperado","probabilidade"]',1,'corpusderiva/ontologia@superuser-dump','corpusderiva/ontologia@superuser-dump', now())
 ON CONFLICT (chave, idioma, nivel, versao) DO UPDATE SET
   titulo=EXCLUDED.titulo, corpo=EXCLUDED.corpo, slots=EXCLUDED.slots,
   revisado_por_automacao=EXCLUDED.revisado_por_automacao, revisado_em=now();
@@ -457,6 +531,66 @@ ON CONFLICT (chave, idioma, nivel, versao) DO UPDATE SET
   revisado_por_automacao=EXCLUDED.revisado_por_automacao, revisado_em=now();
 INSERT INTO text_template (chave, idioma, nivel, titulo, corpo, slots, versao, origem_corpus, revisado_por_automacao, revisado_em)
 VALUES ('trava_sob_carga.driver_incompativel.v1','pt-BR','cliente','Driver incompatível ou defeituoso para o hardware presente.','Um programa de controle de peça está com defeito. Fale com um tecnico.','["valor_medido","limiar_esperado","probabilidade"]',1,'corpusderiva/ontologia@superuser-dump','corpusderiva/ontologia@superuser-dump', now())
+ON CONFLICT (chave, idioma, nivel, versao) DO UPDATE SET
+  titulo=EXCLUDED.titulo, corpo=EXCLUDED.corpo, slots=EXCLUDED.slots,
+  revisado_por_automacao=EXCLUDED.revisado_por_automacao, revisado_em=now();
+INSERT INTO text_template (chave, idioma, nivel, titulo, corpo, slots, versao, origem_corpus, revisado_por_automacao, revisado_em)
+VALUES ('lentidao_intermitente.software_conflitante.v1','pt-BR','tecnico','Software conflitante — programa ou serviço interferindo no sistema.','Software conflitante — programa ou serviço interferindo no sistema. Medimos {valor_medido}; o esperado para esta classe seria {limiar_esperado}. Probabilidade {probabilidade}.','["valor_medido","limiar_esperado","probabilidade"]',1,'corpusderiva/ontologia@superuser-dump','corpusderiva/ontologia@superuser-dump', now())
+ON CONFLICT (chave, idioma, nivel, versao) DO UPDATE SET
+  titulo=EXCLUDED.titulo, corpo=EXCLUDED.corpo, slots=EXCLUDED.slots,
+  revisado_por_automacao=EXCLUDED.revisado_por_automacao, revisado_em=now();
+INSERT INTO text_template (chave, idioma, nivel, titulo, corpo, slots, versao, origem_corpus, revisado_por_automacao, revisado_em)
+VALUES ('lentidao_intermitente.software_conflitante.v1','pt-BR','cliente','Software conflitante — programa ou serviço interferindo no sistema.','Um programa instalado está atrapalhando o sistema. Fale com um tecnico.','["valor_medido","limiar_esperado","probabilidade"]',1,'corpusderiva/ontologia@superuser-dump','corpusderiva/ontologia@superuser-dump', now())
+ON CONFLICT (chave, idioma, nivel, versao) DO UPDATE SET
+  titulo=EXCLUDED.titulo, corpo=EXCLUDED.corpo, slots=EXCLUDED.slots,
+  revisado_por_automacao=EXCLUDED.revisado_por_automacao, revisado_em=now();
+INSERT INTO text_template (chave, idioma, nivel, titulo, corpo, slots, versao, origem_corpus, revisado_por_automacao, revisado_em)
+VALUES ('lentidao_intermitente.recurso_saturado.v1','pt-BR','tecnico','Recurso saturado — CPU, RAM ou I/O em uso pleno de forma sustentada.','Recurso saturado — CPU, RAM ou I/O em uso pleno de forma sustentada. Medimos {valor_medido}; o esperado para esta classe seria {limiar_esperado}. Probabilidade {probabilidade}.','["valor_medido","limiar_esperado","probabilidade"]',1,'corpusderiva/ontologia@superuser-dump','corpusderiva/ontologia@superuser-dump', now())
+ON CONFLICT (chave, idioma, nivel, versao) DO UPDATE SET
+  titulo=EXCLUDED.titulo, corpo=EXCLUDED.corpo, slots=EXCLUDED.slots,
+  revisado_por_automacao=EXCLUDED.revisado_por_automacao, revisado_em=now();
+INSERT INTO text_template (chave, idioma, nivel, titulo, corpo, slots, versao, origem_corpus, revisado_por_automacao, revisado_em)
+VALUES ('lentidao_intermitente.recurso_saturado.v1','pt-BR','cliente','Recurso saturado — CPU, RAM ou I/O em uso pleno de forma sustentada.','O computador está sem folga para o que você usa. Fale com um tecnico.','["valor_medido","limiar_esperado","probabilidade"]',1,'corpusderiva/ontologia@superuser-dump','corpusderiva/ontologia@superuser-dump', now())
+ON CONFLICT (chave, idioma, nivel, versao) DO UPDATE SET
+  titulo=EXCLUDED.titulo, corpo=EXCLUDED.corpo, slots=EXCLUDED.slots,
+  revisado_por_automacao=EXCLUDED.revisado_por_automacao, revisado_em=now();
+INSERT INTO text_template (chave, idioma, nivel, titulo, corpo, slots, versao, origem_corpus, revisado_por_automacao, revisado_em)
+VALUES ('lentidao_intermitente.refrigeracao_insuficiente.v1','pt-BR','tecnico','Refrigeração insuficiente — dissipação abaixo do necessário para a carga.','Refrigeração insuficiente — dissipação abaixo do necessário para a carga. Medimos {valor_medido}; o esperado para esta classe seria {limiar_esperado}. Probabilidade {probabilidade}.','["valor_medido","limiar_esperado","probabilidade"]',1,'corpusderiva/ontologia@superuser-dump','corpusderiva/ontologia@superuser-dump', now())
+ON CONFLICT (chave, idioma, nivel, versao) DO UPDATE SET
+  titulo=EXCLUDED.titulo, corpo=EXCLUDED.corpo, slots=EXCLUDED.slots,
+  revisado_por_automacao=EXCLUDED.revisado_por_automacao, revisado_em=now();
+INSERT INTO text_template (chave, idioma, nivel, titulo, corpo, slots, versao, origem_corpus, revisado_por_automacao, revisado_em)
+VALUES ('lentidao_intermitente.refrigeracao_insuficiente.v1','pt-BR','cliente','Refrigeração insuficiente — dissipação abaixo do necessário para a carga.','O computador está esquentando demais. Fale com um tecnico.','["valor_medido","limiar_esperado","probabilidade"]',1,'corpusderiva/ontologia@superuser-dump','corpusderiva/ontologia@superuser-dump', now())
+ON CONFLICT (chave, idioma, nivel, versao) DO UPDATE SET
+  titulo=EXCLUDED.titulo, corpo=EXCLUDED.corpo, slots=EXCLUDED.slots,
+  revisado_por_automacao=EXCLUDED.revisado_por_automacao, revisado_em=now();
+INSERT INTO text_template (chave, idioma, nivel, titulo, corpo, slots, versao, origem_corpus, revisado_por_automacao, revisado_em)
+VALUES ('lentidao_intermitente.driver_incompativel.v1','pt-BR','tecnico','Driver incompatível ou defeituoso para o hardware presente.','Driver incompatível ou defeituoso para o hardware presente. Medimos {valor_medido}; o esperado para esta classe seria {limiar_esperado}. Probabilidade {probabilidade}.','["valor_medido","limiar_esperado","probabilidade"]',1,'corpusderiva/ontologia@superuser-dump','corpusderiva/ontologia@superuser-dump', now())
+ON CONFLICT (chave, idioma, nivel, versao) DO UPDATE SET
+  titulo=EXCLUDED.titulo, corpo=EXCLUDED.corpo, slots=EXCLUDED.slots,
+  revisado_por_automacao=EXCLUDED.revisado_por_automacao, revisado_em=now();
+INSERT INTO text_template (chave, idioma, nivel, titulo, corpo, slots, versao, origem_corpus, revisado_por_automacao, revisado_em)
+VALUES ('lentidao_intermitente.driver_incompativel.v1','pt-BR','cliente','Driver incompatível ou defeituoso para o hardware presente.','Um programa de controle de peça está com defeito. Fale com um tecnico.','["valor_medido","limiar_esperado","probabilidade"]',1,'corpusderiva/ontologia@superuser-dump','corpusderiva/ontologia@superuser-dump', now())
+ON CONFLICT (chave, idioma, nivel, versao) DO UPDATE SET
+  titulo=EXCLUDED.titulo, corpo=EXCLUDED.corpo, slots=EXCLUDED.slots,
+  revisado_por_automacao=EXCLUDED.revisado_por_automacao, revisado_em=now();
+INSERT INTO text_template (chave, idioma, nivel, titulo, corpo, slots, versao, origem_corpus, revisado_por_automacao, revisado_em)
+VALUES ('lentidao_profunda.memoria_instavel.v1','pt-BR','tecnico','Memória instável — erro de leitura/escrita em RAM sob carga.','Memória instável — erro de leitura/escrita em RAM sob carga. Medimos {valor_medido}; o esperado para esta classe seria {limiar_esperado}. Probabilidade {probabilidade}.','["valor_medido","limiar_esperado","probabilidade"]',1,'corpusderiva/ontologia@superuser-dump','corpusderiva/ontologia@superuser-dump', now())
+ON CONFLICT (chave, idioma, nivel, versao) DO UPDATE SET
+  titulo=EXCLUDED.titulo, corpo=EXCLUDED.corpo, slots=EXCLUDED.slots,
+  revisado_por_automacao=EXCLUDED.revisado_por_automacao, revisado_em=now();
+INSERT INTO text_template (chave, idioma, nivel, titulo, corpo, slots, versao, origem_corpus, revisado_por_automacao, revisado_em)
+VALUES ('lentidao_profunda.memoria_instavel.v1','pt-BR','cliente','Memória instável — erro de leitura/escrita em RAM sob carga.','A memória do computador está com defeito. Fale com um tecnico.','["valor_medido","limiar_esperado","probabilidade"]',1,'corpusderiva/ontologia@superuser-dump','corpusderiva/ontologia@superuser-dump', now())
+ON CONFLICT (chave, idioma, nivel, versao) DO UPDATE SET
+  titulo=EXCLUDED.titulo, corpo=EXCLUDED.corpo, slots=EXCLUDED.slots,
+  revisado_por_automacao=EXCLUDED.revisado_por_automacao, revisado_em=now();
+INSERT INTO text_template (chave, idioma, nivel, titulo, corpo, slots, versao, origem_corpus, revisado_por_automacao, revisado_em)
+VALUES ('lentidao_profunda.software_conflitante.v1','pt-BR','tecnico','Software conflitante — programa ou serviço interferindo no sistema.','Software conflitante — programa ou serviço interferindo no sistema. Medimos {valor_medido}; o esperado para esta classe seria {limiar_esperado}. Probabilidade {probabilidade}.','["valor_medido","limiar_esperado","probabilidade"]',1,'corpusderiva/ontologia@superuser-dump','corpusderiva/ontologia@superuser-dump', now())
+ON CONFLICT (chave, idioma, nivel, versao) DO UPDATE SET
+  titulo=EXCLUDED.titulo, corpo=EXCLUDED.corpo, slots=EXCLUDED.slots,
+  revisado_por_automacao=EXCLUDED.revisado_por_automacao, revisado_em=now();
+INSERT INTO text_template (chave, idioma, nivel, titulo, corpo, slots, versao, origem_corpus, revisado_por_automacao, revisado_em)
+VALUES ('lentidao_profunda.software_conflitante.v1','pt-BR','cliente','Software conflitante — programa ou serviço interferindo no sistema.','Um programa instalado está atrapalhando o sistema. Fale com um tecnico.','["valor_medido","limiar_esperado","probabilidade"]',1,'corpusderiva/ontologia@superuser-dump','corpusderiva/ontologia@superuser-dump', now())
 ON CONFLICT (chave, idioma, nivel, versao) DO UPDATE SET
   titulo=EXCLUDED.titulo, corpo=EXCLUDED.corpo, slots=EXCLUDED.slots,
   revisado_por_automacao=EXCLUDED.revisado_por_automacao, revisado_em=now();

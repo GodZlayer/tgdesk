@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import 'api_client.dart';
 import 'control_channel.dart';
 import 'diagnostico_modelo.dart';
 import 'diagnostico_telas.dart';
@@ -47,7 +48,7 @@ class DiagnosticoPage extends StatelessWidget {
               ]),
             ),
             body: TabBarView(children: [
-              _PreVooDoCanal(dossie: dossie),
+              _PreVooDoCanal(dossie: dossie, deviceId: deviceId),
               // Sem escada (B2) não há execução para pausar ou cancelar. As
               // ações existem no contrato da tela e ficam inertes até a escada
               // existir — melhor um botão que não faz nada visível do que uma
@@ -107,14 +108,49 @@ ResultadoDoDiagnostico? _resultadoDoCanal(Map<String, dynamic>? dossie) {
 /// ausência da estimativa de duração é DECLARADA, não escondida — §10.5.1 exige
 /// um bloco explícito do que não se sabe, e é ele que impede a leitura de
 /// veredito.
-class _PreVooDoCanal extends StatelessWidget {
-  const _PreVooDoCanal({required this.dossie});
+class _PreVooDoCanal extends StatefulWidget {
+  const _PreVooDoCanal({required this.dossie, required this.deviceId});
 
   final Map<String, dynamic>? dossie;
+  final String deviceId;
+
+  @override
+  State<_PreVooDoCanal> createState() => _PreVooDoCanalState();
+}
+
+class _PreVooDoCanalState extends State<_PreVooDoCanal> {
+  bool _executando = false;
+
+  /// A AÇÃO ÚNICA (§10.1).
+  ///
+  /// O supervisor não escolhe teste — escolhe *executar*. O menu de 32 itens
+  /// não some do produto: ele vira a composição interna desta ação, na ordem
+  /// fixa que o agente já implementa em `all_tests`. Escolher entre 32 caixas
+  /// de seleção nunca foi decisão do técnico; era trabalho que o produto
+  /// empurrava para ele.
+  Future<void> _executarTesteCompleto() async {
+    setState(() => _executando = true);
+    try {
+      await TgdeskApi.startDiagnostic(widget.deviceId, 'all_tests');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
+          content: Text('Teste completo iniciado — acompanhe na aba Execução.'),
+        ));
+        DefaultTabController.of(context).animateTo(1);
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('Não foi possível iniciar: $e')));
+      }
+    } finally {
+      if (mounted) setState(() => _executando = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final d = dossie;
+    final d = widget.dossie;
     if (d == null) {
       return const Center(
         child: Padding(
@@ -129,6 +165,7 @@ class _PreVooDoCanal extends StatelessWidget {
     }
 
     final evidencias = (d['evidencias'] ?? const []) as List;
+    final medidaQueFalta = (d['medida_que_falta'] ?? '') as String;
     final status = (d['status'] ?? '') as String;
     final motor = (d['motor'] ?? '') as String;
     final sombra = d['sombra'] as Map?;
@@ -174,16 +211,58 @@ class _PreVooDoCanal extends StatelessWidget {
       // veredito (§10.5.1, campo 4).
       Card(
         color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        child: const Padding(
-          padding: EdgeInsets.all(12),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
           child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
-            Text('O que não se sabe',
+            const Text('O que não se sabe',
                 style: TextStyle(fontWeight: FontWeight.bold)),
-            SizedBox(height: 4),
-            Text('Comportamento sob carga: nenhum teste foi executado. '
-                'Sem escada não existe limiar, então nada aqui é veredito.'),
+            const SizedBox(height: 4),
+            const Text('Comportamento sob carga: nenhum teste foi executado. '
+                'Sem teste não existe limiar, então nada aqui é veredito.'),
+            // A lacuna NOMEADA. Quando o dossiê não consegue decidir, dizer
+            // qual medida faltou vale mais que escolher a hipótese menos
+            // improvável — e é o que separa "não sei" de "não meço".
+            if (medidaQueFalta.isNotEmpty) ...[
+              const SizedBox(height: 8),
+              Row(crossAxisAlignment: CrossAxisAlignment.start, children: [
+                const Icon(Icons.rule, size: 16, color: TgdeskColors.primary),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    'Medida que falta para decidir: ${_medidaEmPortugues(medidaQueFalta)}',
+                    style: const TextStyle(fontWeight: FontWeight.w500),
+                  ),
+                ),
+              ]),
+            ],
           ]),
         ),
+      ),
+
+      const SizedBox(height: 16),
+
+      // A AÇÃO ÚNICA. Um botão, não um menu (§10.1).
+      SizedBox(
+        width: double.infinity,
+        child: FilledButton.icon(
+          onPressed: _executando ? null : _executarTesteCompleto,
+          icon: _executando
+              ? const SizedBox(
+                  width: 16, height: 16,
+                  child: CircularProgressIndicator(strokeWidth: 2))
+              : const Icon(Icons.play_arrow),
+          label: Text(_executando
+              ? 'Iniciando…'
+              : 'Executar teste completo'),
+        ),
+      ),
+      const SizedBox(height: 6),
+      Text(
+        'Roda a bateria inteira em ordem fixa — sistema, processamento, '
+        'memória, rede, armazenamento, vídeo, energia e térmico. Você não '
+        'escolhe testes: o resultado é comparável entre execuções porque a '
+        'composição é sempre a mesma.',
+        style: Theme.of(context).textTheme.bodySmall,
       ),
 
       // A calibração visível (§10.5.3) e a suposição da rede em sombra
@@ -216,5 +295,25 @@ class _PreVooDoCanal extends StatelessWidget {
         ),
       ],
     ]);
+  }
+}
+
+/// Traduz o código da medida que falta para linguagem de tela.
+///
+/// O código é estável e serve à auditoria; a frase serve a quem lê. Manter os
+/// dois separados é a mesma regra do resto do produto — o cliente nunca compõe
+/// diagnóstico, mas pode nomear uma lacuna, porque lacuna não é veredito.
+String _medidaEmPortugues(String codigo) {
+  switch (codigo) {
+    case 'tempo_de_disco_ocupado_e_latencia_io':
+      return 'tempo de disco ocupado e latência de leitura/escrita — '
+          'hoje medimos só a OCUPAÇÃO do disco, que é quanto está cheio, '
+          'não quanto ele demora para responder';
+    case 'historico_de_pressao':
+      return 'histórico de pressão de recursos (ainda não há amostras suficientes)';
+    case 'duracao_do_episodio':
+      return 'quanto tempo cada episódio de lentidão dura';
+    default:
+      return codigo;
   }
 }

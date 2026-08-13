@@ -157,12 +157,23 @@ void main() {
       expect(TgdeskDiagnosticPolicy.loadErrorMessage(Exception('offline')),
           contains('Tente novamente'));
 
-      final dialog =
-          File('lib/tgdesk/diagnostics_dialog.dart').readAsStringSync();
-      expect(dialog, contains('finally {'));
-      expect(dialog, contains('setState(() => _loading = false)'));
-      expect(dialog, contains("label: const Text('Tentar novamente')"));
-      expect(dialog, contains('Nenhum teste'));
+      // O menu de 32 testes foi aposentado: o diagnostico agora e UMA acao
+      // (S10.1), na DiagnosticoPage. O que este teste protege continua sendo o
+      // mesmo — a tela nunca fica presa em "executando", e o erro diz o que
+      // aconteceu em vez de sumir.
+      final pagina =
+          File('lib/tgdesk/diagnostico_page.dart').readAsStringSync();
+      expect(pagina, contains('finally {'));
+      expect(pagina, contains('setState(() => _executando = false)'));
+      expect(pagina, contains('Não foi possível iniciar'));
+
+      // A acao e unica: um botao, nao uma lista de testes para escolher.
+      expect(pagina, contains("'all_tests'"));
+      expect(pagina, contains('Executar teste completo'));
+
+      // E o menu antigo nao volta pela porta dos fundos.
+      expect(File('lib/tgdesk/diagnostics_dialog.dart').existsSync(), isFalse,
+          reason: 'o menu de 32 testes foi substituido pela acao unica');
     });
 
     test('rejects destructive storage tests', () {

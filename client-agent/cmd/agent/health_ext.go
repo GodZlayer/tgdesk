@@ -16,6 +16,11 @@ type HardwareSnapshot struct {
 	MemorySummary MemorySummary    `json:"memory_summary"`
 	Storage       []StorageReading `json:"storage"`
 	Networks      []NetworkReading `json:"networks"`
+	// Atividade agregada do subsistema de disco (_Total). Fica fora de
+	// `Storage` de propósito: aquilo é por peça, e o contador do Windows que
+	// mede atividade é por VOLUME/instância, não por disco físico. Reportar
+	// como se fosse da peça seria atribuir uma medida ao objeto errado.
+	DiskActivity *DiskActivity `json:"disk_activity,omitempty"`
 }
 
 type CPUReading struct {
@@ -85,6 +90,32 @@ type StorageReading struct {
 	LifePct     *float64        `json:"life_pct,omitempty"`
 	Temperature *float64        `json:"temperature,omitempty"`
 	Volumes     []VolumeReading `json:"volumes,omitempty"`
+}
+
+// DiskActivity é a medida que faltava para explicar lentidão profunda.
+//
+// `used_pct` acima diz o quanto o disco está CHEIO. Isso não explica lentidão —
+// disco cheio e disco lento são coisas diferentes, e o parque provou: a máquina
+// com a lentidão mais severa tinha CPU e memória tranquilas e nenhum sinal
+// coletado a explicava. O que falta é ATIVIDADE:
+//
+//	busy_pct   fração do tempo em que o disco não esteve ocioso
+//	latency_ms tempo médio por transferência
+//
+// São essas duas que separam "o computador engasga porque um processo tomou a
+// CPU por 3 segundos" de "tudo está lento porque cada leitura demora 40 ms".
+// A primeira se resolve controlando o processo; a segunda, trocando a peça.
+type DiskActivity struct {
+	// Média sobre a janela de amostragem, em porcentagem.
+	BusyPct *float64 `json:"busy_pct,omitempty"`
+	// Latência média por transferência, em milissegundos.
+	LatencyMs *float64 `json:"latency_ms,omitempty"`
+	// Comprimento médio da fila. Fila alta com latência baixa é carga; fila
+	// alta com latência alta é o disco não dando conta.
+	QueueLength *float64 `json:"queue_length,omitempty"`
+	// Quantas amostras sustentam a média. Sem isso não dá para distinguir
+	// "medido e baixo" de "quase não medido" — e ausência é informação.
+	Samples int `json:"samples"`
 }
 
 type NetworkReading struct {
@@ -171,12 +202,50 @@ $nets=@(Get-NetAdapter -Physical | ForEach-Object {
   $s=$_|Get-NetAdapterStatistics
   [ordered]@{id="$($_.InterfaceGuid)";name="$($_.Name)";description="$($_.InterfaceDescription)";status="$($_.Status)";link_speed_bps=[uint64]$_.TransmitLinkSpeed;rx_bytes_total=[uint64]$s.ReceivedBytes;tx_bytes_total=[uint64]$s.SentBytes}
 })
+$diskActivity=$null
+try {
+  # ATIVIDADE do disco, nao ocupacao. Sao coisas diferentes, e so esta explica
+  # lentidao: um disco 97% cheio pode estar rapido, e um disco vazio pode estar
+  # levando 40 ms por leitura.
+  #
+  # Duas decisoes que custaram tentativa errada antes de acertar:
+  #
+  # 1. CIM, nunca Get-Counter. Nome de contador no Get-Counter e LOCALIZADO —
+  #    "\PhysicalDisk(_Total)\% Idle Time" nao existe em Windows portugues, e
+  #    falharia calado justamente nas maquinas do parque. A classe CIM tem
+  #    nome neutro de idioma, e e o padrao que o resto deste script ja segue.
+  #
+  # 2. Latencia pelo contador CRU, por DIFERENCA entre duas amostras. O valor
+  #    "formatado" de AvgDisksecPerTransfer e inteiro em SEGUNDOS: latencia de
+  #    disco e sub-segundo, entao ele trunca para 0 sempre e seria uma medida
+  #    que so parece medida. E o acumulado desde o boot esconderia um disco que
+  #    ficou lento na semana passada.
+  $a=Get-CimInstance Win32_PerfRawData_PerfDisk_PhysicalDisk -Filter "Name='_Total'" | Select-Object -First 1
+  Start-Sleep -Milliseconds 1000
+  $b=Get-CimInstance Win32_PerfRawData_PerfDisk_PhysicalDisk -Filter "Name='_Total'" | Select-Object -First 1
+  $fmt=Get-CimInstance Win32_PerfFormattedData_PerfDisk_PhysicalDisk -Filter "Name='_Total'" | Select-Object -First 1
+  if($null -ne $fmt){
+    $ops=[double]$b.AvgDisksecPerTransfer_Base-[double]$a.AvgDisksecPerTransfer_Base
+    $tempo=[double]$b.AvgDisksecPerTransfer-[double]$a.AvgDisksecPerTransfer
+    $freq=[double]$b.Frequency_PerfTime
+    # Disco ocioso na janela: latencia fica AUSENTE, nunca zero. Zero diria
+    # "respondeu instantaneamente", e ninguem mediu nada.
+    $lat=$null
+    if($ops -gt 0 -and $freq -gt 0){ $lat=[math]::Round(($tempo/$ops)/$freq*1000,3) }
+    $diskActivity=[ordered]@{
+      busy_pct=[math]::Round([math]::Max(0,[math]::Min(100,100-[double]$fmt.PercentIdleTime)),2)
+      latency_ms=$lat
+      queue_length=[double]$fmt.CurrentDiskQueueLength
+      samples=[int]$ops
+    }
+  }
+} catch {}
 [ordered]@{
  cpu=[ordered]@{name="$($cpu.Name)".Trim();usage=$cpuUsage;temperature=$null;clock_mhz=$cpuClock;base_clock_mhz=$cpuBase;performance_percent=$cpuPerformance;dpc_time_percent=$cpuDpc;interrupt_time_percent=$cpuInterrupt;queue_length=$cpuQueue;measurement_source='Windows Processor Performance Counters'}
  gpus=$gpus
  memory=$dimms
  memory_summary=[ordered]@{total_bytes=$memoryTotal;used_bytes=$memoryUsed;available_bytes=$memoryAvailable;usage=[math]::Round($memoryLoad*100,2);commit_used_bytes=$commitUsed;commit_limit_bytes=$commitLimit}
- storage=$storage;networks=$nets
+ storage=$storage;networks=$nets;disk_activity=$diskActivity
 }|ConvertTo-Json -Depth 6 -Compress
 `
 

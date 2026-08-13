@@ -10,7 +10,7 @@ import 'api_client.dart';
 import 'diagnostic_text.dart';
 import 'health_text.dart';
 import 'control_channel.dart';
-import 'diagnostics_dialog.dart';
+import 'diagnostico_page.dart';
 import 'os_builder_page.dart';
 import 'remote_session_page.dart';
 import 'support_contract.dart';
@@ -1248,7 +1248,7 @@ class _SupportPageState extends State<SupportPage> {
   }
 
   /// Botão "Testes autorizados": mesma checagem de permissão, mas para
-  /// allow_analysis, abrindo o mesmo DiagnosticDialog usado em
+  /// allow_analysis, abrindo a mesma DiagnosticoPage usada em
   /// devices_page.dart / remote_session_page.dart.
   Future<void> _openAuthorizedDiagnostics(Map<String, dynamic> ticket) async {
     await _action(() async {
@@ -1272,14 +1272,12 @@ class _SupportPageState extends State<SupportPage> {
               ? device!['display_name'].toString()
               : (device?['hostname']?.toString() ?? 'Dispositivo');
       if (!mounted) return;
-      await showDialog<void>(
-        context: context,
-        builder: (_) => DiagnosticDialog(
+      await Navigator.of(context).push(MaterialPageRoute<void>(
+        builder: (_) => DiagnosticoPage(
           deviceId: deviceId,
           deviceName: deviceName,
-          online: device?['presence']?.toString() == 'online',
         ),
-      );
+      ));
     });
   }
 
