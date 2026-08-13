@@ -183,6 +183,9 @@ func runDeviceControlLoop(cfg *agentConfig, remoteReady bool) error {
 	// Vive no processo, não na conexão: a trava costuma derrubar o canal, e um
 	// buffer que morresse junto perderia o contexto do evento.
 	ringTrava := ringBufferDeTrava()
+	// Canal com folga de 1: a coleta entrega e segue, sem esperar o laço.
+	telemetriaPronta := make(chan HardwareSnapshot, 1)
+	coletando := false
 	defer heartbeatTick.Stop()
 	defer telemetryTick.Stop()
 	defer remoteRetryTick.Stop()
@@ -361,7 +364,38 @@ func runDeviceControlLoop(cfg *agentConfig, remoteReady bool) error {
 				writeCurrentStatus()
 			}
 		case <-telemetryTick.C:
-			hardware = collectHardwareSnapshot()
+			// A coleta sai do laço, e isso NÃO é otimização — é correção de um
+			// defeito que envenenava o diagnóstico.
+			//
+			// `collectHardwareSnapshot` roda um script PowerShell com várias
+			// consultas CIM e leva de 9 a 13 segundos. Rodando aqui dentro, ela
+			// segurava o `select` inteiro — e o pulso de 2 Hz parava junto. O
+			// servidor, que mede trava justamente pelo buraco entre pulsos,
+			// abria um evento de travamento a cada 30 s, em toda máquina.
+			//
+			// Eram ~250 travas falsas por máquina por hora, em cima do ÚNICO
+			// sinal capaz de detectar congelamento real. O detector de travas
+			// estava medindo a própria coleta de telemetria.
+			//
+			// `coletando` impede acúmulo: se uma coleta demorar mais que o
+			// intervalo, a próxima é pulada em vez de empilhar goroutines.
+			if !coletando {
+				coletando = true
+				go func() {
+					h := collectHardwareSnapshot()
+					select {
+					case telemetriaPronta <- h:
+					case <-time.After(5 * time.Second):
+						// Ninguém para receber: a conexão caiu no meio da
+						// coleta. Descartar é certo — o dado seria enviado num
+						// canal que não existe mais.
+					}
+				}()
+			}
+
+		case h := <-telemetriaPronta:
+			coletando = false
+			hardware = h
 			collectedAt = time.Now().UTC().Format(time.RFC3339)
 			writeCurrentStatus()
 			payload, _ := json.Marshal(map[string]any{"hardware": hardware})
