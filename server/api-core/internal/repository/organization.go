@@ -7,11 +7,11 @@ import (
 )
 
 type OrganizationFilter struct {
-	Status      *string
-	OwnerID     *string
+	Status       *string
+	OwnerID      *string
 	TechnicianID *string
-	Limit       int
-	Offset      int
+	Limit        int
+	Offset       int
 }
 
 type OrganizationRepository interface {

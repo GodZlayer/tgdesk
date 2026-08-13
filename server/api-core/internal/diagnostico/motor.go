@@ -225,7 +225,7 @@ func faixaDeConfianca(prob float64, nCasos int) (float64, float64) {
 	if nCasos > 0 {
 		margem = math.Min(0.35, 1.0/math.Sqrt(float64(nCasos)))
 	}
-	return math.Max(0, prob - margem), math.Min(1, prob + margem)
+	return math.Max(0, prob-margem), math.Min(1, prob+margem)
 }
 
 // deveAbster: abstenção é resposta de primeira classe (§10.7), não erro.

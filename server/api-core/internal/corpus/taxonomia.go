@@ -223,10 +223,10 @@ var Catalogo = []Problema{
 		Cliente:       "O disco está quase cheio, e isso deixa tudo mais devagar.",
 	},
 	{
-		Codigo: "processo_em_segundo_plano", Tipo: TipoRecursoEsgotado, Medida: MedidaConstruir,
-		Discriminador: "um processo identificável consumindo o recurso durante o episódio",
+		Codigo: "processo_em_segundo_plano", Tipo: TipoRecursoEsgotado, Medida: MedidaExiste,
+		Discriminador: "um processo identificável respondendo pela maior parte do consumo",
 		Acao:          "identificar o processo e controlar horário, configuração ou remoção",
-		Sinais:        []string{"processo_pesado"},
+		Sinais:        []string{"processo_dominante", "processo_pesado"},
 		Produz:        []string{"lentidao_intermitente", "lentidao_profunda"},
 		Tecnico:       "Processo ou serviço em segundo plano consumindo recurso.",
 		Cliente:       "Um programa trabalhando escondido está consumindo o computador.",

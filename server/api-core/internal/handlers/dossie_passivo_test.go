@@ -1,6 +1,9 @@
 package handlers
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 // O que estes testes protegem não é a extração em si: é a diferença entre
 // "medida ausente" e "medida zero", que é onde um dossiê passivo vira mentira
@@ -150,5 +153,37 @@ func TestDiscoRapidoNaoAcusaNada(t *testing.T) {
 	ev := sinaisDoHardware([]byte(`{"disk_activity":{"busy_pct":3,"latency_ms":1.4,"queue_length":0,"samples":18}}`))
 	if len(ev) != 0 {
 		t.Fatalf("disco saudável gerou evidência: %+v", ev)
+	}
+}
+
+func TestProcessoDominanteApontaOProcesso(t *testing.T) {
+	// A causa que o catálogo listava como não-detectável até agora. O que
+	// importa aqui não é só o sinal: é o NOME do processo aparecer no literal,
+	// porque a conduta é "achar e controlar ESTE programa" — sem o nome, a
+	// causa não é acionável.
+	ev := sinaisDoHardware([]byte(`{"top_processos":[{"nome":"MsMpEng","cpu_pct":62.5,"memoria_mb":800}]}`))
+	achou := false
+	for _, e := range ev {
+		if e.Sinal == "processo_dominante" {
+			achou = true
+			if !strings.Contains(e.Literal, "MsMpEng") {
+				t.Fatalf("evidência não nomeia o processo: %q", e.Literal)
+			}
+		}
+	}
+	if !achou {
+		t.Fatal("processo a 62% da CPU não produziu evidência")
+	}
+	if s := statusProvavel(ev); s != "lentidao_intermitente" {
+		t.Fatalf("processo dominante devia indicar engasgo, veio %q", s)
+	}
+}
+
+func TestProcessoNormalNaoAcusaNada(t *testing.T) {
+	// Todo computador tem processos rodando. Só domínio vira evidência — do
+	// contrário o dossiê acusaria uma causa em toda máquina ligada.
+	ev := sinaisDoHardware([]byte(`{"top_processos":[{"nome":"explorer","cpu_pct":3.2,"memoria_mb":180}]}`))
+	if len(ev) != 0 {
+		t.Fatalf("processo normal gerou evidência: %+v", ev)
 	}
 }

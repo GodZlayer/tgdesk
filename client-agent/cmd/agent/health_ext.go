@@ -21,6 +21,35 @@ type HardwareSnapshot struct {
 	// mede atividade é por VOLUME/instância, não por disco físico. Reportar
 	// como se fosse da peça seria atribuir uma medida ao objeto errado.
 	DiskActivity *DiskActivity `json:"disk_activity,omitempty"`
+	// Os processos que mais consomem, no instante da amostra (§7.1).
+	//
+	// É a medida que faltava para `processo_em_segundo_plano` — provavelmente a
+	// causa mais comum de lentidão intermitente, e até agora INDETECTÁVEL: sem
+	// ela o produto sabia que a causa existe e não conseguia vê-la.
+	TopProcessos []ProcessoTop `json:"top_processos,omitempty"`
+}
+
+// ProcessoTop é um processo entre os que mais consomem.
+//
+// PRIVACIDADE (§7.2), e não é opcional: nome de executável revela o que a
+// pessoa faz; linha de comando e título de janela revelam que documento ela
+// abriu. Aqui sobe APENAS o nome do executável, normalizado. Linha de comando,
+// caminho e título de janela não sobem nunca por este caminho — só em rajada de
+// incidente, com consentimento registrado.
+type ProcessoTop struct {
+	// Nome do executável, sem caminho e sem o sufixo de instância que o
+	// contador do Windows acrescenta ("chrome#3" vira "chrome").
+	Nome string `json:"nome"`
+	// Percentual de CPU JÁ NORMALIZADO pelo número de núcleos.
+	//
+	// O contador do Windows soma entre núcleos: 213% num processador de 8
+	// núcleos é 27% da máquina. Reportar o número cru faria o servidor comparar
+	// máquinas de núcleos diferentes com a mesma régua.
+	CPUPct *float64 `json:"cpu_pct,omitempty"`
+	// Memória privada em MB — a que realmente pertence ao processo.
+	MemoriaMB *float64 `json:"memoria_mb,omitempty"`
+	// Bytes de I/O por segundo.
+	IOBytesPorSeg *float64 `json:"io_bytes_por_seg,omitempty"`
 }
 
 type CPUReading struct {
@@ -240,12 +269,45 @@ try {
     }
   }
 } catch {}
+$topProcs=@()
+try {
+  # Os processos que mais consomem (S7.1). Contador CIM, nao Get-Counter: nome
+  # de contador e localizado, e falharia calado em Windows portugues.
+  #
+  # PRIVACIDADE (S7.2): sobe SO o nome do executavel. Nada de linha de comando,
+  # caminho ou titulo de janela — esses revelam que documento a pessoa abriu, e
+  # so podem subir em rajada de incidente com consentimento registrado.
+  $nucleos=[double]((Get-CimInstance Win32_ComputerSystem).NumberOfLogicalProcessors)
+  if(-not $nucleos -or $nucleos -lt 1){ $nucleos=1 }
+  $procs=Get-CimInstance Win32_PerfFormattedData_PerfProc_Process -ErrorAction Stop |
+    Where-Object { $_.Name -ne '_Total' -and $_.Name -ne 'Idle' }
+  # Top por CPU e por memoria, unidos: um processo pode dominar so um dos dois,
+  # e olhar apenas CPU perderia o vazamento de memoria.
+  $sel=@($procs | Sort-Object PercentProcessorTime -Descending | Select-Object -First 5) +
+       @($procs | Sort-Object WorkingSetPrivate -Descending | Select-Object -First 5)
+  $vistos=@{}
+  foreach($x in $sel){
+    # O contador acrescenta sufixo de instancia: "chrome#3" e o mesmo programa
+    # que "chrome". Sem tirar, o mesmo processo aparece varias vezes e o topo
+    # fica cheio de duplicata em vez de mostrar quem mais consome.
+    $nome=($x.Name -split '#')[0]
+    if($vistos.ContainsKey($nome)){ continue }
+    $vistos[$nome]=$true
+    $topProcs += [ordered]@{
+      nome=$nome
+      cpu_pct=[math]::Round([double]$x.PercentProcessorTime/$nucleos,2)
+      memoria_mb=[math]::Round([double]$x.WorkingSetPrivate/1MB,1)
+      io_bytes_por_seg=[double]$x.IODataBytesPersec
+    }
+    if($topProcs.Count -ge 8){ break }
+  }
+} catch {}
 [ordered]@{
  cpu=[ordered]@{name="$($cpu.Name)".Trim();usage=$cpuUsage;temperature=$null;clock_mhz=$cpuClock;base_clock_mhz=$cpuBase;performance_percent=$cpuPerformance;dpc_time_percent=$cpuDpc;interrupt_time_percent=$cpuInterrupt;queue_length=$cpuQueue;measurement_source='Windows Processor Performance Counters'}
  gpus=$gpus
  memory=$dimms
  memory_summary=[ordered]@{total_bytes=$memoryTotal;used_bytes=$memoryUsed;available_bytes=$memoryAvailable;usage=[math]::Round($memoryLoad*100,2);commit_used_bytes=$commitUsed;commit_limit_bytes=$commitLimit}
- storage=$storage;networks=$nets;disk_activity=$diskActivity
+ storage=$storage;networks=$nets;disk_activity=$diskActivity;top_processos=$topProcs
 }|ConvertTo-Json -Depth 6 -Compress
 `
 

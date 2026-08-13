@@ -7,13 +7,13 @@ import (
 )
 
 type SupportTicketFilter struct {
-	OrganizationID    *string
-	NetworkID         *string
-	Status            *string
-	Priority          *int
+	OrganizationID     *string
+	NetworkID          *string
+	Status             *string
+	Priority           *int
 	AssignedFreelancer *string
-	Limit             int
-	Offset            int
+	Limit              int
+	Offset             int
 }
 
 type SupportTicketRepository interface {

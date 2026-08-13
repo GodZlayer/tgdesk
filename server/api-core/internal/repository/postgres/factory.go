@@ -8,13 +8,13 @@ import (
 
 // Factory holds all repository implementations
 type Factory struct {
-	Device             repository.DeviceRepository
-	Organization       repository.OrganizationRepository
-	Network            repository.NetworkRepository
-	Subnetwork         repository.SubnetworkRepository
-	Technician         repository.TechnicianRepository
-	SupportTicket      repository.SupportTicketRepository
-	FreelancerProfile  repository.FreelancerProfileRepository
+	Device            repository.DeviceRepository
+	Organization      repository.OrganizationRepository
+	Network           repository.NetworkRepository
+	Subnetwork        repository.SubnetworkRepository
+	Technician        repository.TechnicianRepository
+	SupportTicket     repository.SupportTicketRepository
+	FreelancerProfile repository.FreelancerProfileRepository
 }
 
 // NewFactory creates a new repository factory with PostgreSQL implementations

@@ -43,9 +43,12 @@ var vocabularioDeSinais = map[string][]string{
 	"servico_caiu":        {"service failed", "service crashed", "serviço parou"},
 	"uso_cpu":             {"cpu usage", "100% cpu", "high cpu", "uso de cpu"},
 	"processo_pesado":     {"task manager", "gerenciador de tarefas", "process using", "processo consumindo"},
-	"erro_sistema_log":    {"event viewer", "visualizador de eventos", "system log", "log do sistema"},
-	"corrupcao_arquivo":   {"chkdsk", "sfc /scannow", "dism", "file system corrupt", "sistema de arquivos"},
-	"boot_falho":          {"boot loop", "no post", "won't boot", "não dá boot", "nao da boot", "beep code"},
+	// Um processo IDENTIFICADO dominando o recurso. Diferente de
+	// `processo_pesado`, que é só "tem algo pesado rodando": aqui se sabe QUEM.
+	"processo_dominante": {"single process", "one process is using", "um processo está usando"},
+	"erro_sistema_log":   {"event viewer", "visualizador de eventos", "system log", "log do sistema"},
+	"corrupcao_arquivo":  {"chkdsk", "sfc /scannow", "dism", "file system corrupt", "sistema de arquivos"},
+	"boot_falho":         {"boot loop", "no post", "won't boot", "não dá boot", "nao da boot", "beep code"},
 }
 
 // Testes que os humanos mandam rodar. Serve à passagem 2: um teste que aparece

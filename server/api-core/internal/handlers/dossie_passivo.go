@@ -144,6 +144,14 @@ func sinaisDoHardware(bruto []byte) []EvidenciaDoDossie {
 			QueueLength *float64 `json:"queue_length"`
 			Samples     int      `json:"samples"`
 		} `json:"disk_activity"`
+		// Os processos que mais consomem. É o que separa "a máquina não dá
+		// conta" de "UM programa está tomando a máquina" — duas causas com
+		// condutas opostas: trocar equipamento contra controlar um processo.
+		TopProcessos []struct {
+			Nome      string   `json:"nome"`
+			CPUPct    *float64 `json:"cpu_pct"`
+			MemoriaMB *float64 `json:"memoria_mb"`
+		} `json:"top_processos"`
 	}
 	if json.Unmarshal(bruto, &hw) != nil {
 		return nil
@@ -200,6 +208,38 @@ func sinaisDoHardware(bruto []byte) []EvidenciaDoDossie {
 			Sinal: "uso_cpu", Literal: fmt.Sprintf("CPU em %.0f%% de uso", v), Valor: &v,
 		})
 	}
+	// Um processo dominando é evidência DIFERENTE de recurso no teto.
+	//
+	// Sem esta distinção, "CPU em 95%" levava a `cpu_insuficiente` — conduta:
+	// trocar o equipamento. Com ela, se um único processo responde pela maior
+	// parte do consumo, a conduta é outra: achar o processo. É a causa que o
+	// catálogo listava como `construir` e que agora passa a ser respondível.
+	//
+	// O limiar é de DOMINÂNCIA, não de intensidade: 40% da máquina num processo
+	// só já é um processo mandando na máquina, mesmo que o total não esteja no
+	// teto. É exatamente a assinatura do engasgo — alguém toma o recurso e
+	// devolve.
+	for _, proc := range hw.TopProcessos {
+		if proc.CPUPct != nil && *proc.CPUPct >= 40 {
+			v := *proc.CPUPct
+			ev = append(ev, EvidenciaDoDossie{
+				Sinal:   "processo_dominante",
+				Literal: fmt.Sprintf("%s consumindo %.0f%% da CPU", proc.Nome, v),
+				Valor:   &v,
+			})
+			break
+		}
+		if proc.MemoriaMB != nil && *proc.MemoriaMB >= 4096 {
+			v := *proc.MemoriaMB
+			ev = append(ev, EvidenciaDoDossie{
+				Sinal:   "processo_dominante",
+				Literal: fmt.Sprintf("%s usando %.1f GB de memória", proc.Nome, v/1024),
+				Valor:   &v,
+			})
+			break
+		}
+	}
+
 	if da := hw.DiskActivity; da != nil {
 		// Latência ausente ≠ latência zero. Disco ocioso na janela não mediu
 		// nada, e o agente manda o campo ausente de propósito (§19.3).
@@ -257,6 +297,12 @@ func statusProvavel(evidencias []EvidenciaDoDossie) string {
 		return "lentidao_profunda"
 	case tem["temperatura"]:
 		return "superaquecimento"
+	case tem["processo_dominante"]:
+		// UM processo respondendo pela maior parte do consumo é a assinatura do
+		// engasgo: alguém toma o recurso e devolve. Vai direto para
+		// intermitente, sem passar pela forma do episódio — aqui a forma já é
+		// conhecida, e a conduta é achar o processo, não trocar peça.
+		return "lentidao_intermitente"
 	case tem["uso_memoria"] || tem["uso_cpu"] || tem["processo_pesado"]:
 		// Ainda NÃO se sabe se é engasgo ou degradação: o sinal instantâneo não
 		// carrega a forma do episódio. Quem refina é `formaDaLentidao`, com o
