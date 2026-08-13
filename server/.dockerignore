@@ -1,0 +1,16 @@
+# Artefatos de release: ~12 GB que o daemon não precisa ver.
+#
+# O compose monta `./releases:/app/releases:ro` em runtime, então o conteúdo
+# chega ao container pelo bind mount — copiá-lo para dentro da imagem produzia
+# uma imagem de 17 GB cujo diretório de releases era mascarado pelo mount no
+# instante em que o container subia. Peso morto que custava ~12 min por build.
+releases/
+
+# Backups e artefatos locais nunca entram em imagem.
+backups/
+*.tar
+*.tar.gz
+*.dump
+
+# Fontes de outros componentes que o api-core não compila.
+rustdesk-server-src/

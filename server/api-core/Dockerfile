@@ -10,6 +10,11 @@ RUN apk add --no-cache ca-certificates iproute2 wireguard-tools iptables
 WORKDIR /app
 COPY --from=build /out/api-core ./api-core
 COPY migrations ./migrations
-COPY releases ./releases
+# `releases` NÃO é copiado: o compose monta `./releases:/app/releases:ro`, e o
+# mount mascarava a cópia no instante em que o container subia. A cópia
+# produzia uma imagem de 17 GB e ~12 min de build para um diretório que nunca
+# era lido. O diretório é criado vazio para que o binário encontre o caminho
+# mesmo se alguém rodar a imagem sem o mount.
+RUN mkdir -p /app/releases
 EXPOSE 8080
 ENTRYPOINT ["./api-core"]
