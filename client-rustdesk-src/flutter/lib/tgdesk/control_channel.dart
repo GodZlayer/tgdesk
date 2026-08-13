@@ -36,6 +36,16 @@ class TgdeskControlChannel extends ChangeNotifier {
   /// rede é fronteira administrativa, região é o lugar.
   List<Map<String, dynamic>> regions = const [];
 
+  /// O dossiê passivo de cada dispositivo, já inferido no servidor (§10.4).
+  ///
+  /// Chega na abertura do canal, indexado por `device_id`. A tela de
+  /// diagnóstico se desenha DISTO: não busca nada ao montar e não calcula
+  /// probabilidade nenhuma — "o cálculo é do servidor, o desenho é do cliente".
+  Map<String, Map<String, dynamic>> diagnosticos = const {};
+
+  Map<String, dynamic>? diagnosticoDe(String? deviceId) =>
+      deviceId == null ? null : diagnosticos[deviceId];
+
   Map<String, dynamic>? regionOf(String? id) {
     if (id == null) return null;
     for (final region in regions) {
@@ -244,6 +254,15 @@ class TgdeskControlChannel extends ChangeNotifier {
       subnetworks =
           List<dynamic>.from(event['subnetworks'] as List? ?? const []);
       devices = List<dynamic>.from(event['devices'] as List? ?? const []);
+      // O dossiê passivo vem junto com os dispositivos, e não por consulta
+      // separada: são o mesmo recorte de visibilidade, e buscá-los em dois
+      // momentos abriria a janela em que a tela mostra uma máquina sem o que
+      // já se sabe dela.
+      diagnosticos = {
+        for (final d in (event['diagnosticos'] as List? ?? const []))
+          if (d is Map && d['device_id'] is String)
+            d['device_id'] as String: Map<String, dynamic>.from(d),
+      };
       // Os chamados vêm na abertura da sessão, como as redes. Antes a tela
       // buscava sozinha ao montar, e quem abrisse a aba com a lista já em
       // memória não via chamado nenhum até remontar.

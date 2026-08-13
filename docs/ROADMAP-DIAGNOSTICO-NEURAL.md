@@ -20,7 +20,7 @@ mudança que ele descreve. Roadmap que se atualiza depois é roadmap que mente.
 | --- | --- |
 | Última atualização | 2026-08-12 |
 | Passo em curso | **pipeline em produção**: ontologia gravada, rede treinada em sombra, parque reduzido aos 4 reais |
-| Próxima ação concreta | ligar as quatro telas ao canal de controle (B8) e produzir o pré-cálculo (B9) — o back-end já responde, falta o front consumir |
+| Próxima ação concreta | build do cliente para as telas chegarem às 3 máquinas (o código está ligado; `flutter analyze` limpo) |
 | Migration mais alta no repo | `0078_rede_neural_e_laco_rat.sql` |
 | Migration aplicada em produção | `0078` (era **0071** até hoje) |
 | Bloqueio ativo | nenhum bloqueia o teste real; o volume de treino agora depende do laço RAT rodando no parque |
@@ -85,10 +85,11 @@ Legenda: `[ ]` não iniciado · `[~]` em curso · `[x]` concluído e verificado 
       cliente no `api-core`; testado ponta a ponta contra o container real
 - [~] **B7** Camada de texto — tabela, renderizador e os dois níveis prontos e
       testados; falta o **conteúdo** dos templates (vem de A3) e o cache por versão
-- [~] **B8** Front-end do técnico — quatro telas e cinco estados prontos e
-      testados; falta ligar ao canal e aposentar o `diagnostics_dialog.dart`
-- [~] **B9** Camada de pré-cálculo — retrato, origens versionadas e invalidação
-      prontos e testados; falta o produtor (que depende de B2/B4) e o envio pelo canal
+- [x] **B8** Front-end do técnico — quatro telas ligadas ao canal via
+      `diagnostico_page.dart`, entrada em `devices_page.dart`; o menu de 30
+      testes virou "avançado", fora do fluxo normal
+- [x] **B9** Camada de pré-cálculo — produtor em `dossie_passivo.go`, entregue
+      no `snapshot` do canal; a fonte de evidência cresce quando B4 existir
 - [ ] **B10** Refatoração do `support_page.dart` — depende de B7, B8, B9
 - [~] **B11** Escopo da OS (§11) — esquema (0076) e derivação testados; falta
       ligar ao banco e os derivados do dossiê (depende de A3)
@@ -113,6 +114,51 @@ Legenda: `[ ]` não iniciado · `[~]` em curso · `[x]` concluído e verificado 
 
 Ordem cronológica inversa (mais recente no topo). Cada entrada diz **o que
 mudou**, **em quais arquivos** e **o que ficou faltando**.
+
+### 2026-08-12 — a camada visível: dossiê passivo no canal e telas ligadas
+
+Pergunta do usuário: *"então ainda falta tudo que é visível?"* — e a resposta
+era sim. As quatro telas existiam desde B8, testadas, e **nenhum arquivo as
+importava**. Faltava a corrente do back-end até elas.
+
+**O produtor (B9), agora real.** `internal/handlers/dossie_passivo.go` traduz a
+telemetria que o agente JÁ manda para o vocabulário de sinais, chama o motor e
+entrega o retrato pronto. Entra no `snapshot` do `control_ws` junto com os
+dispositivos — mesmo recorte de visibilidade, para não existir janela em que a
+tela mostra uma máquina sem o que já se sabe dela.
+
+**O cliente.** `control_channel.dart` guarda `diagnosticos` indexado por
+`device_id`; `diagnostico_page.dart` hospeda as quatro telas e é
+`AnimatedBuilder` sobre o canal, não `FutureBuilder` sobre chamada — não existe
+botão de atualizar porque não existe consulta para refazer (§10.4). A entrada
+está em `devices_page.dart`, e o menu de 30 testes continua ao lado como
+"Diagnóstico avançado", que é exatamente o lugar dele.
+
+#### O defeito que a verificação com dado real pegou
+
+O mapeamento inicial mandava `device_health_state.storage` para `erro_io_log`.
+As três máquinas do parque estão em `storage=critical` — **por disco cheio**
+(97%, 95%, 94%), com SMART `Healthy`. Isso teria produzido "erro de
+dispositivo" em três computadores sadios e mandado trocar disco que só precisa
+de faxina.
+
+`storage` passou a significar SATURAÇÃO. Quem afirma defeito de disco é a
+medida direta — SMART fora de `Healthy` ou desgaste abaixo do gate — e só ela.
+Travado por teste (`TestSaudeDeStorageNaoAcusaDefeitoDeDisco`), junto com o
+teste que garante que campo ausente não vira zero.
+
+**O que o parque vai mostrar na primeira abertura:**
+
+| Máquina | Dossiê |
+| --- | --- |
+| Daniel, Dani | `lentidao_persistente` — disco 97%/95%, memória e CPU em warning |
+| Arthur | `lentidao_persistente` — um volume em 94%, memória em warning |
+| wpp-crm-server | "Nada observado" — sem telemetria; e vazio é resposta, não erro |
+
+**Falta para ver na tela:** o build do cliente. O código está ligado e
+`flutter analyze` está limpo, mas as 3 máquinas rodam a 1.2.51. Como o TGDesk
+se atualiza sozinho, publicar versão nova alcança os computadores das pessoas —
+é ação deliberada, não passo de build.
 
 ### 2026-08-12 — correção do usuário: um container por projeto
 

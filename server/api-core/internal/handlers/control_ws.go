@@ -809,6 +809,10 @@ func (s *Server) controlSnapshot(ctx context.Context, technicianID, role string)
 	return map[string]any{"type": "snapshot", "organizations": orgs,
 		"networks": nets, "subnetworks": subnets, "devices": devices,
 		"tickets": tickets, "ticket_events": s.ticketEventsForSnapshot(ctx, ids),
+		// O dossie passivo de cada dispositivo, ja inferido (S10.4). A tela do
+		// tecnico se desenha DISTO: nenhuma busca ao montar, nenhum calculo no
+		// cliente. O que chega aqui e resultado, nunca insumo.
+		"diagnosticos": s.diagnosticosParaSnapshot(ctx, deviceIDsDoSnapshot(devices)),
 		"ticket_types": s.ticketCatalog(ctx, role == models.RoleSuperAdmin),
 		// O catálogo de peças e serviços entra na abertura pela mesma razão do
 		// de tipos: a tela que monta o orçamento se monta do canal, e pedir o
@@ -820,4 +824,18 @@ func (s *Server) controlSnapshot(ctx context.Context, technicianID, role string)
 		// para definir onde o produto opera.
 		"regions":         s.regionCatalog(ctx, role == models.RoleSuperAdmin),
 		"dispatch_offers": offers, "pricing_rules": pricing}, nil
+}
+
+// deviceIDsDoSnapshot extrai os ids dos dispositivos ja visiveis no snapshot.
+//
+// Reaproveita a lista que o escopo (org/rede/subrede) ja filtrou, em vez de
+// consultar de novo: o dossie passivo nunca pode alcancar dispositivo que o
+// snapshot nao mostraria, e derivar do mesmo lugar torna isso estrutural em vez
+// de uma checagem que alguem precisa lembrar de repetir.
+func deviceIDsDoSnapshot(devices []models.Device) []string {
+	ids := make([]string, 0, len(devices))
+	for _, d := range devices {
+		ids = append(ids, d.ID)
+	}
+	return ids
 }

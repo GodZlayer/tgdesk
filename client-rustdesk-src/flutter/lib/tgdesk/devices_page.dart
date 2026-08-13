@@ -7,6 +7,7 @@ import 'api_client.dart';
 import 'health_text.dart';
 import 'theme.dart';
 import 'control_channel.dart';
+import 'diagnostico_page.dart';
 import 'diagnostics_dialog.dart';
 import 'remote_session_page.dart';
 import 'ui_contract.dart';
@@ -1104,6 +1105,22 @@ class _DevicesPageState extends State<DevicesPage> {
             icon: const Icon(Icons.monitor_heart_outlined),
             tooltip: 'Saúde do dispositivo',
             onPressed: () => _openHealthDialog(d['id'] as String, displayName),
+          ),
+        // A acao unica (S10.1): o tecnico nao escolhe teste, abre o dossie.
+        // O menu de 30 testes continua existindo ao lado, como "avancado", que
+        // e exatamente o lugar dele — caso raro, fora do fluxo normal.
+        if (d['state'] == 'ativo')
+          IconButton(
+            icon: const Icon(Icons.troubleshoot, color: TgdeskColors.primary),
+            tooltip: 'Diagnóstico',
+            onPressed: () => Navigator.of(context).push(
+              MaterialPageRoute<void>(
+                builder: (_) => DiagnosticoPage(
+                  deviceId: d['id'] as String,
+                  deviceName: displayName,
+                ),
+              ),
+            ),
           ),
         if (d['state'] == 'ativo')
           IconButton(
