@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'dart:math' as math;
 
 import 'admin_catalog_page.dart';
+import 'admin_rede_neural_tab.dart';
 import 'admin_crm_services_tab.dart';
 import 'admin_os_catalog_tab.dart';
 import 'admin_regions_tab.dart';
@@ -55,6 +56,11 @@ class _AdminDashboardState extends State<AdminPage> {
       subtitle: 'M\u{00e1}quinas-servidor dentro da VPN',
       icon: Icons.dns_outlined
     ),
+    (
+      title: 'Rede neural',
+      subtitle: 'O que o motor aprendeu, com que dado, e se acerta',
+      icon: Icons.hub_outlined
+    ),
   ];
 
   Widget _content() {
@@ -73,6 +79,8 @@ class _AdminDashboardState extends State<AdminPage> {
         return const _LinkedEditor();
       case 6:
         return const AdminCrmServicesTab();
+      case 7:
+        return const AdminRedeNeuralTab();
       default:
         return const _LinkedEditor();
     }

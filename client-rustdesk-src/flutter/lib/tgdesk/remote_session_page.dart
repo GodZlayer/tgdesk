@@ -1,4 +1,4 @@
-﻿import 'dart:convert';
+import 'dart:convert';
 import 'dart:math' as math;
 import 'dart:async';
 
@@ -18,6 +18,8 @@ import 'package:bot_toast/bot_toast.dart';
 import 'package:get/get.dart';
 import 'package:flex_color_picker/flex_color_picker.dart';
 
+import 'api_client.dart';
+import 'control_channel.dart';
 import 'diagnostico_page.dart';
 import 'theme.dart';
 import 'window_frame.dart';
@@ -47,6 +49,7 @@ const tgdeskActionClipboard = 'clipboard';
 const tgdeskActionFileTransfer = 'file_transfer';
 const tgdeskActionMicrophone = 'microphone';
 const tgdeskActionRemoteAudio = 'remote_audio';
+
 /// Prefixo dos acordes de tela: 'display_1' a 'display_10'. O sufixo é a
 /// posição na lista de telas do cliente, contando de 1, e o Ctrl+Shift+0 é a
 /// décima. Espelha keyboard.rs::TGDESK_SHORTCUTS.
@@ -58,12 +61,18 @@ class RemoteSessionEntry {
     required this.remoteId,
     required this.hostname,
     required this.credential,
+    this.ticketId,
   });
 
   final String deviceId;
   final String remoteId;
   final String hostname;
   final String credential;
+
+  /// O chamado que originou a sessão, quando existe. É ele que dá a conversa
+  /// com o cliente: acesso aberto direto pelo parque não tem chamado, e nesse
+  /// caso o botão de chat não aparece.
+  final String? ticketId;
 }
 
 class RemoteSessionsManager extends ChangeNotifier {
@@ -202,6 +211,7 @@ class TgdeskRemoteSessionPage extends StatefulWidget {
     required this.remoteId,
     required this.hostname,
     required this.credential,
+    this.ticketId,
     this.embedded = false,
   });
 
@@ -209,6 +219,9 @@ class TgdeskRemoteSessionPage extends StatefulWidget {
   final String remoteId;
   final String hostname;
   final String credential;
+
+  /// Ver [RemoteSessionEntry.ticketId].
+  final String? ticketId;
 
   /// Dentro do Hub, onde a barra de título já é do shell e a aba desta sessão
   /// já está nela. Fora dele a sessão é uma janela por si e monta a própria.
@@ -223,8 +236,10 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage>
     with WindowListener {
   final _focusNode = FocusNode();
   final List<_DrawItem> _segments = [];
+
   /// Cada arrasto ganha um número; o desfazer remove o grupo inteiro.
   int _drawGroup = 0;
+
   /// A forma em construção, enquanto o botão está pressionado. Ela é pintada
   /// localmente para o técnico mirar, e só vira item — e só chega ao cliente —
   /// quando o arrasto termina. Mandar cada quadro do arrasto encheria o canal
@@ -243,6 +258,9 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage>
   final RxBool _microphoneOn = false.obs;
   // O som do PC do cliente começa LIGADO — é o motivo de estar na sessão.
   final RxBool _remoteAudioOn = true.obs;
+
+  /// A conversa do chamado está aberta por cima da sessão.
+  final RxBool _chatOpen = false.obs;
   _DrawTool _tool = _DrawTool.pen;
   bool get _eraser => _tool == _DrawTool.eraser;
   bool get _highlighter => _tool == _DrawTool.highlighter;
@@ -257,15 +275,15 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage>
   static const _highlighterAlpha = 0x55;
   static const _highlighterWidthFactor = 3.5;
 
-  Color get _drawColor => _highlighter
-      ? _color.withAlpha(_highlighterAlpha)
-      : _color;
+  Color get _drawColor =>
+      _highlighter ? _color.withAlpha(_highlighterAlpha) : _color;
 
   double get _drawWidth {
     if (_eraser) return _strokeWidth * 3;
     if (_highlighter) return _strokeWidth * _highlighterWidthFactor;
     return _strokeWidth;
   }
+
   // Começa DESLIGADO, e só o botão do toolbar ou o Ctrl+Shift+I ligam.
   //
   // Antes a captura subia sozinha quando a janela ganhava o foco: bastava
@@ -879,7 +897,40 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage>
           inactiveTooltip: 'Escutar o som do cliente (Ctrl+Shift+A)',
           onPressed: () => _runShortcut(tgdeskActionRemoteAudio),
         ),
+        // A conversa da sessão. Só existe quando a sessão nasceu de um
+        // chamado, porque é a conversa do chamado — a mesma que o cliente vê
+        // na janela dele. Sem chamado não há com quem conversar.
+        if (widget.ticketId != null)
+          TgdeskToolbarAction(
+            active: _chatOpen,
+            activeIcon: Icons.forum,
+            inactiveIcon: Icons.forum_outlined,
+            activeTooltip: 'Fechar a conversa com o cliente',
+            inactiveTooltip: 'Conversar com o cliente',
+            onPressed: _toggleSessionChat,
+          ),
       ];
+
+  /// Abre a conversa do chamado numa janela solta por cima da sessão. É um
+  /// popup, e não um painel fixo, porque a tela do cliente é o que o técnico
+  /// veio ver: a conversa entra quando é chamada e sai quando não é.
+  void _toggleSessionChat() {
+    final ticketId = widget.ticketId;
+    if (ticketId == null) return;
+    if (_chatOpen.isTrue) {
+      Navigator.of(context, rootNavigator: true).maybePop();
+      return;
+    }
+    _chatOpen.value = true;
+    showDialog<void>(
+      context: context,
+      barrierColor: Colors.transparent,
+      builder: (_) => _TgdeskSessionChatDialog(
+        ticketId: ticketId,
+        hostname: widget.hostname,
+      ),
+    ).whenComplete(() => _chatOpen.value = false);
+  }
 
   /// O que sobrou do menu: diagnóstico não é um comando que se liga e desliga,
   /// é uma janela que se abre. Botão de estado seria mentira para ele.
@@ -990,8 +1041,7 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage>
                             _continueStroke(event, constraints.biggest),
                         onPanEnd: (_) => _endStroke(),
                         child: CustomPaint(
-                          painter:
-                              _AnnotationPainter(_segments, _pendingShape),
+                          painter: _AnnotationPainter(_segments, _pendingShape),
                         ),
                       ),
                     ),
@@ -1347,4 +1397,167 @@ class _StatusChip extends StatelessWidget {
           ]),
         ),
       );
+}
+
+/// A conversa do chamado, do lado do técnico, sobre a sessão remota.
+///
+/// Ela se monta do canal: as mensagens já chegaram empurradas em
+/// [TgdeskControlChannel.ticketEvents] e a janela apenas escuta o canal. Não
+/// há busca ao abrir. Enviar é a única ida ao servidor, e a resposta volta
+/// pelo mesmo canal.
+class _TgdeskSessionChatDialog extends StatefulWidget {
+  const _TgdeskSessionChatDialog({
+    required this.ticketId,
+    required this.hostname,
+  });
+
+  final String ticketId;
+  final String hostname;
+
+  @override
+  State<_TgdeskSessionChatDialog> createState() =>
+      _TgdeskSessionChatDialogState();
+}
+
+class _TgdeskSessionChatDialogState extends State<_TgdeskSessionChatDialog> {
+  final _control = TgdeskControlChannel.instance;
+  final _controller = TextEditingController();
+  bool _sending = false;
+  String? _erro;
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<void> _enviar() async {
+    final texto = _controller.text.trim();
+    if (texto.isEmpty || _sending) return;
+    setState(() {
+      _sending = true;
+      _erro = null;
+    });
+    try {
+      await TgdeskApi.addTicketMessage(widget.ticketId, message: texto);
+      _controller.clear();
+    } catch (e) {
+      if (mounted) setState(() => _erro = '$e');
+    } finally {
+      if (mounted) setState(() => _sending = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Align(
+      alignment: Alignment.bottomRight,
+      child: Padding(
+        padding: const EdgeInsets.all(TgdeskSpacing.lg),
+        child: Material(
+          elevation: 8,
+          borderRadius: BorderRadius.circular(TgdeskSpacing.sm),
+          child: SizedBox(
+            width: 360,
+            height: 420,
+            child: Column(children: [
+              ListTile(
+                dense: true,
+                leading: const Icon(Icons.forum_outlined, size: 20),
+                title: Text('Conversa • ${widget.hostname}',
+                    style: const TextStyle(fontSize: 14)),
+                trailing: IconButton(
+                  icon: const Icon(Icons.close, size: 18),
+                  onPressed: () => Navigator.of(context).pop(),
+                ),
+              ),
+              const Divider(height: 1),
+              Expanded(
+                child: AnimatedBuilder(
+                  animation: _control,
+                  builder: (context, _) {
+                    final mensagens = _control.messagesOf(widget.ticketId);
+                    if (mensagens.isEmpty) {
+                      return const Center(
+                        child: Padding(
+                          padding: EdgeInsets.all(TgdeskSpacing.lg),
+                          child: Text(
+                            'Nenhuma mensagem neste chamado ainda.',
+                            textAlign: TextAlign.center,
+                          ),
+                        ),
+                      );
+                    }
+                    return ListView.builder(
+                      reverse: true,
+                      padding: const EdgeInsets.all(TgdeskSpacing.sm),
+                      itemCount: mensagens.length,
+                      itemBuilder: (context, i) {
+                        final evento = mensagens[mensagens.length - 1 - i];
+                        final doCliente = evento['type'] == 'client_message';
+                        final payload = evento['payload'];
+                        final texto = payload is Map
+                            ? payload['message']?.toString() ?? ''
+                            : '';
+                        return Align(
+                          alignment: doCliente
+                              ? Alignment.centerLeft
+                              : Alignment.centerRight,
+                          child: Container(
+                            margin: const EdgeInsets.symmetric(
+                                vertical: TgdeskSpacing.xs),
+                            padding: const EdgeInsets.all(TgdeskSpacing.sm),
+                            decoration: BoxDecoration(
+                              color: doCliente
+                                  ? Theme.of(context)
+                                      .colorScheme
+                                      .surfaceContainerHighest
+                                  : TgdeskColors.seed.withOpacity(.15),
+                              borderRadius:
+                                  BorderRadius.circular(TgdeskSpacing.xs),
+                            ),
+                            child: Text(texto,
+                                style: const TextStyle(fontSize: 13)),
+                          ),
+                        );
+                      },
+                    );
+                  },
+                ),
+              ),
+              if (_erro != null)
+                Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: TgdeskSpacing.sm),
+                  child: Text('Não foi possível enviar: $_erro',
+                      style: const TextStyle(color: Colors.red, fontSize: 12)),
+                ),
+              const Divider(height: 1),
+              Padding(
+                padding: const EdgeInsets.all(TgdeskSpacing.sm),
+                child: Row(children: [
+                  Expanded(
+                    child: TextField(
+                      controller: _controller,
+                      style: const TextStyle(fontSize: 13),
+                      decoration: const InputDecoration(
+                        isDense: true,
+                        border: OutlineInputBorder(),
+                        hintText: 'Escreva para o cliente',
+                      ),
+                      onSubmitted: (_) => _enviar(),
+                    ),
+                  ),
+                  IconButton(
+                    onPressed: _sending ? null : _enviar,
+                    icon: const Icon(Icons.send, size: 18),
+                  ),
+                ]),
+              ),
+            ]),
+          ),
+        ),
+      ),
+    );
+  }
 }

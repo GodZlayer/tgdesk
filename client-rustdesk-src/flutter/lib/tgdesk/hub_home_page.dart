@@ -317,6 +317,7 @@ class _HubHomePageState extends State<HubHomePage> {
                     remoteId: sessao.remoteId,
                     hostname: sessao.hostname,
                     credential: sessao.credential,
+                    ticketId: sessao.ticketId,
                     embedded: true,
                   ),
               ],

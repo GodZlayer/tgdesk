@@ -1243,6 +1243,7 @@ class _SupportPageState extends State<SupportPage> {
         remoteId: device?['rustdesk_id']?.toString() ?? '',
         hostname: hostname,
         credential: credential,
+        ticketId: ticket['id'].toString(),
       ));
     });
   }

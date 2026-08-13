@@ -15,6 +15,7 @@ import '../common/formatter/id_formatter.dart';
 import '../desktop/pages/server_page.dart' as desktop;
 import '../desktop/widgets/tabbar_widget.dart';
 import '../mobile/pages/server_page.dart';
+import '../tgdesk/api_client.dart';
 import 'model.dart';
 
 const kLoginDialogTag = "LOGIN";
@@ -47,6 +48,10 @@ class ServerModel with ChangeNotifier {
   final tabController = DesktopTabController(tabType: DesktopTabType.cm);
 
   final List<Client> _clients = [];
+
+  /// Último aviso de sessão publicado na ponte local, para não repetir o mesmo
+  /// estado a cada notificação. Ver [_publishRemoteSession].
+  String _lastPublishedSessions = '';
 
   Timer? cmHiddenTimer;
 
@@ -538,6 +543,37 @@ class ServerModel with ChangeNotifier {
       notifyListeners();
       if (isAndroid) androidUpdatekeepScreenOn();
     }
+  }
+
+  /// Conta à janela principal do TGDesk quem está acessando esta máquina.
+  ///
+  /// Este processo não tem mais janela: quem atende a conexão trabalha calado,
+  /// e o indicador de "sessão em andamento" é desenhado pela janela principal.
+  /// O aviso sai só quando o estado muda de fato — notificação de modelo é
+  /// frequente, e repetir a mesma lista encheria a ponte à toa.
+  void _publishRemoteSession() {
+    if (desktopType != DesktopType.cm) return;
+    final sessions = _clients
+        .where((client) => !client.disconnected)
+        .map((client) => {
+              'id': client.id,
+              'peer_id': client.peerId,
+              'name': client.name,
+              'authorized': client.authorized,
+            })
+        .toList(growable: false);
+    final serialized = jsonEncode(sessions);
+    if (serialized == _lastPublishedSessions) return;
+    _lastPublishedSessions = serialized;
+    // Falha de ponte não pode derrubar a sessão: se o agente não estiver de pé,
+    // o indicador some, e é só isso — o acesso remoto segue.
+    TgdeskApi.publishRemoteSession(sessions).catchError((_) {});
+  }
+
+  @override
+  void notifyListeners() {
+    super.notifyListeners();
+    _publishRemoteSession();
   }
 
   void addConnection(Map<String, dynamic> evt) {

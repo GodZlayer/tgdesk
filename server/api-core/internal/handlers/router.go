@@ -94,6 +94,11 @@ func NewRouter(s *Server) http.Handler {
 	// antes de existir subrede compartilhada. Autenticado por device_id +
 	// device_token no corpo, como os demais endpoints de dispositivo.
 	mux.Handle("POST /api/v1/crm/join", private(http.HandlerFunc(s.CRMJoin)))
+	// A rede neural auditavel pelo admin (S10.5.3, S14). Sem esta tela, o
+	// numero na frente do tecnico volta a ser oraculo: e aqui que se ve o
+	// que o motor aprendeu, com que dado, e por que ainda nao decide.
+	mux.Handle("GET /api/v1/admin/diagnostico/rede", admin(s.PainelDaRedeNeural))
+	mux.Handle("POST /api/v1/admin/diagnostico/treinar", admin(s.TreinarRede))
 	mux.Handle("GET /api/v1/admin/crm/devices", admin(s.ListCRMDevices))
 	mux.Handle("PUT /api/v1/admin/devices/{id}/crm-tier", admin(func(w http.ResponseWriter, r *http.Request) {
 		s.SetCRMTier(w, r, r.PathValue("id"))

@@ -68,13 +68,41 @@ func (b *uiBridge) handle(w http.ResponseWriter, r *http.Request) {
 		if err != nil {
 			return
 		}
-		// Encaminha ao servidor pelo canal do dispositivo. A ponte não decide
-		// nada: quem autoriza é o servidor, pela credencial do canal.
+		// O estado da sessão remota é assunto desta máquina e de mais ninguém:
+		// quem o produz é o processo do RustDesk, quem o consome é a janela
+		// principal do TGDesk, e os dois estão aqui. Mandá-lo ao servidor para
+		// voltar seria dar a volta ao mundo para atravessar a rua. É a única
+		// mensagem que a ponte espalha localmente em vez de encaminhar.
+		if bridgeMessageType(data) == remoteSessionEventType {
+			b.BroadcastRaw(data)
+			continue
+		}
+		// O resto segue ao servidor pelo canal do dispositivo. A ponte não
+		// decide nada: quem autoriza é o servidor, pela credencial do canal.
 		select {
 		case b.outbound <- json.RawMessage(data):
 		default:
 		}
 	}
+}
+
+// remoteSessionEventType é o aviso de "há uma sessão remota em andamento",
+// produzido pelo processo que atende a conexão e consumido pela janela
+// principal do TGDesk, que desenha o indicador. No lado acessado não existe
+// mais janela de sessão: num parque empresarial ela só atrapalharia quem está
+// usando a máquina.
+const remoteSessionEventType = "remote_session"
+
+// bridgeMessageType lê só o campo `type` da mensagem. Mensagem malformada não
+// tem tipo, e cai no caminho de sempre — o servidor é quem valida.
+func bridgeMessageType(data []byte) string {
+	var envelope struct {
+		Type string `json:"type"`
+	}
+	if err := json.Unmarshal(data, &envelope); err != nil {
+		return ""
+	}
+	return envelope.Type
 }
 
 // Broadcast entrega às telas abertas o que chegou do servidor.
@@ -83,6 +111,11 @@ func (b *uiBridge) Broadcast(payload any) {
 	if err != nil {
 		return
 	}
+	b.BroadcastRaw(data)
+}
+
+// BroadcastRaw entrega bytes já serializados, sem remontar o JSON.
+func (b *uiBridge) BroadcastRaw(data []byte) {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	for conn := range b.clients {

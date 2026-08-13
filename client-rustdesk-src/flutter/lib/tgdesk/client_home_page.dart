@@ -32,6 +32,10 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
   final TextEditingController _chatController = TextEditingController();
   String _version = '';
 
+  /// Quem está acessando esta máquina agora, empurrado pela ponte local. Vazio
+  /// é o normal: ninguém conectado, faixa nenhuma.
+  List<Map<String, dynamic>> _remoteSessions = const [];
+
   Map<String, dynamic> get _branding => _map(_status?['branding']);
 
   String get _productName {
@@ -639,6 +643,19 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
       setState(() => _serverOnline = true);
       return;
     }
+    // Quem atende o acesso remoto é outro processo, sem janela nenhuma. Ele
+    // avisa por aqui quem está conectado, e esta tela — a única do TGDesk que
+    // a pessoa vê — mostra a faixa de sessão em andamento.
+    if (type == TgdeskApi.remoteSessionEvent) {
+      final payload = event['payload'];
+      final sessions = payload is Map ? payload['sessions'] : null;
+      setState(() {
+        _remoteSessions = sessions is List
+            ? sessions.whereType<Map>().map(_map).toList(growable: false)
+            : const [];
+      });
+      return;
+    }
     if (type != 'update_status') return;
     final payload = event['payload'];
     if (payload is! Map) return;
@@ -1012,6 +1029,7 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
                     ]),
                   ),
                   const SizedBox(height: TgdeskSpacing.md),
+                  _remoteSessionBanner(),
                   _supportPanel(color),
                   if (AppState.isSupervisor || AppState.isSuperAdmin)
                     _supervisorInvitePanel(),
@@ -1028,6 +1046,47 @@ class _TgdeskClientHomePageState extends State<TgdeskClientHomePage> {
   // técnico, supervisor ou admin não pede atendimento por esta tela, mesmo
   // vendo-a embutida no próprio shell. Ver MODELO-PRODUTO.md, "Exceções".
   bool get _canRequestSupport => !AppState.isLoggedIn;
+
+  /// A faixa de "alguém está acessando este computador".
+  ///
+  /// É tudo que o lado acessado mostra sobre a sessão. Ela não pede nada e não
+  /// tem botão: consentimento e conversa são do chamado, logo abaixo, e o
+  /// controle do acesso é de quem o concedeu. Aqui só se informa — e some
+  /// sozinha quando a sessão termina.
+  Widget _remoteSessionBanner() {
+    if (_remoteSessions.isEmpty) return const SizedBox.shrink();
+    final nomes = _remoteSessions
+        .map((s) => s['name']?.toString().trim().isNotEmpty == true
+            ? s['name'].toString()
+            : s['peer_id']?.toString() ?? 'técnico')
+        .toList(growable: false);
+    final aguardando = _remoteSessions.every((s) => s['authorized'] != true);
+    final texto = aguardando
+        ? '${nomes.join(', ')} está pedindo acesso a este computador.'
+        : nomes.length == 1
+            ? '${nomes.first} está acessando este computador agora.'
+            : '${nomes.length} técnicos estão acessando este computador agora.';
+    final cor = aguardando ? Colors.orange : TgdeskColors.seed;
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: TgdeskSpacing.md),
+      padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
+      decoration: BoxDecoration(
+        color: cor.withOpacity(.08),
+        border: Border.all(color: cor.withOpacity(.32)),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Row(children: [
+        Icon(aguardando ? Icons.pending_outlined : Icons.screen_share_outlined,
+            color: cor),
+        const SizedBox(width: TgdeskSpacing.md),
+        Expanded(
+          child:
+              Text(texto, style: const TextStyle(fontWeight: FontWeight.w500)),
+        ),
+      ]),
+    );
+  }
 
   Widget _supportPanel(Color color) {
     if (!_canRequestSupport) return const SizedBox.shrink();

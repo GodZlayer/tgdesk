@@ -123,12 +123,10 @@ class ConnectionManagerState extends State<ConnectionManager>
             gFFI.serverModel.clients.firstWhereOrNull((e) => e.id == client_id);
         if (client != null) {
           gFFI.chatModel.changeCurrentKey(MessageKey(client.peerId, client.id));
-          if (client.unreadChatMessageCount.value > 0) {
-            WidgetsBinding.instance.addPostFrameCallback((_) {
-              client.unreadChatMessageCount.value = 0;
-              gFFI.chatModel.showChatPage(MessageKey(client.peerId, client.id));
-            });
-          }
+          // A conversa não abre mais aqui: mensagem chegando escancarava esta
+          // janela para mostrar um chat que agora vive no chamado, dentro da
+          // janela principal do TGDesk. Sem janela, não há o que abrir.
+          client.unreadChatMessageCount.value = 0;
           windowManager.setTitle(getWindowNameWithId(client.peerId));
           gFFI.cmFileModel.updateCurrentClientId(client.id);
         }
@@ -172,97 +170,19 @@ class ConnectionManagerState extends State<ConnectionManager>
       }
     }
 
-    return serverModel.clients.isEmpty
-        ? Column(
-            children: [
-              buildTitleBar(),
-              Expanded(
-                child: Center(
-                  child: Text(translate("Waiting")),
-                ),
-              ),
-            ],
-          )
-        : Listener(
-            onPointerDown: pointerHandler,
-            onPointerMove: pointerHandler,
-            child: DesktopTab(
-              showTitle: false,
-              showMaximize: false,
-              showMinimize: true,
-              showClose: true,
-              onWindowCloseButton: handleWindowCloseButton,
-              controller: serverModel.tabController,
-              selectedBorderColor: MyTheme.accent,
-              maxLabelWidth: 100,
-              tail: null, //buildScrollJumper(),
-              tabBuilder: (key, icon, label, themeConf) {
-                final client = serverModel.clients
-                    .firstWhereOrNull((client) => client.id.toString() == key);
-                return Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Tooltip(
-                        message: key,
-                        waitDuration: Duration(seconds: 1),
-                        child: label),
-                    unreadMessageCountBuilder(client?.unreadChatMessageCount)
-                        .marginOnly(left: 4),
-                  ],
-                );
-              },
-              pageViewBuilder: (pageView) => LayoutBuilder(
-                builder: (context, constrains) {
-                  var borderWidth = 0.0;
-                  if (constrains.maxWidth >
-                      kConnectionManagerWindowSizeClosedChat.width) {
-                    borderWidth = kConnectionManagerWindowSizeOpenChat.width -
-                        constrains.maxWidth;
-                  } else {
-                    borderWidth = kConnectionManagerWindowSizeClosedChat.width -
-                        constrains.maxWidth;
-                  }
-                  if (borderWidth < 0 || borderWidth > 50) {
-                    borderWidth = 0;
-                  }
-                  final realClosedWidth =
-                      kConnectionManagerWindowSizeClosedChat.width -
-                          borderWidth;
-                  final realChatPageWidth =
-                      constrains.maxWidth - realClosedWidth;
-                  final row = Row(children: [
-                    if (constrains.maxWidth >
-                        kConnectionManagerWindowSizeClosedChat.width)
-                      Consumer<ChatModel>(
-                          builder: (_, model, child) => SizedBox(
-                                width: realChatPageWidth,
-                                child: allowRemoteCMModification()
-                                    ? buildSidePage()
-                                    : buildRemoteBlock(
-                                        child: buildSidePage(),
-                                        block: _sidePageBlock,
-                                        mask: true),
-                              )),
-                    SizedBox(
-                        width: realClosedWidth,
-                        child: SizedBox(
-                            width: realClosedWidth,
-                            child: allowRemoteCMModification()
-                                ? pageView
-                                : buildRemoteBlock(
-                                    child: _buildKeyEventBlock(pageView),
-                                    block: _controlPageBlock,
-                                    mask: false,
-                                  ))),
-                  ]);
-                  return Container(
-                    color: Theme.of(context).scaffoldBackgroundColor,
-                    child: row,
-                  );
-                },
-              ),
-            ),
-          );
+    // TGDesk: este processo não tem rosto. Ele atende a conexão e mais nada —
+    // nem painel, nem tarja, nem janela. Quem avisa a pessoa de que há uma
+    // sessão em andamento é a janela principal do TGDesk, que recebe o estado
+    // pela ponte local (ServerModel._publishRemoteSession). Numa máquina de
+    // trabalho, qualquer janela nossa por cima do trabalho alheio é estorvo.
+    //
+    // O `pointerHandler` continua ligado porque o cronômetro que esconde a
+    // janela ainda existe no modelo; sem janela ele nunca dispara nada.
+    return Listener(
+      onPointerDown: pointerHandler,
+      onPointerMove: pointerHandler,
+      child: const SizedBox.shrink(),
+    );
   }
 
   Widget buildSidePage() {
@@ -276,10 +196,6 @@ class ConnectionManagerState extends State<ConnectionManager>
     } else {
       return ChatPage(type: ChatPageType.desktopCM);
     }
-  }
-
-  Widget _buildKeyEventBlock(Widget child) {
-    return ExcludeFocus(child: child, excluding: true);
   }
 
   Widget buildTitleBar() {

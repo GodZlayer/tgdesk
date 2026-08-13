@@ -180,7 +180,8 @@ class TgdeskApi {
 
   /// Eventos do agente local. O status de atualização chega por este push;
   /// a tela não fica relendo um arquivo nem fazendo consultas periódicas.
-  static final Set<void Function(Map<String, dynamic>)> _deviceEventListeners = {};
+  static final Set<void Function(Map<String, dynamic>)> _deviceEventListeners =
+      {};
 
   static void addDeviceEventListener(
       void Function(Map<String, dynamic>) listener) {
@@ -204,6 +205,25 @@ class TgdeskApi {
   }
 
   static String _localClientVersionHint() => '';
+
+  /// Nome do aviso de sessão remota na ponte local. O agente reconhece este
+  /// tipo e o espalha para as telas desta máquina em vez de mandá-lo ao
+  /// servidor: é um assunto entre dois processos do mesmo computador.
+  static const String remoteSessionEvent = 'remote_session';
+
+  /// Publica quem está acessando esta máquina agora.
+  ///
+  /// Quem chama é o processo que atende a conexão, que não tem mais janela;
+  /// quem escuta é a janela principal do TGDesk, que desenha o indicador. O
+  /// servidor não entra nisso.
+  static Future<void> publishRemoteSession(
+      List<Map<String, dynamic>> sessions) async {
+    final socket = await _deviceChannel();
+    socket.add(jsonEncode({
+      'type': remoteSessionEvent,
+      'payload': {'sessions': sessions},
+    }));
+  }
 
   static Map<String, dynamic> _asMap(dynamic v) =>
       v is Map ? Map<String, dynamic>.from(v) : <String, dynamic>{};
@@ -1098,6 +1118,19 @@ class TgdeskApi {
 
   static Future<void> wakeDevice(String deviceId) async =>
       await _send('POST', '/api/v1/devices/$deviceId/wake');
+
+  /// Painel da rede neural para o admin (S10.5.3, S14).
+  ///
+  /// Auditoria sob demanda, nao pre-calculo: quem abre esta tela e um humano
+  /// investigando. Empurrar isto pelo canal para todo mundo carregaria dado
+  /// que ninguem esta olhando.
+  static Future<Map<String, dynamic>> painelRedeNeural() async =>
+      await _send('GET', '/api/v1/admin/diagnostico/rede')
+          as Map<String, dynamic>;
+
+  static Future<Map<String, dynamic>> treinarRedeNeural() async =>
+      await _send('POST', '/api/v1/admin/diagnostico/treinar')
+          as Map<String, dynamic>;
 
   static Future<List<dynamic>> diagnosticCatalog() async =>
       await _send('GET', '/api/v1/diagnostics/catalog') as List<dynamic>;

@@ -173,7 +173,9 @@ void runMainApp(bool startService) async {
     // computador. Com --minimized ele fica na bandeja e espera ser chamado;
     // abrir pelo atalho continua abrindo.
     final startMinimized = kBootArgs.contains('--minimized');
-    if (handledByUniLinks || handleUriLink(cmdArgs: kBootArgs) || startMinimized) {
+    if (handledByUniLinks ||
+        handleUriLink(cmdArgs: kBootArgs) ||
+        startMinimized) {
       windowManager.hide();
     } else {
       await windowManager.show();
@@ -305,13 +307,14 @@ void runConnectionManagerScreen() async {
     const DesktopServerPage(),
     MyTheme.currentThemeMode(),
   );
-  final hide = await bind.cmGetConfig(name: "hide_cm") == 'true';
-  gFFI.serverModel.hideCm = hide;
-  if (hide) {
-    await hideCmWindow(isStartup: true);
-  } else {
-    await showCmWindow(isStartup: true);
-  }
+  // TGDesk: o lado acessado não ganha janela nenhuma. Num parque empresarial
+  // quem está na máquina está trabalhando, e uma janela de sessão por cima do
+  // trabalho é estorvo, não informação. O processo continua vivo — é ele que
+  // atende a conexão — mas sem rosto: o que a pessoa precisa saber ("há uma
+  // sessão em andamento") aparece na janela principal do TGDesk, avisada pelo
+  // canal local do agente.
+  gFFI.serverModel.hideCm = true;
+  await hideCmWindow(isStartup: true);
   setResizable(false);
   // Start the uni links handler and redirect links to Native, not for Flutter.
   listenUniLinks(handleByFlutter: false);
@@ -320,30 +323,12 @@ void runConnectionManagerScreen() async {
 bool _isCmReadyToShow = false;
 
 showCmWindow({bool isStartup = false}) async {
-  if (isStartup) {
-    WindowOptions windowOptions = getHiddenTitleBarWindowOptions(
-        size: kConnectionManagerWindowSizeClosedChat, alwaysOnTop: true);
-    await windowManager.waitUntilReadyToShow(windowOptions, null);
-    bind.mainHideDock();
-    await Future.wait([
-      windowManager.show(),
-      windowManager.focus(),
-      windowManager.setOpacity(1)
-    ]);
-    // ensure initial window size to be changed
-    await windowManager.setSizeAlignment(
-        kConnectionManagerWindowSizeClosedChat, Alignment.topRight);
-    _isCmReadyToShow = true;
-  } else if (_isCmReadyToShow) {
-    if (await windowManager.getOpacity() != 1) {
-      await windowManager.setOpacity(1);
-      await windowManager.focus();
-      await windowManager.minimize(); //needed
-      await windowManager.setSizeAlignment(
-          kConnectionManagerWindowSizeClosedChat, Alignment.topRight);
-      windowOnTop(null);
-    }
-  }
+  // A janela do lado acessado não existe mais no TGDesk, e este é o ponto
+  // único por onde ela voltaria: mensagem chegando, permissão mudando, sessão
+  // começando — tudo desembocava aqui. Deixar a decisão em cada chamador seria
+  // esperar que nenhum deles esquecesse. O aviso de sessão em andamento vai
+  // para a janela principal pelo canal local do agente.
+  _isCmReadyToShow = true;
 }
 
 hideCmWindow({bool isStartup = false}) async {
