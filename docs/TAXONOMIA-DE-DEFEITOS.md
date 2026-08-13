@@ -134,7 +134,7 @@ custo-benefício para resolver primeiro.
 
 | Problema | Como se separa | Medida |
 | --- | --- | --- |
-| Processo em segundo plano consumindo | top-N de processos durante o episódio | **construir** — é a lacuna mais cara hoje |
+| Processo em segundo plano consumindo | top-N de processos durante o episódio, por dominância | **existe** (desde 1.2.58) |
 | Serviço em falha / reiniciando | eventos de falha de serviço no log | **adaptar** |
 | Driver incompatível ou defeituoso | código de erro de driver, TDR, bugcheck ligado a driver | **adaptar** |
 | Sistema de arquivos corrompido | chkdsk/sfc com erro, eventos de corrupção | **adaptar** |
@@ -188,9 +188,21 @@ também explicaria aquele travamento de semana passada".
 
 ### As três lacunas mais caras
 
-1. **Top-N de processos contínuo.** Sem isso, "processo em segundo plano" —
-   provavelmente a causa mais comum de lentidão intermitente — é **indetectável**.
-   O agente sabe coletar sob demanda; falta na telemetria contínua.
+1. ~~Top-N de processos contínuo.~~ **FECHADA na 1.2.58.** O agente reporta
+   os 8 maiores por CPU e por memória, com a CPU normalizada por núcleo e só o
+   nome do executável (§7.2). O servidor emite `processo_dominante` por
+   DOMINÂNCIA, não por intensidade: 40% da máquina num processo só já é um
+   processo mandando, mesmo com o total fora do teto.
+
+   Primeira leitura do parque, e ela já separa as três máquinas por causas
+   diferentes:
+
+   | Máquina | maior consumidor | leitura |
+   | --- | --- | --- |
+   | Daniel | `vmmemWSL` — 29% CPU, 5,7 GB | processo dominante |
+   | Arthur | `vmmemWSL` — 5,7 GB | processo dominante (memória) |
+   | Dani | `obs64` 5%, `parsecd` 4% | nenhum domina — a causa dela é o disco |
+
 2. **Faixa esperada por classe de equipamento.** Sem ela não existe o tipo 7, e
    o produto sempre acha defeito.
 3. **Contador de paginação.** É o que separa "memória insuficiente" de "memória
@@ -198,8 +210,9 @@ também explicaria aquele travamento de semana passada".
 
 ### O que já dá para separar hoje
 
-Disco cheio × lento × degradado; CPU insuficiente; térmico; rede; bateria;
-desgaste de SSD; inicialização pesada. Sete problemas com discriminador medido.
+Disco cheio × lento × degradado; CPU insuficiente; processo dominante;
+térmico; rede; bateria; desgaste de SSD; inicialização pesada. **Oito**
+problemas com discriminador medido.
 
 ### O que nunca será separável à distância
 
