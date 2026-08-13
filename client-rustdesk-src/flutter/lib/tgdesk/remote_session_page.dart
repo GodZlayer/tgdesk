@@ -1340,36 +1340,39 @@ class _AnnotationPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
+    final space = this.space;
+    if (space == null) return;
     canvas.saveLayer(Offset.zero & size, Paint());
     for (final item in items) {
-      _paintItem(canvas, size, item);
+      _paintItem(canvas, space, item);
     }
     final preview = pending;
     if (preview != null) {
-      _paintItem(canvas, size, preview);
+      _paintItem(canvas, space, preview);
     }
     canvas.restore();
   }
 
-  void _paintItem(Canvas canvas, Size size, _DrawItem item) {
+  void _paintItem(Canvas canvas, _DrawSpace space, _DrawItem item) {
     if (item is _DrawingSegment) {
       canvas.drawLine(
-        Offset(item.start.dx * size.width, item.start.dy * size.height),
-        Offset(item.end.dx * size.width, item.end.dy * size.height),
+        space.toLocal(item.start),
+        space.toLocal(item.end),
         Paint()
           ..color = item.color
-          ..strokeWidth = item.width
+          ..strokeWidth = space.toLocalWidth(item.width)
           ..strokeCap = StrokeCap.round
           ..blendMode = item.erase ? BlendMode.clear : BlendMode.srcOver,
       );
       return;
     }
     if (item is! _DrawingShape) return;
-    final a = Offset(item.start.dx * size.width, item.start.dy * size.height);
-    final b = Offset(item.end.dx * size.width, item.end.dy * size.height);
+    final a = space.toLocal(item.start);
+    final b = space.toLocal(item.end);
+    final width = space.toLocalWidth(item.width);
     final paint = Paint()
       ..color = item.color
-      ..strokeWidth = item.width
+      ..strokeWidth = width
       ..strokeCap = StrokeCap.round
       ..style = PaintingStyle.stroke;
     switch (item.tool) {
