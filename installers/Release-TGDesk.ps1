@@ -19,7 +19,25 @@ function Assert-Command([string]$Name) {
 }
 
 function Invoke-Checked([scriptblock]$Command, [string]$FailureMessage) {
-    & $Command
+    # O criterio de sucesso e o CODIGO DE SAIDA, e so ele.
+    #
+    # No Windows PowerShell 5.1, `$ErrorActionPreference = 'Stop'` faz qualquer
+    # linha que um executavel escreva em stderr virar erro TERMINANTE, mesmo com
+    # o processo retornando 0. Isso reprovou a release 1.2.52 porque
+    # `flutter analyze` imprime "62 issues found" — infos que o proprio comando
+    # ja declara nao fatais via --no-fatal-infos --no-fatal-warnings, e que o
+    # analyze acompanha de exit code 0.
+    #
+    # Suspender a preferencia AQUI, e so em volta da chamada nativa, nao afrouxa
+    # gate nenhum: a checagem de $LASTEXITCODE abaixo continua identica, e erro
+    # de verdade continua reprovando. O que se perde e o falso positivo.
+    $anterior = $ErrorActionPreference
+    $ErrorActionPreference = 'Continue'
+    try {
+        & $Command
+    } finally {
+        $ErrorActionPreference = $anterior
+    }
     if ($LASTEXITCODE -ne 0) {
         throw "$FailureMessage Codigo: $LASTEXITCODE"
     }
@@ -373,8 +391,19 @@ if ([string]$manifestResponse.version -ne $Version) {
 }
 
 Write-Step 'Commitando release'
+# git escreve avisos em stderr — "LF will be replaced by CRLF" e afins — e no
+# Windows PowerShell 5.1 isso vira erro terminante sob ErrorActionPreference
+# 'Stop', abortando a release DEPOIS de o servidor ja ter publicado a versao
+# nova. Foi assim que a 1.2.52 parou entre a publicacao e o commit, que e o
+# pior lugar possivel para parar: o parque atualiza e o repositorio nao registra.
+#
+# As chamadas abaixo continuam verificadas por $LASTEXITCODE via Invoke-Checked.
+$preferenciaGit = $ErrorActionPreference
+$ErrorActionPreference = 'Continue'
+
 $status = git -C $root status --porcelain
 if (-not $status) {
+    $ErrorActionPreference = $preferenciaGit
     throw 'Nao ha alteracoes para commitar apos a release.'
 }
 git -C $root add -A
@@ -387,9 +416,11 @@ Invoke-Checked { git -C $root commit -m $commitMessage -m $commitBody } 'Falha a
 Write-Step 'Enviando para o remote'
 $branch = (git -C $root branch --show-current).Trim()
 if (-not $branch) {
+    $ErrorActionPreference = $preferenciaGit
     throw 'Branch atual nao identificado; push abortado.'
 }
 Invoke-Checked { git -C $root push origin $branch } 'Falha ao enviar push.'
+$ErrorActionPreference = $preferenciaGit
 
 Write-Step 'Release concluida'
 Write-Host "Versao: $Version"
