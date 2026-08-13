@@ -314,6 +314,17 @@ func statusProvavel(evidencias []EvidenciaDoDossie) string {
 		tem[e.Sinal] = true
 	}
 	switch {
+	case tem["trava_confirmada"]:
+		// PAUSA MEDIDA. É o sintoma mais severo que o produto observa e o mais
+		// diretamente medido: o disco parou de responder por segundos durante
+		// o exame, ou o heartbeat sumiu com o relógio local saltando.
+		//
+		// Vem antes de tudo porque a média engana. Medido no parque: um NVMe
+		// com mediana de 2,15 s por região — vazão excelente — e p99 de 9,53 s.
+		// Por vazão ele é ótimo; por pausa ele deixa a máquina inutilizável por
+		// 10 segundos. Avaliar disco por vazão primeiro classificaria essa
+		// máquina como saudável.
+		return "trava_sob_carga"
 	case tem["smart_geral"] || tem["smart_desgaste"] || tem["erro_io_log"]:
 		// O sistema já acusou a peça. §7.3: se o sistema diz, não se adivinha.
 		return "erro_de_dispositivo"

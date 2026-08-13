@@ -198,3 +198,20 @@ func TestCausaChegaComAConduta(t *testing.T) {
 		t.Fatal("a conduta não está sendo entregue junto da causa")
 	}
 }
+
+func TestPausaMedidaDecideAntesDeVazao(t *testing.T) {
+	// Medido no parque: NVMe com mediana de 2,15 s por região (vazão
+	// excelente) e p99 de 9,53 s. Por vazão ele é ótimo; por pausa deixa a
+	// máquina inutilizável por 10 segundos.
+	//
+	// Se a vazão for avaliada primeiro, essa máquina é classificada como
+	// saudável — e o usuário que relata "trava alguns segundos" fica sem
+	// resposta, com a medida da trava no banco.
+	ev := []EvidenciaDoDossie{
+		{Sinal: "latencia_disco", Literal: "1846 MB/s, uniforme"},
+		{Sinal: "trava_confirmada", Literal: "p99 de 9,5 s contra mediana de 2,1 s"},
+	}
+	if s := statusProvavel(ev); s != "trava_sob_carga" {
+		t.Fatalf("a pausa medida perdeu para a vazão: %q", s)
+	}
+}
