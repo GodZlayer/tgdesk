@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strings"
 	"time"
 
 	"tgdesk/api-core/internal/corpus"
@@ -156,6 +157,12 @@ func sinaisDoHardware(bruto []byte) []EvidenciaDoDossie {
 			Temperature *float64 `json:"temperature"`
 			UsedPct     *float64 `json:"used_pct"`
 			MediaType   string   `json:"media_type"`
+			// Os volumes dizem QUAL disco é o do sistema. Sem isso, um HDD
+			// secundário a 28% pesa igual ao NVMe do Windows a 95% — e o
+			// secundário não trava máquina nenhuma.
+			Volumes []struct {
+				Label string `json:"label"`
+			} `json:"volumes"`
 		} `json:"storage"`
 		MemorySummary struct {
 			UsedPct *float64 `json:"used_pct"`
@@ -215,7 +222,13 @@ func sinaisDoHardware(bruto []byte) []EvidenciaDoDossie {
 		}
 		// Disco cheio não é falha de disco — é recurso saturado, e a diferença
 		// muda a conduta inteira: um se troca, o outro se limpa.
-		if disco.UsedPct != nil && *disco.UsedPct >= 90 {
+		//
+		// E só conta o disco do SISTEMA. Uma máquina do parque tem 6 discos:
+		// um NVMe com o Windows a 95%, um HDD mecânico a 28%, um pendrive a
+		// 68%. Tratar todos igual faria o pendrive cheio parecer causa de
+		// travamento — e o que trava a máquina é a falta de espaço onde o
+		// sistema pagina, não onde alguém guarda fotos.
+		if disco.UsedPct != nil && *disco.UsedPct >= 90 && discoDoSistema(disco.Volumes) {
 			v := *disco.UsedPct
 			ev = append(ev, EvidenciaDoDossie{
 				Sinal:   "processo_pesado",
@@ -553,4 +566,20 @@ func (s *Server) renderizarCausas(ctx context.Context, causas []CausaInferida, e
 			causas[i].Slots["acao"] = acao
 		}
 	}
+}
+
+// discoDoSistema diz se o volume do Windows está neste disco.
+//
+// A heurística é a letra C:, e ela é explicitamente uma heurística — instalação
+// em outra letra existe, é rara, e o custo de errar aqui é subestimar um disco
+// cheio, não inventar um problema. O erro cai para o lado seguro.
+func discoDoSistema(volumes []struct {
+	Label string `json:"label"`
+}) bool {
+	for _, v := range volumes {
+		if strings.EqualFold(strings.TrimSpace(v.Label), "C:") {
+			return true
+		}
+	}
+	return false
 }

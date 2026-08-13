@@ -272,11 +272,15 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage>
   /// Marca-texto é a mesma linha da caneta, com alfa baixo e bem mais grossa —
   /// nada de novo no protocolo, porque o alfa já viaja dentro do argb. Por isso
   /// o cliente o desenha certo sem uma linha de código a mais lá.
-  static const _highlighterAlpha = 0x55;
   static const _highlighterWidthFactor = 3.5;
 
+  /// Quanto o marca-texto deixa passar. Começa em 40%: o suficiente para o
+  /// texto por baixo continuar legível, e o técnico ajusta no próprio toolbar
+  /// quando a tela do cliente é clara ou escura demais para esse valor.
+  double _highlighterOpacity = .4;
+
   Color get _drawColor =>
-      _highlighter ? _color.withAlpha(_highlighterAlpha) : _color;
+      _highlighter ? _color.withOpacity(_highlighterOpacity) : _color;
 
   double get _drawWidth {
     if (_eraser) return _strokeWidth * 3;
@@ -682,29 +686,26 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage>
     );
   }
 
-  void _startStroke(DragStartDetails details, Size size) {
+  void _startStroke(DragStartDetails details, _DrawSpace space) {
     _lastPoint = details.localPosition;
     // Um arrasto, um grupo. O número sobe aqui e não muda até soltar.
     _drawGroup++;
     if (!_freehand) {
-      final origin = Offset(
-        details.localPosition.dx / size.width,
-        details.localPosition.dy / size.height,
-      );
+      final origin = space.toNorm(details.localPosition);
       setState(() {
         _pendingShape = _DrawingShape(
           tool: _tool,
           start: origin,
           end: origin,
           color: _drawColor,
-          width: _drawWidth,
+          width: space.toRemoteWidth(_drawWidth),
           group: _drawGroup,
         );
       });
     }
   }
 
-  void _continueStroke(DragUpdateDetails details, Size size) {
+  void _continueStroke(DragUpdateDetails details, _DrawSpace space) {
     final current = details.localPosition;
     if (!_freehand) {
       final pending = _pendingShape;
@@ -713,7 +714,7 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage>
         _pendingShape = _DrawingShape(
           tool: pending.tool,
           start: pending.start,
-          end: Offset(current.dx / size.width, current.dy / size.height),
+          end: space.toNorm(current),
           color: pending.color,
           width: pending.width,
           group: pending.group,
@@ -724,10 +725,10 @@ class _TgdeskRemoteSessionPageState extends State<TgdeskRemoteSessionPage>
     final previous = _lastPoint;
     if (previous == null || (current - previous).distance < 1.2) return;
     final segment = _DrawingSegment(
-      start: Offset(previous.dx / size.width, previous.dy / size.height),
-      end: Offset(current.dx / size.width, current.dy / size.height),
+      start: space.toNorm(previous),
+      end: space.toNorm(current),
       color: _drawColor,
-      width: _drawWidth,
+      width: space.toRemoteWidth(_drawWidth),
       erase: _eraser,
       group: _drawGroup,
     );

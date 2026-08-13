@@ -215,3 +215,26 @@ func TestPausaMedidaDecideAntesDeVazao(t *testing.T) {
 		t.Fatalf("a pausa medida perdeu para a vazão: %q", s)
 	}
 }
+
+func TestSoODiscoDoSistemaContaComoCheio(t *testing.T) {
+	// Uma máquina do parque tem 6 discos: NVMe com o Windows a 95%, HDD
+	// mecânico a 28%, pendrive a 68%. Tratar todos igual faria o pendrive
+	// cheio parecer causa de travamento — e o que trava a máquina é a falta
+	// de espaço onde o sistema pagina, não onde alguém guarda fotos.
+	//
+	// É a observação de campo que motivou isto: "a causa do mesmo problema
+	// diagnosticado para Arthur e para Daniel são diferentes".
+	comSistema := `{"storage":[{"model":"NVMe","smart_status":"Healthy","used_pct":95,
+	  "volumes":[{"label":"C:"}]}]}`
+	semSistema := `{"storage":[{"model":"Pendrive","smart_status":"Healthy","used_pct":95,
+	  "volumes":[{"label":"F:"}]}]}`
+
+	if len(sinaisDoHardware([]byte(comSistema))) == 0 {
+		t.Error("disco do sistema cheio precisa virar evidência")
+	}
+	for _, e := range sinaisDoHardware([]byte(semSistema)) {
+		if e.Sinal == "processo_pesado" {
+			t.Errorf("disco secundário cheio virou evidência de saturação: %+v", e)
+		}
+	}
+}
