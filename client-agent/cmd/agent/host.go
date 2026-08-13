@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"runtime"
 	"time"
 )
 
@@ -42,6 +43,20 @@ func tgdeskDataDir() string {
 	}
 	base := os.Getenv("ProgramData")
 	if base == "" {
+		// Fora do Windows, `ProgramData` não existe — e cair para um caminho
+		// Windows literal cria um diretório chamado "C:\ProgramData" DENTRO do
+		// diretório de trabalho, que não é volume nenhum.
+		//
+		// Foi o que aconteceu com o peer do CRM: a identidade era gravada num
+		// caminho descartável, sumia a cada reinício, e o agente se registrava
+		// como máquina nova toda vez. Nove dispositivos fantasmas em um dia.
+		if runtime.GOOS != "windows" {
+			base = "/var/lib"
+			_ = os.MkdirAll(filepath.Join(base, "tgdesk", "identity"), 0700)
+			_ = os.MkdirAll(filepath.Join(base, "tgdesk", "state"), 0700)
+			_ = os.MkdirAll(filepath.Join(base, "tgdesk", "logs"), 0700)
+			return filepath.Join(base, "tgdesk")
+		}
 		base = `C:\ProgramData`
 	}
 	dir := filepath.Join(base, "TGDesk")
@@ -114,17 +129,69 @@ func localHostname() string {
 	return h
 }
 
+// localMAC devolve um MAC que sirva como IDENTIDADE da máquina.
+//
+// O servidor casa dispositivo por MAC, então um MAC que muda a cada boot cria
+// uma máquina nova a cada boot. Foi assim que um único container do CRM virou
+// dez dispositivos no painel em um dia.
+//
+// O bit de administração local (segundo bit do primeiro octeto) distingue os
+// dois mundos: MAC gravado de fábrica tem esse bit em 0 e é estável para
+// sempre; MAC com o bit em 1 foi GERADO — por Docker, por hipervisor, por
+// interface virtual — e costuma mudar. Usá-lo como identidade é usar como
+// permanente algo que se define no sorteio.
+//
+// Sem MAC de fábrica, devolve vazio. O servidor já trata vazio sem casar por
+// MAC, e é melhor não ter chave do que ter uma que muda: sem chave ele usa a
+// identidade persistida em disco, que é o correto para máquina virtual.
 func localMAC() string {
 	ifaces, err := net.Interfaces()
 	if err != nil {
 		return ""
 	}
 	for _, i := range ifaces {
-		if len(i.HardwareAddr) == 6 && i.Flags&net.FlagLoopback == 0 {
-			return i.HardwareAddr.String()
+		if len(i.HardwareAddr) != 6 || i.Flags&net.FlagLoopback != 0 {
+			continue
 		}
+		if i.HardwareAddr[0]&0x02 != 0 {
+			// Gerado, não de fábrica: Docker, WireGuard, Hamachi.
+			continue
+		}
+		if ouiDeAdaptadorVirtual(i.HardwareAddr) {
+			continue
+		}
+		return i.HardwareAddr.String()
 	}
 	return ""
+}
+
+// ouiDeAdaptadorVirtual reconhece fabricantes de adaptador virtual.
+//
+// Descartar só o bit de administração local não basta, e o parque mostrou por
+// quê: o VMware instala adaptadores com MAC de "fábrica" FIXO — 00:50:56:C0:00:01
+// é o mesmo número em toda máquina do mundo que tenha VMware. Aceitá-lo como
+// identidade faria duas máquinas diferentes colidirem no índice único de MAC,
+// e a segunda receberia a identidade da primeira.
+//
+// A lista é dos três hipervisores comuns em desktop. Não precisa ser
+// exaustiva: o custo de errar é devolver MAC vazio, e MAC vazio é o caso
+// seguro — o servidor então usa a identidade persistida em disco, que é o
+// correto para qualquer máquina virtual.
+func ouiDeAdaptadorVirtual(mac []byte) bool {
+	prefixos := [][3]byte{
+		{0x00, 0x50, 0x56}, // VMware
+		{0x00, 0x0C, 0x29}, // VMware
+		{0x00, 0x05, 0x69}, // VMware
+		{0x00, 0x15, 0x5D}, // Hyper-V
+		{0x08, 0x00, 0x27}, // VirtualBox
+		{0x00, 0x1C, 0x42}, // Parallels
+	}
+	for _, p := range prefixos {
+		if mac[0] == p[0] && mac[1] == p[1] && mac[2] == p[2] {
+			return true
+		}
+	}
+	return false
 }
 
 func registerDevice() (*agentConfig, error) {
