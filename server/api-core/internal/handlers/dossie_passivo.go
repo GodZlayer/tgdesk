@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"tgdesk/api-core/internal/corpus"
+	"tgdesk/api-core/internal/diagnostico"
 )
 
 // O dossiê passivo (§7, §10.4) — o exame de rotina.
@@ -456,6 +457,10 @@ type DiagnosticoDoDispositivo struct {
 	// lugar de uma probabilidade inventada — lacuna nomeada vale mais que
 	// hipótese escolhida no chute (§13.6).
 	MedidaQueFalta string `json:"medida_que_falta,omitempty"`
+	// Os testes que mais reduzem a dúvida, em ordem. É a resposta para a
+	// pergunta que o técnico realmente tem: não "qual é a causa?", mas "o que
+	// eu meço agora para descobrir?".
+	TestesSugeridos []diagnostico.SugestaoDeTeste `json:"testes_sugeridos,omitempty"`
 	// A suposição da rede quando ela roda no escuro. Vai para a tela do
 	// SUPERVISOR como comparação, e para `rat_comparacao` como rótulo — nunca
 	// como veredito (§14.1).
@@ -494,6 +499,20 @@ func (s *Server) diagnosticosParaSnapshot(ctx context.Context, deviceIDs []strin
 			s.pesosDeSinal(ctx, d.StatusProvavel), nCasos, d.Evidencias, false,
 		))
 		s.renderizarCausas(ctx, r.Causas, d.Evidencias)
+		// O seletor roda sobre a distribuição que o motor acabou de produzir:
+		// é a mesma dúvida que a tela mostra, então a sugestão de teste
+		// responde exatamente àquela dúvida, e não a uma paralela.
+		dist := map[string]float64{}
+		for _, c := range r.Causas {
+			dist[c.Codigo] = c.Prob
+		}
+		observados := map[string]bool{}
+		for _, e := range d.Evidencias {
+			observados[e.Sinal] = true
+		}
+		retrato.TestesSugeridos = diagnostico.SelecionarTestes(
+			dist, catalogoDeTestes(), achatarPesos(s.pesosDeSinal(ctx, d.StatusProvavel)), observados)
+
 		retrato.Causas = r.Causas
 		retrato.Abstain = r.Abstain
 		retrato.Motor = r.Motor
@@ -582,4 +601,54 @@ func discoDoSistema(volumes []struct {
 		}
 	}
 	return false
+}
+
+// catalogoDeTestes descreve o que cada exame MEDE, para o seletor saber o que
+// ele separa.
+//
+// A lista é curta de propósito: só entram testes cujos sinais alguma causa
+// consome. Um teste que ninguém interpreta não deveria ser sugerido — seria
+// gastar a máquina do cliente para produzir um número que o motor ignora.
+//
+// As durações são as medidas no parque, não estimativas: a varredura de
+// superfície levava 63 minutos antes de passar a amostrar, e é justamente esse
+// tipo de custo que o desempate por duração existe para evitar.
+func catalogoDeTestes() []diagnostico.TesteCandidato {
+	return []diagnostico.TesteCandidato{
+		{Codigo: "storage_surface_read", DuracaoS: 10,
+			Sinais: []string{"latencia_disco", "erro_io_log", "trava_confirmada"}},
+		{Codigo: "smart_extended", DuracaoS: 15,
+			Sinais: []string{"smart_geral", "smart_reallocated", "smart_pending", "smart_desgaste"}},
+		{Codigo: "memory_integrity", DuracaoS: 120,
+			Sinais: []string{"erro_memoria"}},
+		{Codigo: "resource_pressure_series", DuracaoS: 60,
+			Sinais: []string{"uso_cpu", "uso_memoria", "processo_dominante", "latencia_disco"}},
+		{Codigo: "temperature_sensors", DuracaoS: 5,
+			Sinais: []string{"temperatura", "ventoinha"}},
+		{Codigo: "disk_performance", DuracaoS: 30,
+			Sinais: []string{"latencia_disco"}},
+		{Codigo: "critical_events", DuracaoS: 10,
+			Sinais: []string{"erro_sistema_log", "desligamento_subito", "bugcheck"}},
+		{Codigo: "driver_errors", DuracaoS: 10,
+			Sinais: []string{"driver_falho"}},
+		{Codigo: "battery_health", DuracaoS: 5,
+			Sinais: []string{"bateria"}},
+		// Presencial: só vence quando separa muito mais que qualquer remoto,
+		// porque o custo dele é deslocamento, não tempo de máquina.
+		{Codigo: "inspecao_presencial", DuracaoS: 3600, Presencial: true,
+			Sinais: []string{"mau_contato", "tensao"}},
+	}
+}
+
+// achatarPesos converte (sinal -> causa -> peso) na chave composta que o motor
+// e o seletor usam. A chave achatada existe porque o peso é de um PAR: o mesmo
+// sinal empurra causas diferentes com forças diferentes.
+func achatarPesos(pesos map[string]map[string]float64) map[string]float64 {
+	saida := map[string]float64{}
+	for sinal, porCausa := range pesos {
+		for causa, peso := range porCausa {
+			saida[sinal+"|"+causa] = peso
+		}
+	}
+	return saida
 }

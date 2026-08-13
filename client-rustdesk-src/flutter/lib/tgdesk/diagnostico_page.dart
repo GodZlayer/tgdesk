@@ -166,6 +166,7 @@ class _PreVooDoCanalState extends State<_PreVooDoCanal> {
 
     final evidencias = (d['evidencias'] ?? const []) as List;
     final medidaQueFalta = (d['medida_que_falta'] ?? '') as String;
+    final testesSugeridos = (d['testes_sugeridos'] ?? const []) as List;
     final status = (d['status'] ?? '') as String;
     final motor = (d['motor'] ?? '') as String;
     final sombra = d['sombra'] as Map?;
@@ -240,6 +241,35 @@ class _PreVooDoCanalState extends State<_PreVooDoCanal> {
       ),
 
       const SizedBox(height: 16),
+
+      // O QUE MEDIR AGORA.
+      //
+      // A pergunta que o técnico tem na mão não é "qual é a causa?" — é "o
+      // que eu meço para descobrir?". O servidor ordena os exames por quanto
+      // cada um REDUZ A DÚVIDA, e mostra o porquê: número sozinho é oráculo.
+      if (testesSugeridos.isNotEmpty) ...[
+        Text('O que medir agora', style: Theme.of(context).textTheme.titleSmall),
+        const SizedBox(height: 4),
+        ...testesSugeridos.take(3).map((t) {
+          final m = Map<String, dynamic>.from(t as Map);
+          final pct = (m['reducao_pct'] as num? ?? 0).round();
+          final seg = (m['duracao_s'] as num? ?? 0).round();
+          return Card(
+            child: ListTile(
+              dense: true,
+              leading: CircleAvatar(
+                radius: 18,
+                backgroundColor: TgdeskColors.primary,
+                child: Text('$pct%',
+                    style: const TextStyle(fontSize: 11, color: Colors.white)),
+              ),
+              title: Text((m['codigo'] ?? '') as String),
+              subtitle: Text('${m['porque']}  ·  ~${seg}s'),
+            ),
+          );
+        }),
+        const SizedBox(height: 16),
+      ],
 
       // A AÇÃO ÚNICA. Um botão, não um menu (§10.1).
       SizedBox(
