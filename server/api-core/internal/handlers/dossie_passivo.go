@@ -76,6 +76,17 @@ func (s *Server) evidenciasDoDispositivo(ctx context.Context, deviceID string) d
 		}
 	}
 
+	// O EXAME tem precedência sobre a telemetria passiva.
+	//
+	// Ele força a máquina e mede o que a observação passiva só veria por acaso:
+	// lê a superfície inteira do disco, satura CPU, exige memória. Uma medida
+	// provocada vale mais que uma observada — e é o motivo de o teste custar
+	// tempo da máquina do cliente.
+	//
+	// Antes, o resultado era gravado e nunca lido: o técnico rodava o teste
+	// completo e o diagnóstico não mudava, que é a pior combinação possível.
+	d.Evidencias = append(d.Evidencias, s.evidenciasDoExame(ctx, deviceID)...)
+
 	// A trava CONFIRMADA tem precedência sobre tudo.
 	//
 	// Congelamento é o sintoma mais severo que o produto observa, e é medido

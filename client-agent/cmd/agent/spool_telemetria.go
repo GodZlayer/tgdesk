@@ -34,9 +34,11 @@ import (
 //     máquina online esperava até 60 min para entregar a primeira amostra — o
 //     oposto de "transferir quando a internet está funcionando". Com 5 min, o
 //     atraso máximo é 5 min, e continua sem contabilidade de offset.
+//
 //  2. TETO EM DISCO. Acima do limite, o arquivo MAIS ANTIGO é apagado. O agente
 //     nunca é o motivo de um disco encher — que seria o cúmulo, num produto que
 //     diagnostica disco cheio.
+//
 //  3. DRENO EM LOTE, com confirmação. A linha só é descartada depois que o
 //     servidor aceitou o lote. Descartar no envio perderia dado em toda queda
 //     de conexão, que é exatamente o cenário que este arquivo existe para

@@ -391,6 +391,25 @@ func storageSurfaceRead(ctx context.Context, progress func(int, string)) (map[st
 		if regionSize < uint64(len(buffer)) {
 			regionSize = uint64(len(buffer))
 		}
+		// AMOSTRAGEM, não leitura integral.
+		//
+		// O laço lia o disco INTEIRO — em 1 TB a 341 MB/s, ~50 min por máquina,
+		// toda vez, com desgaste e calor no computador do cliente. As "240
+		// regiões" eram só baldes de agregação sobre uma varredura completa.
+		//
+		// Para o que o diagnóstico precisa, amostrar é equivalente e é o que
+		// cabe na promessa de duração da ação única (§10.2): a latência por
+		// região caracteriza o disco igual, e setor ruim aparece
+		// estatisticamente. Varredura integral é outro teste — mais lento e
+		// mais completo — e vira opção explícita quando a amostra acusar algo.
+		//
+		// 240 amostras de 8 MB = 1,9 GB, alguns segundos em qualquer disco.
+		const amostrasPorDisco = 240
+		passo := disk.Size / amostrasPorDisco
+		if passo < uint64(len(buffer)) {
+			passo = uint64(len(buffer))
+		}
+
 		var regionStart, regionBytes uint64
 		var regionDuration time.Duration
 		regionStatus := "healthy"
@@ -416,7 +435,8 @@ func storageSurfaceRead(ctx context.Context, progress func(int, string)) (map[st
 			regionDuration = 0
 			regionStatus = "healthy"
 		}
-		for diskRead < disk.Size {
+		var posicao uint64
+		for posicao < disk.Size {
 			if err := waitDiagnosticPause(ctx); err != nil {
 				file.Close()
 				return map[string]any{"disks": resultDisks, "bytes_read": readTotal}, err
@@ -426,8 +446,14 @@ func storageSurfaceRead(ctx context.Context, progress func(int, string)) (map[st
 				return map[string]any{"disks": resultDisks, "bytes_read": readTotal}, err
 			}
 			want := len(buffer)
-			if remaining := disk.Size - diskRead; remaining < uint64(want) {
+			if remaining := disk.Size - posicao; remaining < uint64(want) {
 				want = int(remaining)
+			}
+			// Salta para a próxima amostra. `Seek` em dispositivo físico exige
+			// alinhamento de setor, e `passo` é múltiplo do buffer de 8 MB —
+			// que é múltiplo de qualquer tamanho de setor existente.
+			if _, seekErr := file.Seek(int64(posicao), 0); seekErr != nil {
+				break
 			}
 			readStarted := time.Now()
 			n, readErr := file.Read(buffer[:want])
@@ -435,7 +461,13 @@ func storageSurfaceRead(ctx context.Context, progress func(int, string)) (map[st
 			diskRead += uint64(n)
 			readTotal += uint64(n)
 			regionBytes += uint64(n)
-			progress(int(readTotal*100/total), fmt.Sprintf("Lendo %s: %d de %d bytes", disk.Model, diskRead, disk.Size))
+			posicao += passo
+			// O progresso passa a ser a fração VARRIDA do disco, não a fração
+			// lida: com amostragem, os bytes lidos são uma fração minúscula do
+			// tamanho, e a barra ficaria parada em 0%.
+			progress(int(posicao*100/disk.Size),
+				fmt.Sprintf("Amostrando %s: %d de %d GB varridos",
+					disk.Model, posicao/(1024*1024*1024), disk.Size/(1024*1024*1024)))
 			if readErr != nil {
 				diskErrors++
 				regionStatus = "error"
