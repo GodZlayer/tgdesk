@@ -103,7 +103,7 @@ de §13.6: `existe` (o agente já mede), `adaptar` (mede parcial), `construir`
 | Problema | Como se separa | Medida |
 | --- | --- | --- |
 | Disco lento para a carga | latência de I/O alta **com SMART saudável**; HDD onde a carga pede SSD | **existe** (desde 1.2.53) |
-| Memória insuficiente | uso sustentado no teto **com paginação**, sem erro de memória | **adaptar** — falta o contador de paginação |
+| Memória insuficiente | uso sustentado no teto **com paginação**, sem erro de memória | **existe** (desde 1.2.62) — `commit` na telemetria local |
 | Processador insuficiente | uso sustentado alto **sem pico isolado**, fila de processador alta | **existe** |
 | GPU insuficiente | uso de GPU no teto durante a tarefa reclamada | **adaptar** |
 | Rede insuficiente | banda contratada abaixo do uso | **construir** |
@@ -126,7 +126,7 @@ custo-benefício para resolver primeiro.
 | --- | --- | --- |
 | Disco cheio | ocupação ≥ 90 %, folga abaixo do necessário para paginação | **existe** |
 | Memória ocupada por processo | uso alto **atribuível a um processo** | **construir** — falta top-N de processos contínuo |
-| Handles / threads vazando | contadores crescendo monotonicamente | **construir** |
+| Handles / threads vazando | contadores crescendo monotonicamente | **existe** (desde 1.2.62) — série contínua de handles e threads |
 | Portas / conexões esgotadas | contagem de sockets no teto | **construir** |
 | Perfil de usuário inchado | tamanho do perfil, tempo de login | **construir** |
 
