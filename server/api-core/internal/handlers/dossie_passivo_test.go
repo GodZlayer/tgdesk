@@ -187,3 +187,14 @@ func TestProcessoNormalNaoAcusaNada(t *testing.T) {
 		t.Fatalf("processo normal gerou evidência: %+v", ev)
 	}
 }
+
+func TestCausaChegaComAConduta(t *testing.T) {
+	// A conduta é O MOTIVO de a causa existir: duas coisas são causas
+	// diferentes quando geram condutas diferentes. Entregar a causa sem ela
+	// dá ao técnico a metade que conclui e esconde a que resolve — e a
+	// resposta estava escrita no catálogo, a uma chamada de distância.
+	fonte := lerFonte(t, "dossie_passivo.go")
+	if !contemTodos(fonte, []string{`corpus.AcaoDaCausa(causas[i].Codigo)`, `Slots["acao"]`}) {
+		t.Fatal("a conduta não está sendo entregue junto da causa")
+	}
+}

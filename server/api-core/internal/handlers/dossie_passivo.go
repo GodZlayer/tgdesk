@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"time"
+
+	"tgdesk/api-core/internal/corpus"
 )
 
 // O dossiê passivo (§7, §10.4) — o exame de rotina.
@@ -517,5 +519,16 @@ func (s *Server) renderizarCausas(ctx context.Context, causas []CausaInferida, e
 			causas[i].Slots = map[string]any{}
 		}
 		causas[i].Slots["titulo"] = titulo
+		// A CONDUTA. Estava escrita no catálogo desde a taxonomia e nunca saía
+		// dele: `AcaoDaCausa` existia, nenhum handler chamava, e o técnico via
+		// "disco lento — 45%" sem ver "trocar por NVMe; o atual não tem
+		// defeito", que estava a uma linha de distância no mesmo processo.
+		//
+		// É o motivo de a causa existir (§0 da taxonomia: duas coisas são
+		// causas diferentes quando geram condutas diferentes). Mostrar a causa
+		// sem a conduta entrega a metade que conclui e esconde a que resolve.
+		if acao := corpus.AcaoDaCausa(causas[i].Codigo); acao != "" {
+			causas[i].Slots["acao"] = acao
+		}
 	}
 }

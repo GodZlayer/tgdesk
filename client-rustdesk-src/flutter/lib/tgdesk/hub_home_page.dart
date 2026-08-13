@@ -8,6 +8,7 @@ import '../models/state_model.dart';
 import 'package:get/get.dart';
 import 'api_client.dart';
 import 'branding_window_icon.dart';
+import 'central_supervisor_page.dart';
 import 'devices_page.dart';
 import 'admin_page.dart';
 import 'window_frame.dart';
@@ -226,6 +227,17 @@ class _HubHomePageState extends State<HubHomePage> {
     final canManageNetworks = AppState.canManageNetworks;
 
     final destinations = <NavigationRailDestination>[
+      // A CENTRAL vem primeiro para quem opera o parque, e a ordem é a
+      // afirmacao do papel: o supervisor pensa em ORGANIZACAO ("a padaria esta
+      // com problema"), nao em "maquina 7". A lista plana de dispositivos
+      // continua logo abaixo, para quando ele ja sabe qual maquina quer.
+      //
+      // Admin e supervisor sao papeis diferentes, nao niveis do mesmo: o admin
+      // administra o PRODUTO (taxas, precificacao, catalogo, funcionamento) e
+      // muda raramente; o supervisor opera o PARQUE e muda o tempo todo.
+      if (canManageNetworks)
+        const NavigationRailDestination(
+            icon: Icon(Icons.hub_outlined), label: Text('Central')),
       if (canManageNetworks)
         const NavigationRailDestination(
             icon: Icon(Icons.devices), label: Text('Dispositivos')),
@@ -242,6 +254,7 @@ class _HubHomePageState extends State<HubHomePage> {
     ];
 
     final pages = <Widget>[
+      if (canManageNetworks) const CentralSupervisorPage(),
       if (canManageNetworks) const DevicesPage(),
       const TgdeskClientHomePage(embedded: true),
       const SupportPage(),
