@@ -34,7 +34,7 @@ class TgdeskDiagnosticText {
     'windows_integrity': 'Integridade do Windows',
     'update_status': 'Atualizações do Windows',
     'security_posture': 'Postura de segurança',
-    'defender_quick_scan': 'Varredura antimalware',
+    'defender_status': 'Estado da proteção',
     'temperature_sensors': 'Sensores térmicos',
     'storage_volumes': 'Volumes e espaço',
     'process_pressure': 'Pressão de processos',
@@ -85,8 +85,10 @@ class TgdeskDiagnosticText {
     'update_status': 'Lista hotfixes e reinicializações pendentes.',
     'security_posture':
         'Consulta Defender, firewall, Secure Boot e criptografia.',
-    'defender_quick_scan':
-        'Executa uma verificação rápida real do Microsoft Defender e apresenta ameaças e estado final.',
+    'defender_status':
+        'Lê o estado do Microsoft Defender e as ameaças já detectadas. '
+        'NÃO executa varredura: uma varredura removeria ou colocaria arquivos '
+        'em quarentena, e diagnóstico não apaga nada.',
     'temperature_sensors':
         'Lê sensores térmicos expostos pelo Windows e pelo hardware.',
     'storage_volumes':

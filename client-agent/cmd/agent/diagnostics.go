@@ -208,10 +208,15 @@ func executeDiagnostic(ctx context.Context, test string, progress func(int, stri
 		return commandDiagnostic(ctx, progress, 35, "Consultando atualizações", "powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "[pscustomobject]@{HotFixes=(Get-HotFix | Sort-Object InstalledOn -Descending | Select-Object -First 30);RebootPending=(Test-Path 'HKLM:\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\WindowsUpdate\\Auto Update\\RebootRequired')} | ConvertTo-Json -Depth 4")
 	case "security_posture":
 		return commandDiagnostic(ctx, progress, 35, "Consultando segurança", "powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "$ErrorActionPreference='SilentlyContinue'; $d=try{Get-MpComputerStatus}catch{$null}; $f=try{Get-NetFirewallProfile|Select-Object Name,Enabled}catch{$null}; $s=try{Confirm-SecureBootUEFI}catch{$null}; $b=try{Get-BitLockerVolume|Select-Object MountPoint,VolumeStatus,ProtectionStatus}catch{$null}; [pscustomobject]@{Defender=$d;Firewall=$f;SecureBoot=$s;BitLocker=$b} | ConvertTo-Json -Depth 5; exit 0")
-	case "defender_quick_scan":
+	case "defender_status":
 		return commandDiagnostic(ctx, progress, 5, "Executando verificação rápida do Microsoft Defender",
 			"powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
-			"$ErrorActionPreference='Stop'; Start-MpScan -ScanType QuickScan; $status=Get-MpComputerStatus; $threats=@(Get-MpThreatDetection | Select-Object -First 100 ThreatID,InitialDetectionTime,Resources,ActionSuccess); [pscustomobject]@{Status='completed';AntivirusEnabled=$status.AntivirusEnabled;LastQuickScan=$status.QuickScanEndTime;Threats=$threats;ThreatCount=$threats.Count} | ConvertTo-Json -Depth 6")
+			// NUNCA `Start-MpScan`. Uma varredura do Defender REMOVE ou põe em
+			// quarentena o que encontrar — é um teste que apaga arquivo do
+			// cliente, e diagnóstico não apaga nada. Ler o estado responde a
+			// mesma pergunta ("a proteção está de pé e o que ela já achou?")
+			// sem tocar em nada.
+			"$ErrorActionPreference='Stop'; $status=Get-MpComputerStatus; $threats=@(Get-MpThreatDetection | Select-Object -First 100 ThreatID,InitialDetectionTime,Resources,ActionSuccess); [pscustomobject]@{Status='completed';AntivirusEnabled=$status.AntivirusEnabled;RealTimeProtection=$status.RealTimeProtectionEnabled;LastQuickScan=$status.QuickScanEndTime;LastFullScan=$status.FullScanEndTime;SignatureAge=$status.AntivirusSignatureAge;Threats=$threats;ThreatCount=$threats.Count} | ConvertTo-Json -Depth 6")
 	case "temperature_sensors":
 		return commandDiagnostic(ctx, progress, 35, "Lendo sensores térmicos", "powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "Get-CimInstance -Namespace root/wmi MSAcpi_ThermalZoneTemperature -ErrorAction SilentlyContinue | Select-Object InstanceName,@{n='Celsius';e={[math]::Round(($_.CurrentTemperature/10)-273.15,1)}} | ConvertTo-Json")
 	case "storage_volumes":
@@ -243,7 +248,7 @@ var completeDiagnosticTests = []string{
 	"network_latency_series", "network_adapters", "dns_diagnostics", "route_table",
 	"disk_performance", "disk_random_performance", "smart_extended", "badblocks-read",
 	"storage_surface_read", "filesystem_scan", "filesystem_deep_scan", "storage_volumes",
-	"gpu_stress", "battery_health", "security_posture", "defender_quick_scan",
+	"gpu_stress", "battery_health", "security_posture", "defender_status",
 	"temperature_sensors",
 }
 
@@ -260,7 +265,7 @@ var diagnosticGroups = map[string]string{
 	"storage_surface_read": "Armazenamento", "filesystem_scan": "Armazenamento",
 	"disk_random_performance": "Armazenamento", "filesystem_deep_scan": "Armazenamento",
 	"storage_volumes": "Armazenamento", "gpu_stress": "Vídeo", "battery_health": "Energia",
-	"security_posture": "Segurança", "defender_quick_scan": "Segurança",
+	"security_posture": "Segurança", "defender_status": "Segurança",
 	"temperature_sensors": "Hardware",
 }
 
@@ -733,6 +738,28 @@ func diskPerformance(ctx context.Context, progress func(int, string)) (map[strin
 	path := filepath.Join(os.TempDir(), "tgdesk-diagnostic.bin")
 	defer os.Remove(path)
 	const size = 128 * 1024 * 1024
+
+	// GATE DE ESPAÇO LIVRE. Escrever 128 MB num disco quase cheio agrava
+	// exatamente o problema que se foi medir — e as duas máquinas do parque
+	// estão em 93% e 99% de ocupação.
+	//
+	// Pior: num SSD sem blocos de reserva, a escrita força coleta de lixo e
+	// pode PRODUZIR a pausa que o exame deveria apenas observar. O teste
+	// mediria a si mesmo.
+	//
+	// Desistir é resultado, não falha: a tela recebe o motivo e o técnico sabe
+	// que a medida de escrita não existe para esta máquina.
+	if livre, total, err := espacoLivreSuficiente(os.TempDir()); err == nil && total > 0 {
+		if float64(livre)/float64(total) < 0.15 || livre < 4*size {
+			return map[string]any{
+				"skipped": true,
+				"motivo": "espaço livre abaixo de 15% — a medição de escrita foi " +
+					"dispensada para não agravar a ocupação do disco",
+				"livre_bytes": livre, "total_bytes": total,
+			}, nil
+		}
+	}
+
 	block := make([]byte, 1024*1024)
 	for i := range block {
 		block[i] = byte(i)
@@ -876,4 +903,13 @@ func commandDiagnostic(ctx context.Context, progress func(int, string), percent 
 		}
 	}
 	return result, err
+}
+
+// espacoLivreSuficiente devolve bytes livres e totais do volume que contém o
+// caminho.
+//
+// Existe para que o exame possa DESISTIR de escrever. Um diagnóstico que enche
+// o disco do cliente para medir a velocidade dele é pior que não medir.
+func espacoLivreSuficiente(caminho string) (livre, total uint64, err error) {
+	return espacoDoVolume(caminho)
 }
