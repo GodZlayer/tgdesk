@@ -32,4 +32,13 @@ func TestVarreduraAmostraNaoLeODiscoInteiro(t *testing.T) {
 	if !regexp.MustCompile(`file\.Seek\(int64\(posicao\), 0\)`).Match(fonte) {
 		t.Error("sem seek não há amostragem: a leitura volta a ser sequencial e integral")
 	}
+
+	// ALINHAMENTO. Leitura de dispositivo fisico exige offset multiplo do
+	// setor. Sem isto, TODA leitura falha — e a primeira versao da amostragem
+	// produziu 225 "erros de leitura" num NVMe saudavel, o que diagnosticaria
+	// disco sadio como degradado e mandaria trocar peca boa.
+	if !regexp.MustCompile(`passo -= passo % uint64\(len\(buffer\)\)`).Match(fonte) {
+		t.Error("o passo precisa ser truncado para multiplo do buffer, senao " +
+			"todo seek cai fora do alinhamento de setor e a leitura falha")
+	}
 }

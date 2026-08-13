@@ -409,6 +409,21 @@ func storageSurfaceRead(ctx context.Context, progress func(int, string)) (map[st
 		if passo < uint64(len(buffer)) {
 			passo = uint64(len(buffer))
 		}
+		// ALINHAMENTO. Leitura de dispositivo físico no Windows exige offset
+		// múltiplo do setor — sem isso, TODA leitura falha com parâmetro
+		// inválido.
+		//
+		// A primeira versão desta amostragem produziu 225 "erros de leitura"
+		// num NVMe saudável, porque `disk.Size / 240` não é múltiplo de 4096.
+		// Um disco sadio seria diagnosticado como degradado — o erro mais caro
+		// que este teste pode cometer, porque manda trocar peça boa.
+		//
+		// Truncar para múltiplo do buffer resolve para qualquer setor
+		// existente: 8 MB é múltiplo de 512 e de 4096.
+		passo -= passo % uint64(len(buffer))
+		if passo == 0 {
+			passo = uint64(len(buffer))
+		}
 
 		var regionStart, regionBytes uint64
 		var regionDuration time.Duration
