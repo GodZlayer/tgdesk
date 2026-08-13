@@ -72,10 +72,19 @@ var (
 func ringBufferDeTrava() *ringBufferTrava {
 	ringTravaUma.Do(func() {
 		ringTravaGlobal = novoRingBufferTrava()
-		// Sem coletor por enquanto: o buffer guarda a linha do tempo (que é o
-		// que detecta o salto de relógio). As métricas a 10 Hz entram junto com
-		// a telemetria em duas velocidades — ver lacuna declarada no roadmap.
-		ringTravaGlobal.iniciar(nil)
+		// Com coletor: o buffer passa a guardar CPU e memória a 10 Hz, além da
+		// linha do tempo.
+		//
+		// Sem isso, o despejo de uma trava chegava vazio — dizia QUANDO
+		// congelou e nada sobre o que a máquina estava fazendo. O contexto é
+		// justamente a única coisa que o servidor não tem: ele mede a duração
+		// pelo relógio externo, mas não enxerga dentro da máquina congelada.
+		//
+		// `amostrarRapido` é syscall direta, de propósito. A 10 Hz, qualquer
+		// coisa mais cara transformaria o buffer na causa do travamento que ele
+		// existe para explicar — foi assim que a coleta de telemetria acabou
+		// registrando 250 travas falsas por hora.
+		ringTravaGlobal.iniciar(amostrarRapido)
 	})
 	return ringTravaGlobal
 }

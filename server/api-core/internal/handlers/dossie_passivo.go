@@ -74,6 +74,21 @@ func (s *Server) evidenciasDoDispositivo(ctx context.Context, deviceID string) d
 		}
 	}
 
+	// A trava CONFIRMADA tem precedência sobre tudo.
+	//
+	// Congelamento é o sintoma mais severo que o produto observa, e é medido
+	// pelo relógio EXTERNO — quem mede não é a máquina que congelou, então o
+	// dado é mais confiável que qualquer contador de dentro dela. Deixá-lo
+	// para depois de CPU e disco foi o erro que classificou uma máquina com
+	// congelamentos como "lentidão intermitente" por causa de pico de CPU.
+	if travas := s.perfilDeTravas(ctx, deviceID); travas.Status != "" {
+		d.StatusProvavel = travas.Status
+		d.Evidencias = append(d.Evidencias, EvidenciaDoDossie{
+			Sinal: "trava_confirmada", Literal: travas.Evidencia,
+		})
+		return d
+	}
+
 	d.StatusProvavel = statusProvavel(d.Evidencias)
 
 	// Lentidão não é um status, são dois — engasgo curto e degradação
