@@ -27,3 +27,30 @@ func TestAmostraSemHoraOuDoFuturoNaoEntra(t *testing.T) {
 		t.Fatal("amostra sem hora ou do futuro precisa ser descartada")
 	}
 }
+
+// O par (evidência, causa) só existe no fechamento do atendimento: as medidas
+// vêm do dossiê e do exame, o rótulo vem do técnico que abriu a máquina.
+// Nenhum dos dois sozinho é exemplo de treino.
+//
+// Sem isto, o conjunto de treino continua 100% simulado de fórum — e um modelo
+// que só viu fórum aprende o fórum.
+func TestCasoFechadoViraExemploDeTreino(t *testing.T) {
+	fonte := lerFonte(t, "rat_laco.go")
+	if !contemTodos(fonte, []string{"gravarExemploDeTreino", "'interno_rat'"}) {
+		t.Fatal("o atendimento fechado não está virando exemplo de treino")
+	}
+	// A característica tem que ser a MESMA que o motor viu ao diagnosticar.
+	// Um conjunto diferente treinaria a rede num mundo que ela não encontra.
+	if !contemTodos(fonte, []string{"s.evidenciasDoDispositivo(ctx, deviceID)"}) {
+		t.Fatal("o exemplo precisa usar a mesma evidência que o motor usou")
+	}
+}
+
+// Rótulo sem medida ensina a rede a chutar aquela causa sempre que não souber
+// de nada — exatamente o oposto do que se quer.
+func TestRotuloSemMedidaNaoViraExemplo(t *testing.T) {
+	fonte := lerFonte(t, "rat_laco.go")
+	if !contemTodos(fonte, []string{"if len(d.Evidencias) == 0 {"}) {
+		t.Fatal("exemplo com vetor vazio precisa ser recusado")
+	}
+}

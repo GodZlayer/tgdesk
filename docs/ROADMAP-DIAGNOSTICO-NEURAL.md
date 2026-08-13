@@ -115,6 +115,61 @@ Legenda: `[ ]` não iniciado · `[~]` em curso · `[x]` concluído e verificado 
 Ordem cronológica inversa (mais recente no topo). Cada entrada diz **o que
 mudou**, **em quais arquivos** e **o que ficou faltando**.
 
+### 2026-08-13 — TELEMETRIA LOCAL, EXAME COMO EVIDÊNCIA, E O CASO REAL
+
+Quatro coisas, e a primeira muda o que o produto consegue saber.
+
+**Telemetria local com entrega diferida.** Até aqui a telemetria só existia se
+houvesse conexão no instante da coleta — e a máquina sem internet é justamente
+a que costuma estar com problema: o buraco no histórico coincidia com o período
+que mais interessa.
+
+Agora a coleta é local e a entrega é oportunista. Spool em disco, janela de
+5 min, append-only, teto de 64 MB. A linha só sai depois que o servidor aceita:
+queda de conexão custa reenvio, nunca perda. O carimbo é o da COLETA.
+
+*A janela de 5 min custou uma versão para aparecer:* com rotação horária, o
+arquivo aberto não pode ser entregue, e uma máquina ONLINE esperava até 60 min
+para mandar a primeira amostra — o oposto do requisito.
+
+**Custo, medido.** A coleta contínua é só syscall:
+
+| | por amostra |
+| --- | --- |
+| coleta barata | **105 µs** |
+| script PowerShell | **9–13 s** |
+
+Cinco ordens de grandeza. Nas máquinas: 117 MB no total dos 4 processos, CPU
+praticamente zero, spool drenando (1,8 KB pendentes).
+
+**Duas lacunas da taxonomia fechadas:** `commit` separa "memória insuficiente"
+de "memória ocupada"; `handles` e `threads` tornam vazamento detectável — é o
+problema que só aparece na derivada.
+
+**O exame virou evidência.** `diagnostic_runs.results` acumulava e nunca era
+lido: o técnico rodava o teste completo e o diagnóstico não mudava. A pior
+combinação possível, porque o exame custa tempo da máquina do cliente.
+
+A extração mais valiosa é a superfície: 240 regiões cronometradas separam três
+coisas que a telemetria confunde — **erro de leitura** (degradado, backup
+urgente), **região lenta isolada** (setor morrendo) e **todas lentas por igual**
+(lento, upgrade planejado). A primeira e a terceira são a distinção que mais
+muda dinheiro.
+
+**A varredura lia o disco INTEIRO.** `for diskRead < disk.Size`. Medido durante
+o exame autorizado: 1 TB a 341 MB/s ≈ 50 min por máquina, toda vez, com
+desgaste e calor no computador do cliente. As "240 regiões" eram baldes de
+agregação sobre uma leitura completa. Passa a amostrar: 1,9 GB, segundos.
+
+**O caso real vira exemplo de treino.** O par (evidência, causa) só existe no
+fechamento: as medidas vêm do dossiê e do exame, o rótulo vem do técnico que
+abriu a máquina. Nenhum dos dois sozinho ensina. Era o que faltava para o
+conjunto deixar de ser 100% simulado de fórum.
+
+**Central do supervisor.** Admin e supervisor são papéis diferentes, não níveis
+do mesmo: o admin administra o PRODUTO e muda raramente; o supervisor opera o
+PARQUE. A central agrupa por organização, ordenada por urgência.
+
 ### 2026-08-13 — LENTIDÃO É DOIS STATUS, e a medida que faltava
 
 Correção vinda de quem convive com as máquinas: *"'lentidão persistente' não é

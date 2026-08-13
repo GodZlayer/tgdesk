@@ -140,6 +140,20 @@ func (s *Server) RegistrarRAT(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	// O CASO REAL VIRA EXEMPLO DE TREINO.
+	//
+	// É aqui que o produto deixa de depender de simulação. Até agora o conjunto
+	// era 100% de fórum — e um modelo que só viu fórum aprende o fórum.
+	//
+	// O par (evidência, causa) só existe neste instante: as MEDIDAS vêm do
+	// dossiê e do exame; o RÓTULO vem do técnico que abriu a máquina. Nenhum
+	// dos dois sozinho é exemplo de treino — medida sem rótulo não ensina, e
+	// rótulo sem medida não tem o que ensinar.
+	//
+	// Por isso o exemplo nasce no fechamento, e não quando o exame termina: o
+	// exame produz a metade que mede, o técnico produz a metade que confirma.
+	s.gravarExemploDeTreino(ctx, in.DeviceID, supStatus, in.CausaEncontrada)
+
 	// A comparação já sai calculada — é o que o supervisor vai avaliar, e ele
 	// não deveria ter que descobrir sozinho se a rede acertou.
 	divergiu := supCausa == nil || *supCausa != in.CausaEncontrada
@@ -258,4 +272,54 @@ func strOuVazio(p *string) string {
 		return ""
 	}
 	return *p
+}
+
+// gravarExemploDeTreino transforma o atendimento fechado em dado de treino.
+//
+// O que entra como característica é a MESMA evidência que o motor viu ao
+// diagnosticar — telemetria passiva mais exame. Usar um conjunto diferente aqui
+// treinaria a rede num mundo que ela não encontra em produção, e o modelo
+// pareceria bom no treino e erraria na tela.
+//
+// A partição é `treino` por padrão. A separação temporal de §14.2 acontece na
+// leitura, não na escrita: quem treina decide o corte, e recarimbar exemplos
+// antigos mudaria a métrica retroativamente.
+func (s *Server) gravarExemploDeTreino(ctx context.Context, deviceID string, status *string, causaEncontrada string) {
+	if causaEncontrada == "" {
+		return
+	}
+	// Sem status observado não há domínio: a rede é um cabeçote POR STATUS, e
+	// um exemplo sem status não pertence a cabeçote nenhum.
+	if status == nil || *status == "" {
+		return
+	}
+
+	d := s.evidenciasDoDispositivo(ctx, deviceID)
+	if len(d.Evidencias) == 0 {
+		// Rótulo sem medida não ensina nada. Gravar produziria um exemplo com
+		// vetor vazio, e vetor vazio com rótulo ensina a rede a chutar aquela
+		// causa sempre que não souber de nada — o oposto do que se quer.
+		return
+	}
+
+	evidencias := map[string]any{}
+	for _, e := range d.Evidencias {
+		item := map[string]any{"literal": e.Literal}
+		// Valor ausente fica AUSENTE (§19.3): ausência é informação, zero é
+		// afirmação de que se mediu e deu zero.
+		if e.Valor != nil {
+			item["valor"] = *e.Valor
+		}
+		evidencias[e.Sinal] = item
+	}
+	bruto, err := json.Marshal(evidencias)
+	if err != nil {
+		return
+	}
+
+	_, _ = s.Pool.Exec(ctx, `
+		INSERT INTO training_example
+		  (origem, device_id, status_codigo, causa_verdadeira, evidencias, tem_curva, particao)
+		VALUES ('interno_rat', $1::uuid, $2, $3, $4::jsonb, true, 'treino')`,
+		deviceID, *status, causaEncontrada, bruto)
 }
