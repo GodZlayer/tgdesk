@@ -1,4 +1,4 @@
-use hbb_common::{bail, platform::windows::is_windows_version_or_greater, ResultType};
+use hbb_common::{bail, log, platform::windows::is_windows_version_or_greater, ResultType};
 
 // This string is defined here.
 //  https://github.com/rustdesk-org/RustDeskIddDriver/blob/b370aad3f50028b039aad211df60c8051c4a64d6/RustDeskIddDriver/RustDeskIddDriver.inf#LL73C1-L73C40
@@ -30,6 +30,54 @@ pub fn is_virtual_display_supported() -> bool {
     #[cfg(not(target_os = "windows"))]
     {
         false
+    }
+}
+
+// Marca se ESTE processo plugou um display virtual headless.
+//
+// Existe por causa de uma limitação real do driver amyuni, documentada em
+// `display_service::try_get_displays_add_amyuni_headless`: não dá para
+// identificar qual display virtual é nosso depois de plugado. Sem essa marca, a
+// única forma de remover seria arrancar todos — inclusive os que o usuário
+// plugou de propósito, ou que outro programa gerencia.
+//
+// Com ela a regra fica estreita e defensável: removemos UM, e só se fomos nós
+// que plugamos nesta execução. Se o processo reiniciar entre o plug e o unplug,
+// a marca some e o display fica — chato, mas é o lado seguro do erro.
+static HEADLESS_PLUGADO_POR_NOS: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+
+pub fn marcar_headless_plugado_por_nos() {
+    HEADLESS_PLUGADO_POR_NOS.store(true, std::sync::atomic::Ordering::SeqCst);
+}
+
+// Remove o display virtual headless que nós plugamos, agora que há display real.
+//
+// Fecha o vazamento que deixava um monitor fantasma na máquina depois de uma
+// conexão em que o Windows piscou sem displays. Não faz nada se não fomos nós
+// que plugamos.
+pub fn plug_out_headless_se_plugamos() {
+    use std::sync::atomic::Ordering;
+    // `swap` e não `load` + `store`: duas enumerações concorrentes não podem
+    // tentar remover o mesmo display duas vezes.
+    if !HEADLESS_PLUGADO_POR_NOS.swap(false, Ordering::SeqCst) {
+        return;
+    }
+    log::info!("display real presente; removendo o display virtual headless que plugamos");
+    match IDD_IMPL {
+        IDD_IMPL_RUSTDESK => {
+            rustdesk_idd::plug_out_headless();
+        }
+        IDD_IMPL_AMYUNI => {
+            // `force_all = false`: nunca arrancar tudo. `force_one = true`:
+            // remove um virtual mesmo sem sabermos o índice, que é o único
+            // caminho que o amyuni oferece — e é aceitável aqui porque só se
+            // chega nesta linha quando fomos nós que plugamos.
+            if let Err(e) = amyuni_idd::plug_out_monitor(IDD_PLUG_OUT_ALL_INDEX, false, true) {
+                log::error!("falha ao remover display virtual headless: {}", e);
+            }
+        }
+        _ => {}
     }
 }
 

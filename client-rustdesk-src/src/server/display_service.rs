@@ -475,14 +475,77 @@ pub fn try_get_displays_(add_amyuni_headless: bool) -> ResultType<Vec<Display>> 
     //     return Ok(displays);
     // }
 
-    let no_displays_v = no_displays(&displays);
-    if no_displays_v {
-        log::debug!("no displays, create virtual display");
-        if let Err(e) = virtual_display_manager::plug_in_headless() {
-            log::error!("plug in headless failed {}", e);
-        } else {
-            displays = Display::all()?;
+    if no_displays(&displays) {
+        // NÃO concluir "sem display" na primeira leitura.
+        //
+        // Este caminho roda no login da sessão remota. Nesse exato instante o
+        // Windows pode estar TROCANDO DE SESSÃO — bloqueio, desktop seguro,
+        // monitor saindo de suspensão — e devolver zero display por um piscar,
+        // com o monitor fisicamente lá. Concluir na primeira leitura pluga um
+        // monitor USB virtual (o chime de dispositivo que o usuário ouve), joga
+        // a área de trabalho para ele, e a tela real fica preta.
+        //
+        // Pior: com o driver amyuni não existe remoção automática — o comentário
+        // de `try_get_displays_add_amyuni_headless` diz isso —, então o monitor
+        // fantasma FICA. Um falso positivo aqui não é um erro passageiro, é um
+        // display a mais para sempre.
+        //
+        // O comentário logo acima já previa isto: "we may add a better check by
+        // waiting for a while (switching session)". Foi reportado; está aqui.
+        //
+        // Espera curta e limitada: uma troca de sessão resolve em fração de
+        // segundo, e um monitor acordando leva um ou dois. Máquina de verdade
+        // headless não ganha display nenhum nesse tempo e segue para o plug —
+        // só paga a espera, uma vez, na conexão.
+        //
+        // O custo, dito sem maquiagem: isto BLOQUEIA a thread por até 2 s, e o
+        // chamador (`update_get_sync_displays_on_login`) é async. O bloqueio
+        // fica contido porque este trecho só é alcançável no caminho de login
+        // com amyuni — `try_get_displays_(false)` retorna antes — e só quando a
+        // enumeração vem vazia, que é raro. Atrasar em 2 s a conexão que hoje
+        // termina em tela preta é troca boa; se um dia este caminho ficar
+        // quente, o certo é movê-lo para `spawn_blocking`.
+        const TENTATIVAS_ANTES_DE_PLUGAR: usize = 5;
+        const ESPERA_ENTRE_TENTATIVAS: std::time::Duration =
+            std::time::Duration::from_millis(400);
+
+        let mut apareceu = false;
+        for tentativa in 1..=TENTATIVAS_ANTES_DE_PLUGAR {
+            std::thread::sleep(ESPERA_ENTRE_TENTATIVAS);
+            match Display::all() {
+                Ok(d) => {
+                    if !no_displays(&d) {
+                        log::info!(
+                            "display real apareceu na tentativa {} — nenhum display virtual sera plugado",
+                            tentativa
+                        );
+                        displays = d;
+                        apareceu = true;
+                        break;
+                    }
+                    displays = d;
+                }
+                Err(e) => log::warn!("falha ao reenumerar displays: {}", e),
+            }
         }
+
+        if !apareceu {
+            log::info!(
+                "nenhum display real apos {} tentativas — plugando display virtual headless",
+                TENTATIVAS_ANTES_DE_PLUGAR
+            );
+            if let Err(e) = virtual_display_manager::plug_in_headless() {
+                log::error!("plug in headless failed {}", e);
+            } else {
+                virtual_display_manager::marcar_headless_plugado_por_nos();
+                displays = Display::all()?;
+            }
+        }
+    } else {
+        // Display real presente. Se em algum momento NÓS plugamos um virtual
+        // headless, ele não tem mais razão de existir — e ninguém mais vai
+        // removê-lo. É aqui que o vazamento se fecha.
+        virtual_display_manager::plug_out_headless_se_plugamos();
     }
     Ok(displays)
 }
