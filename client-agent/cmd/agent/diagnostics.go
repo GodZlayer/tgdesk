@@ -156,6 +156,16 @@ func executeDiagnostic(ctx context.Context, test string, progress func(int, stri
 		return memoryIntegrity(ctx, progress)
 	case "memory_extended":
 		return memoryExtended(ctx, progress)
+	// Exames COMBINADOS: medem peças trabalhando juntas, que é onde os
+	// problemas reais do parque moram. Ver exames_combinados.go.
+	case "memory_bandwidth":
+		return bandaDeMemoria(ctx, progress)
+	case "cpu_core_balance":
+		return nucleosDoProcessador(ctx, progress)
+	case "paging_pressure":
+		return pressaoDePaginacao(ctx, progress)
+	case "cpu_memory_contention":
+		return disputaCPUMemoria(ctx, progress)
 	case "internet_quality":
 		return internetQuality(ctx, progress)
 	case "network_latency_series":

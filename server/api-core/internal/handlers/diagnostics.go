@@ -55,6 +55,12 @@ var diagnosticCatalog = []map[string]any{
 	{"id": "process_gpu_pressure", "category": "Desempenho", "impact": "medium"},
 	{"id": "reboot_lag_history", "category": "Sistema", "impact": "low"},
 	{"id": "resource_pressure_series", "category": "Desempenho", "impact": "medium"},
+	// Exames COMBINADOS. Medem peças juntas, que é a pergunta que o cliente faz
+	// — "esta máquina aguenta este uso?" — e que nenhum exame isolado responde.
+	{"id": "memory_bandwidth", "category": "Desempenho", "impact": "low"},
+	{"id": "cpu_core_balance", "category": "Desempenho", "impact": "low"},
+	{"id": "paging_pressure", "category": "Desempenho", "impact": "medium"},
+	{"id": "cpu_memory_contention", "category": "Desempenho", "impact": "medium"},
 }
 
 func (s *Server) diagnosticDeviceAccess(r *http.Request, deviceID string) bool {
