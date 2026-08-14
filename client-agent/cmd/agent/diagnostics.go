@@ -464,8 +464,30 @@ func storageSurfaceRead(ctx context.Context, progress func(int, string)) (map[st
 			regionDuration = 0
 			regionStatus = "healthy"
 		}
-		var posicao uint64
-		for posicao < disk.Size {
+		// VISITA FORA DE ORDEM. É o que impede carga de virar geografia.
+		//
+		// Varrer o disco do começo ao fim faz o tempo e o espaço andarem
+		// juntos: se a máquina fica ocupada durante um trecho do exame, a
+		// lentidão daquele MOMENTO aparece como se fosse uma REGIÃO ruim.
+		//
+		// Não é hipótese. Numa varredura do parque isso produziu um miolo a
+		// 59-88 MB/s contra bordas a 177-216 MB/s, com leituras de 37
+		// segundos — um padrão limpo, convincente, e falso. Repetida, a zona
+		// não reapareceu: era carga concorrente, e o próprio exame, que chega
+		// a 177 MB/s, é candidato a tê-la causado.
+		//
+		// Embaralhar a ordem de visita quebra a correlação: um período ruim
+		// passa a espalhar pontos por todo o disco em vez de agrupá-los. Zona
+		// ruim de verdade continua agrupada, porque ela é do disco, não do
+		// relógio.
+		posicoes := make([]uint64, 0, 256)
+		for p := uint64(0); p < disk.Size; p += passo {
+			posicoes = append(posicoes, p)
+		}
+		embaralharPosicoes(posicoes)
+
+		var lidas uint64
+		for _, posicao := range posicoes {
 			if err := waitDiagnosticPause(ctx); err != nil {
 				file.Close()
 				return map[string]any{"disks": resultDisks, "bytes_read": readTotal}, err
@@ -503,13 +525,13 @@ func storageSurfaceRead(ctx context.Context, progress func(int, string)) (map[st
 			// engasgando" — defeitos com condutas opostas. Com o campo errado,
 			// qualquer leitura posicional do resultado é ficção.
 			regionStart = posicao
-			posicao += passo
+			lidas++
 			// O progresso passa a ser a fração VARRIDA do disco, não a fração
 			// lida: com amostragem, os bytes lidos são uma fração minúscula do
 			// tamanho, e a barra ficaria parada em 0%.
-			progress(int(posicao*100/disk.Size),
-				fmt.Sprintf("Amostrando %s: %d de %d GB varridos",
-					disk.Model, posicao/(1024*1024*1024), disk.Size/(1024*1024*1024)))
+			progress(int(lidas*100/uint64(len(posicoes))),
+				fmt.Sprintf("Amostrando %s: %d de %d pontos",
+					disk.Model, lidas, len(posicoes)))
 			if readErr != nil {
 				diskErrors++
 				regionStatus = "error"

@@ -93,3 +93,22 @@ func TestOffsetDaRegiaoEPosicaoNoDiscoNaoBytesLidos(t *testing.T) {
 			"sem isso o resultado não sustenta leitura posicional")
 	}
 }
+
+// A varredura precisa visitar as regiões FORA DE ORDEM.
+//
+// Varrer do começo ao fim faz tempo e espaço andarem juntos: carga concorrente
+// durante um trecho do exame vira, no relatório, uma "região ruim" do disco.
+// Foi assim que uma varredura do parque produziu um miolo lento com leituras
+// de 37 segundos — padrão convincente e falso, que não reapareceu na repetição.
+//
+// Embaralhar quebra a correlação. Zona ruim de verdade continua agrupada.
+func TestVarreduraVisitaRegioesForaDeOrdem(t *testing.T) {
+	fonte, err := os.ReadFile("diagnostics.go")
+	if err != nil {
+		t.Fatalf("diagnostics.go: %v", err)
+	}
+	if !regexp.MustCompile(`embaralharPosicoes\(posicoes\)`).MatchString(string(fonte)) {
+		t.Error("a varredura voltou a ser sequencial: carga concorrente vai " +
+			"reaparecer como região ruim, e o laudo manda trocar disco saudável")
+	}
+}
