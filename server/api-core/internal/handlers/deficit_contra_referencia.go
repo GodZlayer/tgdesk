@@ -57,8 +57,22 @@ func (s *Server) AvaliarContraReferencia(ctx context.Context, deviceID string) (
 		)
 		SELECT 'disco', disco.modelo, r.metrica, disco.ocupacao, r.valor_esperado, r.fonte
 		  FROM disco
-		  JOIN component_reference r
-		    ON r.classe = 'disco' AND r.metrica = 'ocupacao_maxima_pct'
+		  -- LATERAL com ORDER BY especificidade: a linha mais específica que
+		  -- casar vence. Um limite único de ocupação para todo disco do mundo
+		  -- é falso — e o próprio parque desmente: uma máquina a 98,3% responde
+		  -- em 0,73 ms sob carga enquanto outra a 93,7% desaba para 577 ms. O
+		  -- que tolera ocupação é o controlador, não a porcentagem.
+		  JOIN LATERAL (
+		      SELECT valor_esperado, metrica, fonte
+		        FROM component_reference r
+		       WHERE r.classe = 'disco'
+		         AND r.metrica = 'ocupacao_maxima_pct'
+		         AND (r.modelo_como IS NULL OR disco.modelo ILIKE r.modelo_como)
+		         AND (r.barramento IS NULL OR r.barramento = disco.barramento)
+		         AND (r.midia IS NULL OR r.midia = disco.midia)
+		       ORDER BY r.especificidade DESC
+		       LIMIT 1
+		  ) r ON true
 		 WHERE disco.ocupacao IS NOT NULL
 		UNION ALL
 		SELECT 'memoria', 'memória do sistema', r.metrica, memoria.commit_pct, r.valor_esperado, r.fonte
