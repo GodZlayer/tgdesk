@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"net"
 	"syscall"
+	"time"
 	"unsafe"
 )
 
@@ -29,9 +30,9 @@ import (
 const (
 	// Estado ESTABLISHED na tabela TCP do Windows (MIB_TCP_STATE_ESTAB).
 	tcpEstabelecido = 5
-	// Falhas seguidas antes de reconfigurar. Uma reconexão isolada é normal —
-	// rede oscila, o servidor reinicia. Três seguidas, com o intervalo do
-	// vigia, são ~45 s sem registro: aí não é oscilação, é ciclo.
+	// Reconexões numa JANELA antes de reconfigurar. Uma isolada é normal —
+	// rede oscila, o servidor reinicia. Três em cinco minutos não é oscilação,
+	// é ciclo.
 	falhasAteReparar = 3
 )
 
@@ -155,3 +156,10 @@ func tabelaTCP() ([]linhaTCP, error) {
 	}
 	return linhas, nil
 }
+
+// Janela de contagem da instabilidade.
+//
+// Cinco minutos comportam ~20 verificações a 15 s. Três reconexões nesse
+// intervalo descrevem o ciclo medido no parque (uma a cada 30-45 s) e não
+// disparam por uma queda isolada.
+const janelaDeInstabilidade = 5 * time.Minute

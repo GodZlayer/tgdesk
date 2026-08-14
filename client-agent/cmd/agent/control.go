@@ -200,6 +200,10 @@ func runDeviceControlLoop(cfg *agentConfig, remoteReady bool) error {
 	// Identidade da última conexão vista com o rendezvous. Porta que muda
 	// entre duas verificações significa reconexão.
 	var ultimaPortaRendezvous uint16
+	// Início da janela de contagem. Instabilidade é MUITAS reconexões num
+	// período, não muitas seguidas: entre duas quedas a conexão parece boa, e
+	// contar só o consecutivo apaga o padrão.
+	inicioDaJanela := time.Now()
 
 	// Telemetria local: coleta barata e frequente, entrega oportunista.
 	//
@@ -426,20 +430,33 @@ func runDeviceControlLoop(cfg *agentConfig, remoteReady bool) error {
 					ultimaPortaRendezvous = portaLocal
 				}
 				if err == nil && (!viva || reconectou) {
+					// JANELA, não consecutivos.
+					//
+					// A versão anterior exigia 3 detecções seguidas e zerava o
+					// contador a cada verificação boa. Mas a reconexão acontece
+					// a cada ~30-45 s e a verificação a cada 15 s, então a
+					// sequência real era: zera, zera, conta 1, zera. O contador
+					// nunca chegava a 3.
+					//
+					// Exigir eventos CONSECUTIVOS de um fenômeno intermitente é
+					// errado por construção — e foi por isso que o vigia não
+					// disparou numa máquina que reconectava sem parar.
+					if agora := time.Now(); agora.Sub(inicioDaJanela) > janelaDeInstabilidade {
+						inicioDaJanela, falhasDeRegistro = agora, 0
+					}
 					falhasDeRegistro++
 					if falhasDeRegistro >= falhasAteReparar {
-						// Deixou de estar registrado. Dizer a verdade primeiro
-						// — a tela precisa parar de prometer acesso que não
-						// existe — e só então tentar consertar.
+						// Deixou de estar registrado de forma estável. Dizer a
+						// verdade primeiro — a tela precisa parar de prometer
+						// acesso que não existe — e só então tentar consertar.
 						remoteReady = false
 						remoteError = "registro no rendezvous instável (reconexão em ciclo); refazendo a configuração"
 						ultimaPortaRendezvous = 0
 						falhasDeRegistro = 0
+						inicioDaJanela = time.Now()
 						writeCurrentStatus()
 						_ = sendHeartbeat()
 					}
-				} else if err == nil {
-					falhasDeRegistro = 0
 				}
 			}
 			if !remoteReady {

@@ -2,6 +2,8 @@ package main
 
 import (
 	"net"
+	"os"
+	"regexp"
 	"runtime"
 	"testing"
 	"time"
@@ -105,5 +107,34 @@ func TestVigiaDevolveIdentidadeDaConexao(t *testing.T) {
 	esperada := uint16(conexao.LocalAddr().(*net.TCPAddr).Port)
 	if portaLocal != esperada {
 		t.Fatalf("porta local errada: %d, esperada %d", portaLocal, esperada)
+	}
+}
+
+// O vigia precisa contar reconexões numa JANELA, não consecutivas.
+//
+// A primeira versão exigia 3 detecções seguidas e zerava o contador a cada
+// verificação boa. Mas a reconexão medida no parque acontece a cada ~30-45 s e
+// a verificação roda a cada 15 s, então a sequência real era:
+//
+//	zera · zera · conta 1 · zera · conta 1 · zera ...
+//
+// O contador nunca chegava a 3, e o vigia não disparou numa máquina que
+// reconectava sem parar. Exigir eventos CONSECUTIVOS de um fenômeno
+// intermitente é errado por construção.
+func TestVigiaContaReconexoesNumaJanela(t *testing.T) {
+	fonte, err := os.ReadFile("control.go")
+	if err != nil {
+		t.Fatalf("control.go: %v", err)
+	}
+	texto := string(fonte)
+
+	if !regexp.MustCompile(`Sub\(inicioDaJanela\) > janelaDeInstabilidade`).MatchString(texto) {
+		t.Error("a contagem precisa ser por janela de tempo: entre duas quedas a " +
+			"conexão parece boa, e zerar ali apaga o padrão")
+	}
+	// E o reset incondicional a cada verificação boa não pode voltar.
+	if regexp.MustCompile(`\} else if err == nil \{\s*falhasDeRegistro = 0`).MatchString(texto) {
+		t.Error("o contador voltou a zerar a cada verificação boa: com reconexão " +
+			"a cada 30-45s e verificação a cada 15s, ele nunca alcança o limiar")
 	}
 }
