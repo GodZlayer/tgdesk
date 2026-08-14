@@ -15,6 +15,17 @@ func (s *Server) rollHardwareJSON(ctx context.Context, deviceID string, raw []by
 		return
 	}
 	s.rollTelemetry(ctx, deviceID, h)
+
+	// A época de hardware é reconciliada aqui porque este é o ponto por onde
+	// TODO inventário passa, venha ele pelo HTTP ou pelo canal de controle.
+	// Amarrar a medida à época impede que uma troca de peça seja lida como
+	// degradação da mesma peça.
+	if epoca := s.ReconciliarEpoca(ctx, deviceID, raw); epoca != "" {
+		_, _ = s.Pool.Exec(ctx, `
+			UPDATE telemetry_snapshots SET epoca_id=$1
+			 WHERE device_id=$2 AND epoca_id IS NULL
+			   AND coletado_em > now() - interval '2 minutes'`, epoca, deviceID)
+	}
 }
 
 // Categorias de saúde. Mantidas iguais às que a tela do cliente já consome
