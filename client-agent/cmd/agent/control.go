@@ -415,7 +415,21 @@ func runDeviceControlLoop(cfg *agentConfig, remoteReady bool) error {
 				// A porta local é a identidade da conexão. Se ela muda, houve
 				// reconexão — e reconectar sem parar é o mesmo que não estar
 				// registrado, do ponto de vista de quem tenta acessar.
+				if err != nil {
+					// FALHA DE VERIFICAÇÃO É EVENTO, NÃO SILÊNCIO.
+					//
+					// A versão anterior só agia quando err == nil, e quando a
+					// leitura da tabela TCP falhava o vigia simplesmente parava
+					// — sem log, sem estado, sem pista. Foram três releases sem
+					// ele disparar e sem eu ter como saber por quê.
+					//
+					// Um vigia que pode falhar calado não é vigia.
+					appendAgentLog("vigia: não consegui verificar o registro: %v", err)
+				}
 				reconectou := vigiaDoRegistro.viuReconexao(viva, portaLocal)
+				if reconectou {
+					appendAgentLog("vigia: reconexão com o rendezvous (porta %d)", portaLocal)
+				}
 				if err == nil && (!viva || reconectou) {
 					// JANELA, não consecutivos.
 					//

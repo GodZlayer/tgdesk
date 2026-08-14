@@ -201,3 +201,47 @@ func TestVigiaAcumulaDentroDaJanela(t *testing.T) {
 		t.Fatalf("janela expirada devia recomeçar, deu %d", n)
 	}
 }
+
+// Um vigia que pode falhar CALADO não é vigia.
+//
+// Foram três releases sem ele disparar e sem nenhuma pista do motivo: a
+// leitura da tabela TCP podia falhar (a tabela cresce entre as duas chamadas
+// que a API exige), o chamador só agia quando err == nil, e o vigia
+// simplesmente parava de verificar — sem log, sem estado.
+func TestVigiaNaoFalhaEmSilencio(t *testing.T) {
+	fonte, err := os.ReadFile("control.go")
+	if err != nil {
+		t.Fatalf("control.go: %v", err)
+	}
+	if !regexp.MustCompile(`vigia: não consegui verificar o registro`).Match(fonte) {
+		t.Error("falha na verificação precisa virar log: sem isso não há como " +
+			"saber que o vigia parou de vigiar")
+	}
+	if !regexp.MustCompile(`vigia: reconexão com o rendezvous`).Match(fonte) {
+		t.Error("a detecção também precisa deixar rastro, senão não dá para " +
+			"distinguir 'não detectou' de 'detectou e não agiu'")
+	}
+}
+
+// A leitura precisa tolerar a tabela crescer entre as duas chamadas da API —
+// numa máquina com centenas de conexões isso acontece o tempo todo.
+func TestLeituraDaTabelaToleraTabelaCrescendo(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("API do Windows")
+	}
+	fonte, err := os.ReadFile("acesso_remoto_vigia_windows.go")
+	if err != nil {
+		t.Fatalf("vigia: %v", err)
+	}
+	if !regexp.MustCompile(`bufferInsuficiente`).Match(fonte) {
+		t.Error("a leitura precisa reconhecer ERROR_INSUFFICIENT_BUFFER da segunda " +
+			"chamada e tentar de novo, em vez de tratar como erro definitivo")
+	}
+
+	// E precisa funcionar de verdade, repetidamente.
+	for i := 0; i < 20; i++ {
+		if _, err := tabelaTCP(); err != nil {
+			t.Fatalf("leitura %d falhou: %v", i, err)
+		}
+	}
+}

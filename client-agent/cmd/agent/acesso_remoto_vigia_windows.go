@@ -4,6 +4,7 @@ package main
 
 import (
 	"encoding/binary"
+	"fmt"
 	"net"
 	"syscall"
 	"time"
@@ -117,44 +118,69 @@ func tabelaTCP() ([]linhaTCP, error) {
 	const (
 		afInet              = 2
 		tcpTableOwnerPidAll = 5
+		bufferInsuficiente  = 122 // ERROR_INSUFFICIENT_BUFFER
 	)
-	var tamanho uint32
-	r, _, _ := procGetExtendedTcpTable.Call(
-		0, uintptr(unsafe.Pointer(&tamanho)), 0,
-		afInet, tcpTableOwnerPidAll, 0,
-	)
-	// ERROR_INSUFFICIENT_BUFFER (122) é o retorno esperado da primeira chamada.
-	if tamanho == 0 {
-		return nil, syscall.Errno(r)
-	}
 
-	buffer := make([]byte, tamanho)
-	r, _, chamadaErr := procGetExtendedTcpTable.Call(
-		uintptr(unsafe.Pointer(&buffer[0])), uintptr(unsafe.Pointer(&tamanho)), 0,
-		afInet, tcpTableOwnerPidAll, 0,
-	)
-	if r != 0 {
-		return nil, chamadaErr
-	}
-
-	quantidade := binary.LittleEndian.Uint32(buffer[0:4])
-	const tamanhoLinha = 24 // MIB_TCPROW_OWNER_PID: 6 campos de 4 bytes
-	linhas := make([]linhaTCP, 0, quantidade)
-	for i := uint32(0); i < quantidade; i++ {
-		base := 4 + i*tamanhoLinha
-		if int(base)+tamanhoLinha > len(buffer) {
-			break
+	// TENTA MAIS DE UMA VEZ, e o motivo é uma corrida real.
+	//
+	// A API pede duas chamadas: a primeira descobre o tamanho, a segunda
+	// preenche. Entre elas, a tabela de conexões do sistema muda — e numa
+	// máquina com centenas de conexões ela muda o tempo todo. Quando cresce, a
+	// segunda chamada devolve ERROR_INSUFFICIENT_BUFFER de novo.
+	//
+	// A versão anterior tratava isso como erro definitivo. E como o chamador
+	// só agia quando `err == nil`, o vigia parava de verificar em silêncio —
+	// exatamente o que aconteceu no parque: três releases sem ele disparar, e
+	// nenhuma pista de por quê.
+	var ultimoErro error
+	for tentativa := 0; tentativa < 4; tentativa++ {
+		var tamanho uint32
+		r, _, _ := procGetExtendedTcpTable.Call(
+			0, uintptr(unsafe.Pointer(&tamanho)), 0,
+			afInet, tcpTableOwnerPidAll, 0,
+		)
+		if tamanho == 0 {
+			ultimoErro = fmt.Errorf("tamanho da tabela TCP indisponível (código %d)", r)
+			continue
 		}
-		linhas = append(linhas, linhaTCP{
-			estado:      binary.LittleEndian.Uint32(buffer[base : base+4]),
-			ipLocal:     binary.LittleEndian.Uint32(buffer[base+4 : base+8]),
-			portaLocal:  binary.LittleEndian.Uint32(buffer[base+8 : base+12]),
-			ipRemoto:    binary.LittleEndian.Uint32(buffer[base+12 : base+16]),
-			portaRemota: binary.LittleEndian.Uint32(buffer[base+16 : base+20]),
-			pid:         binary.LittleEndian.Uint32(buffer[base+20 : base+24]),
-		})
+
+		// Folga de 25%: pedir exatamente o tamanho medido é pedir para perder a
+		// corrida na próxima linha.
+		buffer := make([]byte, tamanho+tamanho/4)
+		usado := uint32(len(buffer))
+		r, _, chamadaErr := procGetExtendedTcpTable.Call(
+			uintptr(unsafe.Pointer(&buffer[0])), uintptr(unsafe.Pointer(&usado)), 0,
+			afInet, tcpTableOwnerPidAll, 0,
+		)
+		if r == bufferInsuficiente {
+			// A tabela cresceu. Tentar de novo é o comportamento correto.
+			ultimoErro = fmt.Errorf("tabela TCP cresceu durante a leitura")
+			continue
+		}
+		if r != 0 {
+			return nil, chamadaErr
+		}
+
+		quantidade := binary.LittleEndian.Uint32(buffer[0:4])
+		const tamanhoLinha = 24 // MIB_TCPROW_OWNER_PID: 6 campos de 4 bytes
+		linhas := make([]linhaTCP, 0, quantidade)
+		for i := uint32(0); i < quantidade; i++ {
+			base := 4 + i*tamanhoLinha
+			if int(base)+tamanhoLinha > len(buffer) {
+				break
+			}
+			linhas = append(linhas, linhaTCP{
+				estado:      binary.LittleEndian.Uint32(buffer[base : base+4]),
+				ipLocal:     binary.LittleEndian.Uint32(buffer[base+4 : base+8]),
+				portaLocal:  binary.LittleEndian.Uint32(buffer[base+8 : base+12]),
+				ipRemoto:    binary.LittleEndian.Uint32(buffer[base+12 : base+16]),
+				portaRemota: binary.LittleEndian.Uint32(buffer[base+16 : base+20]),
+				pid:         binary.LittleEndian.Uint32(buffer[base+20 : base+24]),
+			})
+		}
+		return linhas, nil
 	}
-	return linhas, nil
+	return nil, ultimoErro
 }
 
 // Janela de contagem da instabilidade.
