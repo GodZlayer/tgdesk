@@ -142,6 +142,25 @@ func runTechnicianService(serverURL string) int {
 		if tunelDoDispositivoResponde(5 * time.Second) {
 			continue
 		}
+		// QUEM É DONO DO ADAPTADOR NÃO PODE SER DOIS.
+		//
+		// Numa máquina que é dispositivo E técnico, o `tgdesk0` pertence ao
+		// agente do dispositivo — este serviço apenas o usa. Reconstruí-lo
+		// daqui cria dois supervisores para o mesmo adaptador, e o resultado
+		// medido no parque foi um ciclo: o técnico recria, o adaptador some e
+		// volta, TODAS as conexões TCP que passavam por ele morrem, e o
+		// RustDesk reconecta com porta nova a cada dois minutos.
+		//
+		// Era essa a causa de "a máquina está online mas não acessível": não
+		// era o RustDesk desistindo, era o chão sumindo embaixo dele.
+		//
+		// Quando existe identidade de dispositivo, este serviço só espera. O
+		// host supervisiona o próprio túnel, e um dono é o suficiente.
+		if loadConfig() != nil {
+			appendAgentLog("vpn-service: túnel do dispositivo não responde, " +
+				"mas quem o supervisiona é o agente do host — aguardando sem recriar")
+			continue
+		}
 		if time.Since(ultimaTentativa) < esperaEntreTentativas {
 			continue
 		}

@@ -194,16 +194,6 @@ func runDeviceControlLoop(cfg *agentConfig, remoteReady bool) error {
 	// Canal com folga de 1: a coleta entrega e segue, sem esperar o laço.
 	telemetriaPronta := make(chan HardwareSnapshot, 1)
 	coletando := false
-	// Falhas seguidas na verificação de registro. Uma reconexão isolada é
-	// normal; o contador existe para não reconfigurar por oscilação de rede.
-	falhasDeRegistro := 0
-	// Identidade da última conexão vista com o rendezvous. Porta que muda
-	// entre duas verificações significa reconexão.
-	var ultimaPortaRendezvous uint16
-	// Início da janela de contagem. Instabilidade é MUITAS reconexões num
-	// período, não muitas seguidas: entre duas quedas a conexão parece boa, e
-	// contar só o consecutivo apaga o padrão.
-	inicioDaJanela := time.Now()
 
 	// Telemetria local: coleta barata e frequente, entrega oportunista.
 	//
@@ -425,10 +415,7 @@ func runDeviceControlLoop(cfg *agentConfig, remoteReady bool) error {
 				// A porta local é a identidade da conexão. Se ela muda, houve
 				// reconexão — e reconectar sem parar é o mesmo que não estar
 				// registrado, do ponto de vista de quem tenta acessar.
-				reconectou := viva && ultimaPortaRendezvous != 0 && portaLocal != ultimaPortaRendezvous
-				if viva {
-					ultimaPortaRendezvous = portaLocal
-				}
+				reconectou := vigiaDoRegistro.viuReconexao(viva, portaLocal)
 				if err == nil && (!viva || reconectou) {
 					// JANELA, não consecutivos.
 					//
@@ -441,19 +428,13 @@ func runDeviceControlLoop(cfg *agentConfig, remoteReady bool) error {
 					// Exigir eventos CONSECUTIVOS de um fenômeno intermitente é
 					// errado por construção — e foi por isso que o vigia não
 					// disparou numa máquina que reconectava sem parar.
-					if agora := time.Now(); agora.Sub(inicioDaJanela) > janelaDeInstabilidade {
-						inicioDaJanela, falhasDeRegistro = agora, 0
-					}
-					falhasDeRegistro++
-					if falhasDeRegistro >= falhasAteReparar {
+					if vigiaDoRegistro.contar() >= falhasAteReparar {
 						// Deixou de estar registrado de forma estável. Dizer a
 						// verdade primeiro — a tela precisa parar de prometer
 						// acesso que não existe — e só então tentar consertar.
 						remoteReady = false
 						remoteError = "registro no rendezvous instável (reconexão em ciclo); refazendo a configuração"
-						ultimaPortaRendezvous = 0
-						falhasDeRegistro = 0
-						inicioDaJanela = time.Now()
+						vigiaDoRegistro.zerar()
 						writeCurrentStatus()
 						_ = sendHeartbeat()
 					}
