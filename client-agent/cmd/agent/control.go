@@ -20,6 +20,13 @@ type deviceControlMessage struct {
 	Payload any    `json:"payload,omitempty"`
 }
 
+// deteccaoDeRegistroConfiavel diz se a evidência disponível sustenta declarar o
+// registro instável e agir sobre isso.
+//
+// Hoje é false: a única fonte é a tabela TCP, e ela mede sondas de latência, não
+// registro. Volta a true quando o sinal vier de quem sabe — o rendezvous.
+const deteccaoDeRegistroConfiavel = false
+
 func privateControlURL(cfg *agentConfig) string {
 	q := url.Values{}
 	q.Set("device_id", cfg.DeviceID)
@@ -433,7 +440,32 @@ func runDeviceControlLoop(cfg *agentConfig, remoteReady bool) error {
 				if reconectou {
 					appendAgentLog("vigia: reconexão com o rendezvous (porta %d)", portaLocal)
 				}
-				if err == nil && (!viva || reconectou) {
+				// A TABELA TCP NÃO RESPONDE ESTA PERGUNTA. Premissa derrubada
+				// por medição, não por teoria.
+				//
+				// Este vigia nasceu supondo que o registro no rendezvous é uma
+				// conexão TCP persistente, e que troca de porta local significa
+				// reconexão. O log do serviço mostrou o contrário: o registro é
+				// UDP ("start udp: 10.70.0.1:21116"), e as conexões TCP com a
+				// mesma porta são SONDAS DE LATÊNCIA transitórias, cada uma com
+				// porta nova por design.
+				//
+				// Ou seja, `viva` é falso quase sempre e a porta "muda" a cada
+				// sonda. O vigia disparava por construção — medido na máquina do
+				// Daniel: "registro INSTÁVEL" a cada 2 minutos, ininterrupto,
+				// enquanto o log do RustDesk mostrava o mediador iniciado UMA vez
+				// e nunca reiniciado.
+				//
+				// E o dano não era só ruído: a cada disparo ele marcava o acesso
+				// remoto como indisponível e reconfigurava o túnel de uma máquina
+				// saudável. O vigia que existia para garantir acesso era a causa
+				// de perdê-lo, de forma intermitente e aparentemente aleatória.
+				//
+				// Enquanto não houver um sinal que meça o registro DE VERDADE —
+				// e o servidor é quem sabe, porque é o hbbs que registra o peer —
+				// a detecção fica em observação: registra no log, não mexe no
+				// estado. Prometer menos é melhor que derrubar o que funciona.
+				if err == nil && (!viva || reconectou) && deteccaoDeRegistroConfiavel {
 					// JANELA, não consecutivos.
 					//
 					// A versão anterior exigia 3 detecções seguidas e zerava o
