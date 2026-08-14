@@ -76,6 +76,24 @@ pub fn core_main() -> Option<Vec<String>> {
         return None;
     }
     crate::load_custom_client();
+
+    // O TGDesk NÃO tem servidor de API, e dizer isso aqui evita um ciclo caro.
+    //
+    // Sem esta linha, `get_api_server` deriva a URL do rendezvous subtraindo 2
+    // da porta: 10.70.0.1:21116 vira http://10.70.0.1:21114. Essa é a porta da
+    // API do RustDesk Pro, que a versão aberta — a que roda aqui — não fornece.
+    //
+    // Medido no log do serviço: a cada 20 segundos, POST em /api/heartbeat,
+    // "conexão recusada", seguido de um fallback por proxy TCP que gasta mais
+    // 18 segundos até estourar o prazo. Sem parar, para sempre, em toda máquina
+    // do parque.
+    //
+    // `register-device = N` faz `get_api_server` devolver vazio e o cliente
+    // deixa de procurar o que nunca existiu.
+    hbb_common::config::BUILTIN_SETTINGS.write().unwrap().insert(
+        hbb_common::config::keys::OPTION_REGISTER_DEVICE.to_string(),
+        "N".to_string(),
+    );
     #[cfg(windows)]
     if !crate::platform::windows::bootstrap() {
         // return None to terminate the process
