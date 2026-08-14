@@ -2646,6 +2646,50 @@ mod tests {
     };
     use std::collections::HashSet;
 
+    // A porta 21114 nao existe no TGDesk, e sair procurando por ela custa caro.
+    //
+    // `get_api_server_` deriva a URL da API subtraindo 2 da porta do rendezvous:
+    // 10.70.0.1:21116 vira http://10.70.0.1:21114. Essa e a porta da API do
+    // RustDesk Pro; a versao aberta, que e a daqui, nao a serve.
+    //
+    // O custo foi medido no log do servico antes do conserto: a cada 20
+    // segundos um POST em /api/heartbeat recusado, seguido de um fallback por
+    // proxy TCP que so desiste depois de 18 segundos. Sem parar, em toda
+    // maquina do parque.
+    //
+    // `core_main` declara `register-device = N` na inicializacao para desligar
+    // isso na origem. Este teste existe para que ninguem religue por engano:
+    // com a opcao ligada, a URL derivada e a porta 21114 reaparecem.
+    #[test]
+    fn test_register_device_desligado_zera_o_api_server() {
+        let rendezvous = "10.70.0.1".to_owned();
+
+        config::BUILTIN_SETTINGS
+            .write()
+            .unwrap()
+            .remove(keys::OPTION_REGISTER_DEVICE);
+        let derivado = get_api_server_("".to_owned(), rendezvous.clone());
+        assert!(
+            derivado.ends_with(":21114"),
+            "sem a opcao, a API e derivada para a porta inexistente;              se isto mudou, o conserto em core_main perdeu o proposito (veio: {derivado})"
+        );
+
+        config::BUILTIN_SETTINGS.write().unwrap().insert(
+            keys::OPTION_REGISTER_DEVICE.to_string(),
+            "N".to_string(),
+        );
+        assert_eq!(
+            get_api_server("".to_owned(), rendezvous),
+            "",
+            "com register-device=N o cliente nao deve procurar servidor de API"
+        );
+
+        config::BUILTIN_SETTINGS
+            .write()
+            .unwrap()
+            .remove(keys::OPTION_REGISTER_DEVICE);
+    }
+
     #[inline]
     fn get_timestamp_secs() -> u128 {
         (std::time::SystemTime::UNIX_EPOCH
