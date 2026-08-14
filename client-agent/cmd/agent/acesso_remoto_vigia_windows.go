@@ -189,3 +189,10 @@ func tabelaTCP() ([]linhaTCP, error) {
 // intervalo descrevem o ciclo medido no parque (uma a cada 30-45 s) e não
 // disparam por uma queda isolada.
 const janelaDeInstabilidade = 5 * time.Minute
+
+// Carência entre marcar o acesso como indisponível e tentar reconfigurar.
+//
+// O aperto de mão do WireGuard e o registro do peer levam dezenas de segundos.
+// Reconfigurar por cima do que estava quase pronto destrói o progresso — e
+// declarar sucesso no mesmo instante transforma o vigia num carimbo.
+const carenciaDeReparo = 60 * time.Second

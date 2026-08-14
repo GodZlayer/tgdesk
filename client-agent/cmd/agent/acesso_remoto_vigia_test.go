@@ -245,3 +245,36 @@ func TestLeituraDaTabelaToleraTabelaCrescendo(t *testing.T) {
 		}
 	}
 }
+
+// O estado "instável" precisa DURAR o suficiente para ser visto.
+//
+// Sem carência, a sequência acontecia toda no mesmo tick: o vigia marcava
+// indisponível, o bloco de reparo logo abaixo chamava setupRemoteAccess — cujo
+// critério de sucesso é abrir um socket TCP, que sempre funciona — e o estado
+// voltava a remote_ready=true em milissegundos.
+//
+// O resultado era um vigia que detectava, agia e apagava o próprio rastro. Eu
+// li o status quatro vezes achando que ele não disparava; ele disparava e se
+// desfazia antes de eu olhar.
+func TestReparoRespeitaCarencia(t *testing.T) {
+	fonte, err := os.ReadFile("control.go")
+	if err != nil {
+		t.Fatalf("control.go: %v", err)
+	}
+	texto := string(fonte)
+
+	if !regexp.MustCompile(`carenciaAte = time\.Now\(\)\.Add\(carenciaDeReparo\)`).MatchString(texto) {
+		t.Error("marcar instável precisa abrir carência, senão o reparo desfaz o " +
+			"diagnóstico no mesmo instante")
+	}
+	if !regexp.MustCompile(`if !remoteReady && time\.Now\(\)\.After\(carenciaAte\)`).MatchString(texto) {
+		t.Error("o reparo precisa respeitar a carência: reconfigurar por cima de " +
+			"um handshake quase pronto destrói o progresso")
+	}
+	// E a detecção precisa deixar rastro no LOG, não só no status.json — que é
+	// sobrescrito segundos depois.
+	if !regexp.MustCompile(`vigia: registro INSTÁVEL`).MatchString(texto) {
+		t.Error("a instabilidade precisa ir para o log: o status.json é " +
+			"sobrescrito e o evento se perde")
+	}
+}

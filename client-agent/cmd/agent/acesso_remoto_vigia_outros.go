@@ -9,6 +9,7 @@ import "time"
 const (
 	falhasAteReparar      = 3
 	janelaDeInstabilidade = 5 * time.Minute
+	carenciaDeReparo      = 60 * time.Second
 )
 
 func ConexaoEstabelecidaCom(string, uint16) (bool, error) { return true, nil }

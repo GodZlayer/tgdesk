@@ -191,6 +191,9 @@ func runDeviceControlLoop(cfg *agentConfig, remoteReady bool) error {
 	// transforma "deve funcionar" em "funcionou às 07:52".
 	autotesteCanal := time.NewTimer(8 * time.Second)
 	defer autotesteCanal.Stop()
+	// Até quando o reparo do acesso remoto fica em carência. Reconfigurar é
+	// aposta, e aposta precisa de tempo para se provar antes de virar promessa.
+	var carenciaAte time.Time
 	// Canal com folga de 1: a coleta entrega e segue, sem esperar o laço.
 	telemetriaPronta := make(chan HardwareSnapshot, 1)
 	coletando := false
@@ -446,15 +449,31 @@ func runDeviceControlLoop(cfg *agentConfig, remoteReady bool) error {
 						// Deixou de estar registrado de forma estável. Dizer a
 						// verdade primeiro — a tela precisa parar de prometer
 						// acesso que não existe — e só então tentar consertar.
+						appendAgentLog("vigia: registro INSTÁVEL — %d reconexões na janela; "+
+							"marcando acesso remoto como indisponível e reconfigurando",
+							falhasAteReparar)
 						remoteReady = false
-						remoteError = "registro no rendezvous instável (reconexão em ciclo); refazendo a configuração"
+						remoteError = "registro no rendezvous instável (reconexão em ciclo)"
 						vigiaDoRegistro.zerar()
+						// CARÊNCIA antes de voltar a prometer.
+						//
+						// Sem ela, o bloco de reparo logo abaixo rodava no MESMO
+						// tick: marcava indisponível, chamava setupRemoteAccess
+						// — cujo critério de sucesso é abrir um socket TCP, que
+						// sempre funciona — e voltava a dizer remote_ready=true
+						// em milissegundos. O estado "instável" nunca chegava a
+						// ser visto por ninguém, nem na tela nem no status.
+						//
+						// Reconfigurar é uma aposta; a aposta precisa de tempo
+						// para se provar. Até lá, a verdade é "não está
+						// acessível", e é ela que a tela mostra.
+						carenciaAte = time.Now().Add(carenciaDeReparo)
 						writeCurrentStatus()
 						_ = sendHeartbeat()
 					}
 				}
 			}
-			if !remoteReady {
+			if !remoteReady && time.Now().After(carenciaAte) {
 				if err := setupRemoteAccess(cfg); err != nil {
 					remoteError = err.Error()
 				} else {
