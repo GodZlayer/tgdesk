@@ -304,6 +304,30 @@ func resultadoDaPressao(degraus []map[string]any, aviso string, totalMB float64)
 	if aviso != "" {
 		saida["interrompido"] = aviso
 	}
+	// FOLGA ATÉ ESGOTAR. É o número mais útil da curva, e o único que responde
+	// "quanto falta para esta máquina travar?".
+	//
+	// Sai por extrapolação: sabendo quantos pontos de commit cada MB ocupado
+	// consome, calcula-se quanto ainda cabe até 100%. Numa máquina medida no
+	// parque, ocupar 640 MB — menos que um navegador — moveu o commit de 90,8%
+	// para 95,2%, sobrando cerca de 700 MB antes do esgotamento. Abrir
+	// qualquer aplicativo pesado ali não é risco, é certeza.
+	if len(degraus) >= 2 {
+		primeiro := degraus[0]
+		ultimo := degraus[len(degraus)-1]
+		cInicio, _ := primeiro["commit_pct"].(float64)
+		cFim, _ := ultimo["commit_pct"].(float64)
+		mbInicio, _ := primeiro["ocupado_mb"].(int)
+		mbFim, _ := ultimo["ocupado_mb"].(int)
+		if cFim > cInicio && mbFim > mbInicio {
+			porMB := (cFim - cInicio) / float64(mbFim-mbInicio)
+			if porMB > 0 {
+				saida["commit_pct_inicial"] = cInicio
+				saida["folga_ate_esgotar_mb"] = int((100 - cFim) / porMB)
+			}
+		}
+	}
+
 	// O JOELHO: primeiro degrau em que a latência mediana passa a ser pelo
 	// menos o triplo do primeiro degrau. É a leitura que interessa — não o
 	// valor final, e sim ONDE a máquina começou a sofrer.
@@ -371,18 +395,41 @@ func disputaCPUMemoria(ctx context.Context, progress func(int, string)) (map[str
 		return map[string]any{}, cargaErr
 	}
 
+	// SEGUNDA MEDIDA EM REPOUSO. A primeira versão comparava repouso contra
+	// carga e chamava a diferença de "disputa" — e mediu queda NEGATIVA nas
+	// duas máquinas do parque: a banda SUBIU com os núcleos ocupados.
+	//
+	// A explicação é simples e derruba a interpretação: com carga, o
+	// processador eleva a frequência. O ganho de clock supera a disputa pelo
+	// barramento, e o número vira o oposto do que o nome promete.
+	//
+	// Medir repouso de novo no fim cancela o aquecimento e o efeito de páginas
+	// já tocadas. O que resta ainda NÃO é disputa pura — para isolá-la seria
+	// preciso fixar a frequência —, então o campo não se chama mais "queda":
+	// chama-se o que é, banda observada em cada condição.
+	progress(85, "Medindo banda em repouso novamente")
+	repousoFinal, finalErr := bandaDeMemoria(ctx, func(int, string) {})
+	if finalErr != nil {
+		return map[string]any{}, finalErr
+	}
+
 	livre, _ := repouso["gb_por_segundo"].(float64)
+	livreFim, _ := repousoFinal["gb_por_segundo"].(float64)
 	comCarga, _ := sobCarga["gb_por_segundo"].(float64)
-	queda := 0.0
-	if livre > 0 {
-		queda = (livre - comCarga) / livre * 100
+	referencia := (livre + livreFim) / 2
+	variacao := 0.0
+	if referencia > 0 {
+		variacao = (comCarga - referencia) / referencia * 100
 	}
 
 	return map[string]any{
-		"banda_em_repouso_gbps": livre,
-		"banda_sob_carga_gbps":  comCarga,
-		"queda_pct":             arredondar(queda, 1),
-		"nucleos_ocupados":      ocupantes,
+		"banda_repouso_inicio_gbps": livre,
+		"banda_repouso_fim_gbps":    livreFim,
+		"banda_sob_carga_gbps":      comCarga,
+		"variacao_sob_carga_pct":    arredondar(variacao, 1),
+		"nucleos_ocupados":          ocupantes,
+		"limitacao": "variação inclui elevação de frequência sob carga; " +
+			"não isola disputa de barramento",
 	}, nil
 }
 
