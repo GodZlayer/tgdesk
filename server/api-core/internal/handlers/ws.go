@@ -6,6 +6,7 @@ import (
 	"log"
 	"net/http"
 	"strings"
+	"time"
 
 	"github.com/gorilla/websocket"
 
@@ -68,6 +69,7 @@ func (s *Server) PresenceWS(w http.ResponseWriter, r *http.Request) {
 		if claims.Role != models.RoleSuperAdmin && !s.eventVisibleTo(r.Context(), claims, evt) {
 			continue
 		}
+		_ = conn.SetWriteDeadline(time.Now().Add(prazoDeEscrita))
 		if err := conn.WriteJSON(evt); err != nil {
 			return
 		}

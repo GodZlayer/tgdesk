@@ -14,6 +14,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"sync/atomic"
 	"time"
 )
 
@@ -92,7 +93,32 @@ func saveConfig(cfg *agentConfig) error {
 // caía no localhost e um client em outra rede nunca registrava.
 var configuredServer string
 
-func baseURL() string {
+// planoDeControleNoTunel é o endereço do servidor DENTRO da VPN.
+//
+// O canal WebSocket de controle sempre usou este caminho; as chamadas HTTP,
+// não — elas iam para o IP público, inclusive depois do túnel de pé.
+const planoDeControleNoTunel = "http://10.70.0.1:8080"
+
+// tunelPronto é ligado quando bringUpTunnel confirma o gateway privado, e
+// desligado quando uma chamada pelo túnel falha.
+//
+// É deliberadamente um estado que se apaga sozinho no primeiro erro: um
+// endereço que ficou inalcançável e continua sendo tentado transforma cada
+// requisição num timeout, e foi assim que a UI ficou parada 21 segundos antes.
+var tunelPronto atomic.Bool
+
+// enderecoDeBootstrap é o caminho público — o único que existe antes de o
+// dispositivo ter túnel.
+//
+// REGRA: o IP público serve ao bootstrap (registrar, parear, subir o túnel) e
+// nada mais. Depois disso o sistema inteiro fala por dentro da VPN.
+//
+// O que essa separação conserta: enquanto TODO o tráfego de controle ia pelo
+// IP público, o túnel só era exercitado por sessão real. O estado do painel
+// passava por um caminho, o acesso passava por outro, e os dois podiam
+// discordar — um dispositivo aparecia Online enquanto sua VPN estava morta,
+// porque "online" era medido por fora do túnel.
+func enderecoDeBootstrap() string {
 	if configuredServer != "" {
 		return configuredServer
 	}
@@ -100,6 +126,13 @@ func baseURL() string {
 		return v
 	}
 	return "http://168.232.199.161:8090"
+}
+
+func baseURL() string {
+	if tunelPronto.Load() {
+		return planoDeControleNoTunel
+	}
+	return enderecoDeBootstrap()
 }
 
 // httpClient com timeout curto: sem isso, uma conexão a um servidor
@@ -111,6 +144,14 @@ var httpClient = &http.Client{Timeout: 12 * time.Second}
 func postJSON(path string, body any, out any) (int, error) {
 	b, _ := json.Marshal(body)
 	resp, err := httpClient.Post(baseURL()+path, "application/json", bytes.NewReader(b))
+	if err != nil && tunelPronto.Load() {
+		// O túnel caiu debaixo da requisição. Desliga o atalho privado e
+		// repete pelo bootstrap: preferir a VPN não pode virar depender dela
+		// para dizer que a VPN caiu.
+		tunelPronto.Store(false)
+		log.Printf("plano de controle: túnel indisponível (%v), voltando ao endereço público", err)
+		resp, err = httpClient.Post(enderecoDeBootstrap()+path, "application/json", bytes.NewReader(b))
+	}
 	if err != nil {
 		return 0, err
 	}
@@ -538,6 +579,7 @@ func waitForPrivateGateway() error {
 		if err == nil {
 			_ = resp.Body.Close()
 			if resp.StatusCode == http.StatusOK {
+				tunelPronto.Store(true)
 				return nil
 			}
 			lastErr = fmt.Errorf("gateway respondeu status %d", resp.StatusCode)

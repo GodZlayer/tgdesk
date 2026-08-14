@@ -34,6 +34,20 @@ type controlMessage struct {
 	Payload json.RawMessage `json:"payload,omitempty"`
 }
 
+// prazoDeEscrita limita quanto uma escrita no WebSocket pode ficar parada.
+//
+// Sem prazo, um cliente que some sem fechar o TCP deixa WriteJSON bloqueado
+// por minutos, e o laço que drena o canal do Redis para junto. Foi medido em
+// produção: 2 eventos por segundo — volume irrisório — e ainda assim
+// "channel is full for 1m0s (message is dropped)" de minuto em minuto, sem
+// parar. O canal não enchia por excesso de evento; enchia porque ninguém o
+// esvaziava.
+//
+// Numa arquitetura em que toda tela se monta do canal, evento descartado é
+// tela que não atualiza — e o descarte acontecia em silêncio, dentro do
+// cliente Redis.
+const prazoDeEscrita = 10 * time.Second
+
 func requestFromVPN(r *http.Request) bool {
 	host, _, err := net.SplitHostPort(r.RemoteAddr)
 	if err != nil {
@@ -90,6 +104,7 @@ func (s *Server) DeviceControlWS(w http.ResponseWriter, r *http.Request) {
 	pushWrite := func(v any) error {
 		writeMu.Lock()
 		defer writeMu.Unlock()
+		_ = conn.SetWriteDeadline(time.Now().Add(prazoDeEscrita))
 		return conn.WriteJSON(v)
 	}
 	chatSub := presence.Subscribe(r.Context(), s.RDB)
@@ -439,6 +454,7 @@ func (s *Server) TechnicianControlWS(w http.ResponseWriter, r *http.Request) {
 	write := func(value any) error {
 		writeMu.Lock()
 		defer writeMu.Unlock()
+		_ = conn.SetWriteDeadline(time.Now().Add(prazoDeEscrita))
 		return conn.WriteJSON(value)
 	}
 
