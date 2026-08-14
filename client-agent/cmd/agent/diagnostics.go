@@ -450,7 +450,6 @@ func storageSurfaceRead(ctx context.Context, progress func(int, string)) (map[st
 				"offset": regionStart, "bytes": regionBytes, "latency_ms": milliseconds,
 				"mbps": mbps, "status": status,
 			})
-			regionStart = diskRead
 			regionBytes = 0
 			regionDuration = 0
 			regionStatus = "healthy"
@@ -481,6 +480,19 @@ func storageSurfaceRead(ctx context.Context, progress func(int, string)) (map[st
 			diskRead += uint64(n)
 			readTotal += uint64(n)
 			regionBytes += uint64(n)
+			// `offset` é a POSIÇÃO NO DISCO, não o quanto já foi lido.
+			//
+			// Ele recebia `diskRead` — bytes acumulados —, o que na varredura
+			// contígua antiga dava no mesmo, porque ler tudo faz acumulado e
+			// posição coincidirem. Com amostragem deixou de coincidir: 240
+			// amostras de 8 MB produzem offsets de 0 a 1,9 GB para um disco de
+			// 240 GB, ou seja, o campo passou a apontar sempre para o começo.
+			//
+			// O estrago não é cosmético. A curva de velocidade POR POSIÇÃO é o
+			// que distingue "disco com uma região ruim" de "disco inteiro
+			// engasgando" — defeitos com condutas opostas. Com o campo errado,
+			// qualquer leitura posicional do resultado é ficção.
+			regionStart = posicao
 			posicao += passo
 			// O progresso passa a ser a fração VARRIDA do disco, não a fração
 			// lida: com amostragem, os bytes lidos são uma fração minúscula do

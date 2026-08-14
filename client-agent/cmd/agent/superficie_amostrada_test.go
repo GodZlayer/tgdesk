@@ -64,3 +64,32 @@ func TestCadaAmostraEUmaRegiao(t *testing.T) {
 		t.Error("cada amostra precisa fechar sua própria região")
 	}
 }
+
+// O campo `offset` de cada região precisa ser a POSIÇÃO NO DISCO.
+//
+// Ele recebia `diskRead`, o total de bytes lidos. Na varredura contígua isso
+// dava no mesmo; com amostragem, não: 240 leituras de 8 MB num disco de 240 GB
+// produzem offsets de 0 a 1,9 GB, todos apontando para o começo do disco.
+//
+// O custo foi real. Analisando uma varredura por esse campo eu "descobri" uma
+// região degradada no meio do disco da Dani, com leituras de 37 segundos, e
+// quase troquei um laudo correto — sem defeito físico — por um que mandaria
+// trocar um disco saudável. Repetir a medição refutou; o campo errado é que
+// tinha criado o padrão.
+func TestOffsetDaRegiaoEPosicaoNoDiscoNaoBytesLidos(t *testing.T) {
+	fonte, err := os.ReadFile("diagnostics.go")
+	if err != nil {
+		t.Fatalf("diagnostics.go: %v", err)
+	}
+	texto := string(fonte)
+
+	if regexp.MustCompile(`regionStart\s*=\s*diskRead`).MatchString(texto) {
+		t.Error("`offset` voltou a receber bytes lidos em vez da posição no disco: " +
+			"a curva de velocidade por posição vira ficção, e é ela que separa " +
+			"'uma região ruim' de 'o disco inteiro engasgando'")
+	}
+	if !regexp.MustCompile(`regionStart\s*=\s*posicao`).MatchString(texto) {
+		t.Error("nenhuma atribuição de posição real ao início da região: " +
+			"sem isso o resultado não sustenta leitura posicional")
+	}
+}

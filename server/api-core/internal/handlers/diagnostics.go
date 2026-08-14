@@ -39,7 +39,16 @@ var diagnosticCatalog = []map[string]any{
 	{"id": "windows_integrity", "category": "Sistema", "impact": "medium"},
 	{"id": "update_status", "category": "Sistema", "impact": "low"},
 	{"id": "security_posture", "category": "Segurança", "impact": "low"},
-	{"id": "defender_quick_scan", "category": "Segurança", "impact": "high"},
+	// defender_status, não defender_quick_scan.
+	//
+	// O catálogo oferecia uma varredura que o agente NÃO implementa — quem a
+	// selecionasse recebia falha — enquanto defender_status, que é leitura pura
+	// e existe, ficava inalcançável por não estar listado aqui.
+	//
+	// E a varredura não deveria voltar: ela pode pôr arquivo em quarentena, e
+	// nenhum teste deste produto altera a máquina do cliente. Ler o estado do
+	// antivírus responde a mesma pergunta sem tocar em nada.
+	{"id": "defender_status", "category": "Segurança", "impact": "low"},
 	{"id": "temperature_sensors", "category": "Hardware", "impact": "low"},
 	{"id": "storage_volumes", "category": "Armazenamento", "impact": "low"},
 	{"id": "process_pressure", "category": "Desempenho", "impact": "low"},
